@@ -43,7 +43,7 @@ CheckBasketProfitClose  Total open basket profit
 
 
 
-string glbVersion = "VMULTI-1117- Whitelist 90Pct SL Adverse Plus 500 in Common Gate Barrier";
+string glbVersion = "VMULTI-1118- RLF and EQL Dashboard Display";
 
 
 
@@ -288,7 +288,7 @@ double InpMaxLoss001LotsUSD                = 10.0;   // Maximum allowed dollar l
 bool   InpEnable90PctSLAdverseCutDoubleSL   = true;   // When adverse move reaches 90% of StopLoss (>1000 pts): close 50% LOT and widen SL by $500
 double Inp90PctSLMinStopLossDistanceUSD     = 1000.0; // Minimum StopLoss distance in USD ($1000) to qualify for 90% partial cut
 double Inp90PctSLAdversePercent             = 0.90;   // Adverse distance percentage towards SL to trigger (90% = 0.90)
-double Inp90PctSLExpansionGapUSD            = 500.0;  // StopLoss expansion in raw USD ($500) instead of doubling (ONE TIME ONLY)
+double Inp90PctSLExpansionGapUSD            = 1000;//500.0;  // StopLoss expansion in raw USD ($500) instead of doubling (ONE TIME ONLY)
 
 // ===== EQL / EQH STRUCTURAL RECOVERY (TYPE 2) SETTINGS =====
 bool   InpEnableLsdStructuralRecovery       = true;  // Enable EQL/EQH Structural Recovery (Type 2)
@@ -19368,16 +19368,16 @@ void UpdateDashboard(DailyProtectionState &state)
      }
 
    w = MathMax(DashboardWidth, 355);
-   panelHeight = 348;
+   panelHeight = 438;
    x = DashboardRightGap;
    y = DashboardTopGap;
    tx = x + 12;
 
-   static bool s_dashRedesignV7Reset = false;
-   if(!s_dashRedesignV7Reset)
+   static bool s_dashRedesignV8Reset = false;
+   if(!s_dashRedesignV8Reset)
      {
       DeleteDashboardObjects();
-      s_dashRedesignV7Reset = true;
+      s_dashRedesignV8Reset = true;
      }
 
 // Base Background Panel
@@ -19385,7 +19385,7 @@ void UpdateDashboard(DailyProtectionState &state)
 
 // Header Bar
    CreateDashboardPanel(DASH_PREFIX+"HEADER", x, y, w, 36, C'20,55,90');
-   string eaTitle = StringFormat("%s | %s %s", "VMULTI-1117", Symbol(), TimeframeToString(Period()));
+   string eaTitle = StringFormat("%s | %s %s", "VMULTI-1118", Symbol(), TimeframeToString(Period()));
    CreateDashboardLabel(DASH_PREFIX+"TITLE", eaTitle, tx, y+4, 9, clrWhite);
    string priceStatus = StringFormat("BID: %." + IntegerToString(Digits) + "f | ASK: %." + IntegerToString(Digits) + "f | SPR: %d pts", Bid, Ask, (int)MarketInfo(Symbol(), MODE_SPREAD));
    CreateDashboardLabel(DASH_PREFIX+"PRICE", priceStatus, tx, y+19, 8, clrLightGray);
@@ -19456,21 +19456,7 @@ void UpdateDashboard(DailyProtectionState &state)
    color tgtClr = (gbltargetEquityCounter > 0 || dayPL >= 0) ? clrLime : clrTomato;
    CreateDashboardLabel(DASH_PREFIX+"TGTEQ", tgtEqStr, tx, y+110, 8, tgtClr);
 
-   string eqLadderStatus = "";
-   if(LowestEquity > 0.0)
-     {
-      datetime minNextAllowed = g_lastEquityLadderHitTime + (datetime)(InpEquityLadderMinGapHours * 3600.0);
-      if(InpEquityLadderMinGapHours > 0.0 && g_lastEquityLadderHitTime > 0 && TimeCurrent() < minNextAllowed)
-        {
-         double remHours = (double)(minNextAllowed - TimeCurrent()) / 3600.0;
-         eqLadderStatus = StringFormat(" | Eq$5: Wait %.1fh (#%d)", remHours, g_equityLadderStepCounter);
-        }
-      else
-        {
-         eqLadderStatus = StringFormat(" | Eq$5: Low $%.0f->Tgt $%.0f (#%d)", LowestEquity, g_equityLadderNextTarget, g_equityLadderStepCounter);
-        }
-     }
-   string cycleStr = StringFormat("CYCLE / LOCK: %s$%.2f / Next: $%.2f | Lock: $%.2f%s", (totalCycleProfit >= 0 ? "+" : "-"), MathAbs(totalCycleProfit), emaNextTarget, emaLockedPrf, eqLadderStatus);
+   string cycleStr = StringFormat("CYCLE / LOCK: %s$%.2f / Next: $%.2f | Lock: $%.2f", (totalCycleProfit >= 0 ? "+" : "-"), MathAbs(totalCycleProfit), emaNextTarget, emaLockedPrf);
    CreateDashboardLabel(DASH_PREFIX+"LAD_CYCLE", cycleStr, tx, y+126, 8, (totalCycleProfit >= 0 ? clrLime : clrTomato));
 
 // ==========================================================
@@ -19600,6 +19586,97 @@ void UpdateDashboard(DailyProtectionState &state)
    string dayRiskStr = StringFormat("DAY RISK    : Stop $%.0f | Floor $%.2f | Room $%.2f [%s]", DailyEquityStopUSD * balancelomultipler, DayProfitLadderProtectionEquity, riskRemaining, (HasBasketNewOrderLossLimit() ? "LOCKED" : "OK"));
    color dayRiskClr = HasBasketNewOrderLossLimit() ? clrTomato : clrLime;
    CreateDashboardLabel(DASH_PREFIX+"DAY_RISK", dayRiskStr, tx, y+326, 8, dayRiskClr);
+
+// ==========================================================
+// SECTION 5: RLF & EQL PROTECTION & LADDER
+// ==========================================================
+   CreateDashboardPanel(DASH_PREFIX+"SEC_RLF_EQL", x, y+346, w, 18, C'28,38,50');
+   CreateDashboardLabel(DASH_PREFIX+"RLF_EQL_H", "--- RLF (RELIEF SL) & EQL (EQUITY LADDER) ---", tx, y+348, 8, clrAqua);
+
+   // --- RLF Status Line ---
+   double curDD = MathMax(0.0, AccountBalance() - AccountEquity());
+   double rlfMult = (balancelomultipler > 0) ? balancelomultipler : 1.0;
+   double rlfMinPeak = InpDrawdownReliefMinPeakUSD * rlfMult;
+   double rlfTargetDD = g_drawdownReliefPeakUSD * (1.0 - InpDrawdownReliefPercent);
+   string rlfState = "OFF";
+   color rlfClr = clrSilver;
+   if(!InpEnableDrawdownReliefTightenSL)
+     {
+      rlfState = "DISABLED";
+      rlfClr = clrSilver;
+     }
+   else if(g_drawdownReliefExecuted)
+     {
+      rlfState = StringFormat("ACTIVE [SL Set, Hits: %d]", g_drawdownReliefHitSuccessCount);
+      rlfClr = clrLime;
+     }
+   else if(g_drawdownReliefArmed)
+     {
+      rlfState = StringFormat("ARMED [Need DD <= $%.0f]", rlfTargetDD);
+      rlfClr = clrGold;
+     }
+   else if(g_drawdownReliefPeakUSD > 0.0)
+     {
+      rlfState = StringFormat("TRACKING [Peak $%.0f < $%.0f]", g_drawdownReliefPeakUSD, rlfMinPeak);
+      rlfClr = clrDeepSkyBlue;
+     }
+   else
+     {
+      rlfState = StringFormat("IDLE [DD: $%.1f / Req $%.0f]", curDD, rlfMinPeak);
+      rlfClr = clrLightGray;
+     }
+
+   string rlfLine1 = StringFormat("RLF RELIEF  : %s", rlfState);
+   CreateDashboardLabel(DASH_PREFIX+"RLF_LINE1", rlfLine1, tx, y+366, 8, rlfClr);
+
+   // --- RLF Metrics & 2H Gate ---
+   double live2hDiff = Get2HourPriceDifferenceRaw();
+   string rlfGate2h = (InpDrawdownReliefMinPriceDiff2Hours > 0.0) ?
+                      StringFormat("2H: $%.0f/$%.0f", live2hDiff, InpDrawdownReliefMinPriceDiff2Hours) : "2H: OFF";
+   string rlfLine2 = StringFormat("RLF METRICS : Peak $%.1f | DD $%.1f | %s | Exec: %d",
+                                  g_drawdownReliefPeakUSD, curDD, rlfGate2h, g_drawdownReliefAppliedCount);
+   CreateDashboardLabel(DASH_PREFIX+"RLF_LINE2", rlfLine2, tx, y+382, 8, clrWhite);
+
+   // --- EQL Status Line ---
+   double eqlStep = InpEquityProfitLadderStepUSD * (InpEquityLadderUseMultiplier && balancelomultipler > 0 ? balancelomultipler : 1.0);
+   string eqlState = "";
+   color eqlClr = clrSilver;
+   if(!InpEnableEquityProfitLadder5)
+     {
+      eqlState = "DISABLED";
+      eqlClr = clrSilver;
+     }
+   else if(LowestEquity <= 0.0)
+     {
+      eqlState = StringFormat("SCANNING [Step $%.0f | SL: -$%.0f raw]", eqlStep, InpEquityLadderSLDistanceRaw);
+      eqlClr = clrDeepSkyBlue;
+     }
+   else
+     {
+      datetime minNextAllowed = g_lastEquityLadderHitTime + (datetime)(InpEquityLadderMinGapHours * 3600.0);
+      if(InpEquityLadderMinGapHours > 0.0 && g_lastEquityLadderHitTime > 0 && TimeCurrent() < minNextAllowed)
+        {
+         double remHours = (double)(minNextAllowed - TimeCurrent()) / 3600.0;
+         eqlState = StringFormat("COOLING [Wait %.1fh | Hits: #%d]", remHours, g_equityLadderStepCounter);
+         eqlClr = clrGold;
+        }
+      else
+        {
+         double toTgt = g_equityLadderNextTarget - AccountEquity();
+         eqlState = StringFormat("ACTIVE [Tgt $%.0f (+$%.0f) | Step #%d]", g_equityLadderNextTarget, MathMax(0.0, toTgt), g_equityLadderStepCounter);
+         eqlClr = (toTgt <= 0.0) ? clrLime : clrAqua;
+        }
+     }
+   string eqlLine1 = StringFormat("EQL LADDER  : %s", eqlState);
+   CreateDashboardLabel(DASH_PREFIX+"EQL_LINE1", eqlLine1, tx, y+398, 8, eqlClr);
+
+   // --- EQL Metrics & 2H Gate ---
+   string eqlGate2h = (InpEquityLadderMinPriceDiff2Hours > 0.0) ?
+                      StringFormat("2H: $%.0f/$%.0f", live2hDiff, InpEquityLadderMinPriceDiff2Hours) : "2H: OFF";
+   string eqlEmaStr = isEmaWeak ? "WEAK" : "STRONG";
+   string eqlLine2 = StringFormat("EQL METRICS : Low $%.0f | Step $%.0f | %s | EMA: %s",
+                                  LowestEquity, eqlStep, eqlGate2h, eqlEmaStr);
+   CreateDashboardLabel(DASH_PREFIX+"EQL_LINE2", eqlLine2, tx, y+414, 8, clrWhite);
 
    ChartRedraw(0);
 
