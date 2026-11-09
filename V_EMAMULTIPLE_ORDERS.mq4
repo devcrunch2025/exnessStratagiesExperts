@@ -42,7 +42,7 @@ CheckBasketProfitClose  Total open basket profit
 */
 
 
-string glbVersion = "VMULTI-1111- EquityProfitLadder5 Min 2h Price Diff 2000 Raw";
+string glbVersion = "VMULTI-1112- Relief SL and EquityLadder Min 2h Price Diff 2000 Raw";
 
 
 
@@ -1923,6 +1923,43 @@ void Check90PctSLAdversePartialCutAndDoubleSL()
   }
 
 //+------------------------------------------------------------------+
+//| Calculate raw price difference from 2 hours ago                  |
+//+------------------------------------------------------------------+
+double Get2HourPriceDifferenceRaw()
+  {
+   RefreshRates();
+   double currentPrice = (Bid + Ask) / 2.0;
+   datetime targetTime = TimeCurrent() - 120 * 60; // 120 minutes = 2 hours
+
+   int shift = -1;
+   if(iBars(Symbol(), PERIOD_M1) > 0)
+      shift = iBarShift(Symbol(), PERIOD_M1, targetTime, false);
+
+   double oldPrice = 0.0;
+   if(shift >= 0)
+      oldPrice = iClose(Symbol(), PERIOD_M1, shift);
+
+   if(oldPrice <= 0.0)
+     {
+      int pShift = iBarShift(Symbol(), Period(), targetTime, false);
+      if(pShift >= 0)
+         oldPrice = iClose(Symbol(), Period(), pShift);
+     }
+
+   if(oldPrice <= 0.0)
+     {
+      int h1Shift = iBarShift(Symbol(), PERIOD_H1, targetTime, false);
+      if(h1Shift >= 0)
+         oldPrice = iClose(Symbol(), PERIOD_H1, h1Shift);
+     }
+
+   if(oldPrice <= 0.0)
+      return 0.0;
+
+   return MathAbs(currentPrice - oldPrice);
+  }
+
+//+------------------------------------------------------------------+
 //| Check50PctDrawdownReliefTightenSL:                               |
 //| USER RULE (VMULTI-1097):                                         |
 //| "Solution 2: Tighten Losing Order SLs to the Relief Price Level. |
@@ -2031,6 +2068,18 @@ void Check50PctDrawdownReliefTightenSL()
    if(currentDrawdown > reliefTargetDrawdown)
       return; // Has not reduced by 50% yet
 
+   // Check 2-hour price difference condition (> $2000 raw price)
+   double priceDiff2h = 0.0;
+   if(InpDrawdownReliefMinPriceDiff2Hours > 0.0)
+     {
+      priceDiff2h = Get2HourPriceDifferenceRaw();
+      if(priceDiff2h <= InpDrawdownReliefMinPriceDiff2Hours)
+        {
+         // Price difference in last 2 hours is <= $2000; wait for large price movement
+         return;
+        }
+     }
+
 // 50% RELIEF BOUNCE DETECTED! Tighten all losing orders to relief price level!
    RefreshRates();
    double curBid = MarketInfo(Symbol(), MODE_BID);
@@ -2080,8 +2129,8 @@ void Check50PctDrawdownReliefTightenSL()
               {
                modifiedCount++;
                RegisterDrawdownReliefTicket(tkt);
-               PrintFormat(">>> [50%% DRAWDOWN RELIEF SL TIGHTENED] BUY #%d (Lots=%.2f, Loss=$-%.2f) | Old SL=%.2f -> New Tight SL=%.2f (Relief Bid=%.2f - $%.2f) | Peak DD=$%.2f -> Current DD=$%.2f (Reduced by >50%%)",
-                           tkt, OrderLots(), MathAbs(pl), curSL, targetSL, curBid, reliefGap, g_drawdownReliefPeakUSD, currentDrawdown);
+               PrintFormat(">>> [50%% DRAWDOWN RELIEF SL TIGHTENED] BUY #%d (Lots=%.2f, Loss=$-%.2f) | Old SL=%.2f -> New Tight SL=%.2f (Relief Bid=%.2f - $%.2f) | Peak DD=$%.2f -> Current DD=$%.2f (Reduced by >50%%) | 2H Diff=$%.2f",
+                           tkt, OrderLots(), MathAbs(pl), curSL, targetSL, curBid, reliefGap, g_drawdownReliefPeakUSD, currentDrawdown, priceDiff2h);
               }
            }
         }
@@ -2101,8 +2150,8 @@ void Check50PctDrawdownReliefTightenSL()
                  {
                   modifiedCount++;
                   RegisterDrawdownReliefTicket(tkt);
-                  PrintFormat(">>> [50%% DRAWDOWN RELIEF SL TIGHTENED] SELL #%d (Lots=%.2f, Loss=$-%.2f) | Old SL=%.2f -> New Tight SL=%.2f (Relief Ask=%.2f + $%.2f) | Peak DD=$%.2f -> Current DD=$%.2f (Reduced by >50%%)",
-                              tkt, OrderLots(), MathAbs(pl), curSL, targetSL, curAsk, reliefGap, g_drawdownReliefPeakUSD, currentDrawdown);
+                  PrintFormat(">>> [50%% DRAWDOWN RELIEF SL TIGHTENED] SELL #%d (Lots=%.2f, Loss=$-%.2f) | Old SL=%.2f -> New Tight SL=%.2f (Relief Ask=%.2f + $%.2f) | Peak DD=$%.2f -> Current DD=$%.2f (Reduced by >50%%) | 2H Diff=$%.2f",
+                              tkt, OrderLots(), MathAbs(pl), curSL, targetSL, curAsk, reliefGap, g_drawdownReliefPeakUSD, currentDrawdown, priceDiff2h);
                  }
               }
            }
@@ -2112,8 +2161,8 @@ void Check50PctDrawdownReliefTightenSL()
      {
       g_drawdownReliefExecuted = true;
       g_drawdownReliefAppliedCount++;
-      PrintFormat(">>> [50%% DRAWDOWN RELIEF SL APPLIED #%d] Successfully tightened SL on %d losing orders to relief price level (Cushion=$%.2f). Loss capped at 50%% retracement! Ready to repeat on next InpDrawdownReliefMinPeakUSD after hit success.",
-                  g_drawdownReliefAppliedCount, modifiedCount, reliefGap);
+      PrintFormat(">>> [50%% DRAWDOWN RELIEF SL APPLIED #%d] Successfully tightened SL on %d losing orders to relief price level (Cushion=$%.2f | 2H Price Diff=$%.2f > $%.0f). Loss capped at 50%% retracement! Ready to repeat on next InpDrawdownReliefMinPeakUSD after hit success.",
+                  g_drawdownReliefAppliedCount, modifiedCount, reliefGap, priceDiff2h, InpDrawdownReliefMinPriceDiff2Hours);
       DrawDrawdownReliefIcon("APPLIED", modifiedCount, g_drawdownReliefPeakUSD, currentDrawdown, reliefGap, TimeCurrent(), (curBid > 0 ? curBid : 0.0), 0);
       SendDrawdownReliefPhase1Alert(modifiedCount, g_drawdownReliefPeakUSD, currentDrawdown, reliefGap);
      }
@@ -3439,6 +3488,7 @@ bool   InpEnableDrawdownReliefTightenSL   = true;   // Enable Tighten Losing Ord
 double InpDrawdownReliefMinPeakUSD        = 100.0;  // Minimum peak drawdown in USD ($100 * mult) to qualify
 double InpDrawdownReliefPercent           = 0.50;   // Drawdown reduction percentage from peak (50% = 0.50)
 double InpDrawdownReliefSLGapUSD          = 50.0;   // SL cushion in USD ($50) behind relief market price (Bid - 50 / Ask + 50)
+double InpDrawdownReliefMinPriceDiff2Hours = 2000.0; // Minimum price difference in raw USD from last 2 hours (> $2000)
 double g_drawdownReliefPeakUSD            = 0.0;    // Highest floating drawdown (Balance - Equity) during current cycle
 double g_drawdownReliefLastPeakUSD        = 0.0;    // Preserved peak drawdown for reporting when orders close
 datetime g_drawdownReliefPeakTime         = 0;      // Time when peak drawdown was reached
@@ -16902,36 +16952,7 @@ void DrawEquityProfitLadder5HitIcon(int step, double curEquity, double lowestEqu
 //+------------------------------------------------------------------+
 double GetEquityLadder2HourPriceDiff()
   {
-   RefreshRates();
-   double currentPrice = (Bid + Ask) / 2.0;
-   datetime targetTime = TimeCurrent() - 120 * 60; // 120 minutes = 2 hours
-
-   int shift = -1;
-   if(iBars(Symbol(), PERIOD_M1) > 0)
-      shift = iBarShift(Symbol(), PERIOD_M1, targetTime, false);
-
-   double oldPrice = 0.0;
-   if(shift >= 0)
-      oldPrice = iClose(Symbol(), PERIOD_M1, shift);
-
-   if(oldPrice <= 0.0)
-     {
-      int pShift = iBarShift(Symbol(), Period(), targetTime, false);
-      if(pShift >= 0)
-         oldPrice = iClose(Symbol(), Period(), pShift);
-     }
-
-   if(oldPrice <= 0.0)
-     {
-      int h1Shift = iBarShift(Symbol(), PERIOD_H1, targetTime, false);
-      if(h1Shift >= 0)
-         oldPrice = iClose(Symbol(), PERIOD_H1, h1Shift);
-     }
-
-   if(oldPrice <= 0.0)
-      return 0.0;
-
-   return MathAbs(currentPrice - oldPrice);
+   return Get2HourPriceDifferenceRaw();
   }
 
 //+------------------------------------------------------------------+
@@ -19276,7 +19297,7 @@ void UpdateDashboard(DailyProtectionState &state)
 
 // Header Bar
    CreateDashboardPanel(DASH_PREFIX+"HEADER", x, y, w, 36, C'20,55,90');
-   string eaTitle = StringFormat("%s | %s %s", "VMULTI-1111", Symbol(), TimeframeToString(Period()));
+   string eaTitle = StringFormat("%s | %s %s", "VMULTI-1112", Symbol(), TimeframeToString(Period()));
    CreateDashboardLabel(DASH_PREFIX+"TITLE", eaTitle, tx, y+4, 9, clrWhite);
    string priceStatus = StringFormat("BID: %." + IntegerToString(Digits) + "f | ASK: %." + IntegerToString(Digits) + "f | SPR: %d pts", Bid, Ask, (int)MarketInfo(Symbol(), MODE_SPREAD));
    CreateDashboardLabel(DASH_PREFIX+"PRICE", priceStatus, tx, y+19, 8, clrLightGray);
