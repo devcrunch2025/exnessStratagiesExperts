@@ -42,7 +42,7 @@ CheckBasketProfitClose  Total open basket profit
 */
 
 
-string glbVersion = "VMULTI-1114- Multiplier on M5 M6 and SecureOneDollarProfit";
+string glbVersion = "VMULTI-1115- Relief SL Modifies Winners With 100 Gap";
 
 
 
@@ -96,11 +96,11 @@ double   g_stepSize            =1000;// 50.0; // The step increment ($50)
 bool   InpEnableEquityProfitLadder5        = true;   // Enabled: Lowest Equity Recovery Profit Ladder ($10 * multiplier step)
 double InpEquityProfitLadderStepUSD        = 20;//10;//20;//50;//100;//5.0;    // Step size in USD ($5.00)
 bool   InpEquityLadderUseMultiplier        = true;   // Multiply step size by balancelomultipler ($5 * multiplier)
-double InpEquityLadderSLDistanceRaw        = 100;//50;//100.0;  // StopLoss gap from live price in raw points (-$100 gap)
+double InpEquityLadderSLDistanceRaw        = 50;//100;//50;//100.0;  // StopLoss gap from live price in raw points (-$100 gap)
 double InpEquityLadderMinGapHours          =1;// 6.0;    // Minimum time gap in hours between EquityProfitLadder5 step hits
-double InpEquityLadderMinEmaAngle          = 6.0;    // Minimum MathAbs(EMAangle) required to trigger step hit (> 6.0 degrees)
+double InpEquityLadderMinEmaAngle          = 0;//6.0;    // Minimum MathAbs(EMAangle) required to trigger step hit (> 6.0 degrees)
 bool   InpEquityLadderRequireStrongEma     = true;   // Require EMA to be STRONG (!IsEmaWEAK) to trigger step hit
-double InpEquityLadderMinPriceDiff2Hours    = 2000.0; // Minimum price difference in raw USD from last 2 hours (> $2000)
+double InpEquityLadderMinPriceDiff2Hours    = 0;//1000;//2000.0; // Minimum price difference in raw USD from last 2 hours (> $2000)
 bool   InpDrawEquityLadder5Icon            = true;   // Draw special chart icon when EquityProfitLadder5 step is hit
 color  InpEquityLadder5IconColor           = clrAqua;// Chart icon & text color for EquityProfitLadder5
 int    InpEquityLadder5IconCode            = 159;    // Chart icon Wingdings code (159=circle dot, 171=star, 251=checkmark, 221=arrow)
@@ -433,7 +433,7 @@ int    ServerToDubaiOffsetHours   = 4;
 
 // ===== SPREAD & RISK SETTINGS =====
 double MaxAllowedSpreadUSD = 35.0;
-int AccountMultiplierLOT = 400;//400;//200;//500;
+int AccountMultiplierLOT = 4000;//400;//200;//500;
 double OriginalStopLossUSD = 20;//6;//4;
 double StopLossRawPriceGap =3000;// 2000.0;   // Raw price gap ($2000 BTC price points) for StopLoss
 double TakeProfitRawPriceGap = 500.0;  // Raw price gap ($500 BTC price points) for TakeProfit
@@ -2102,7 +2102,13 @@ void Check50PctDrawdownReliefTightenSL()
    if(reliefGap < minStopDist)
       reliefGap = minStopDist;
 
-   int modifiedCount = 0;
+   double winningReliefGap = (InpDrawdownReliefWinningSLGapUSD > 0.0) ? InpDrawdownReliefWinningSLGapUSD : 100.0;
+   if(winningReliefGap < minStopDist)
+      winningReliefGap = minStopDist;
+
+   int modifiedCount   = 0;
+   int losingModified  = 0;
+   int winningModified = 0;
 
    for(int k = OrdersTotal() - 1; k >= 0; k--)
      {
@@ -2110,15 +2116,25 @@ void Check50PctDrawdownReliefTightenSL()
          continue;
       if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber)
          continue;
+
       int tkt = OrderTicket();
+      string cmt = OrderComment();
+
+      // Exclude recovery orders and FLIP basket support orders (managed separately)
+      if(IsFLIPBasketSupportOrder(tkt, cmt) || IsAnyRecoveryOrder(tkt, cmt))
+         continue;
+
       int oType = OrderType();
       if(oType != OP_BUY && oType != OP_SELL)
          continue;
 
       double pl = OrderProfit() + OrderSwap() + OrderCommission();
-      if(pl >= 0.0)
-         continue; // Only losing orders!
+      bool isWinner = (pl >= 0.0);
+      if(isWinner && !InpDrawdownReliefModifyWinningOrders)
+         continue;
 
+      // Losing orders use reliefGap ($50), Winning orders use winningReliefGap ($100)
+      double gapToUse = isWinner ? winningReliefGap : reliefGap;
       double oOpen = OrderOpenPrice();
       double curSL = OrderStopLoss();
       double curTP = OrderTakeProfit();
@@ -2126,42 +2142,64 @@ void Check50PctDrawdownReliefTightenSL()
 
       if(oType == OP_BUY)
         {
-         targetSL = NormalizeDouble(curBid - reliefGap, Digits);
+         targetSL = NormalizeDouble(curBid - gapToUse, Digits);
          if((curBid - targetSL) < minStopDist)
             targetSL = NormalizeDouble(curBid - minStopDist, Digits);
 
-         // One-Way Tighten: Only modify if curSL is 0.0 OR targetSL is HIGHER than curSL (reduces loss)
-         if(curSL <= 0.0 || (targetSL > curSL && (targetSL - curSL) >= MinimumSLModifyGapRaw))
+         // One-Way Tighten: Only modify if curSL is 0.0 OR targetSL is HIGHER than curSL
+         if(targetSL < curBid && (curSL <= 0.0 || (targetSL > curSL && (targetSL - curSL) >= MinimumSLModifyGapRaw)))
            {
             ResetLastError();
-            bool ok = SafeOrderModify(tkt, oOpen, targetSL, curTP, 0, clrOrange, "DrawdownRelief50Pct");
+            color modColor = isWinner ? clrLimeGreen : clrOrange;
+            string modComment = isWinner ? "DrawdownReliefWin100" : "DrawdownRelief50Pct";
+            bool ok = SafeOrderModify(tkt, oOpen, targetSL, curTP, 0, modColor, modComment);
             if(ok)
               {
                modifiedCount++;
+               if(isWinner) winningModified++; else losingModified++;
                RegisterDrawdownReliefTicket(tkt);
-               PrintFormat(">>> [50%% DRAWDOWN RELIEF SL TIGHTENED] BUY #%d (Lots=%.2f, Loss=$-%.2f) | Old SL=%.2f -> New Tight SL=%.2f (Relief Bid=%.2f - $%.2f) | Peak DD=$%.2f -> Current DD=$%.2f (Reduced by >50%%) | 2H Diff=$%.2f | EMA Ang=%.2f deg",
-                           tkt, OrderLots(), MathAbs(pl), curSL, targetSL, curBid, reliefGap, g_drawdownReliefPeakUSD, currentDrawdown, priceDiff2h, curEmaAng);
+               if(isWinner)
+                 {
+                  PrintFormat(">>> [50%% DRAWDOWN RELIEF WINNER SL TIGHTENED] BUY #%d (Lots=%.2f, Profit=+$%.2f) | Old SL=%.2f -> New Tight SL=%.2f (Relief Bid=%.2f - $%.2f) | 2H Diff=$%.2f | EMA Ang=%.2f deg",
+                              tkt, OrderLots(), pl, curSL, targetSL, curBid, gapToUse, priceDiff2h, curEmaAng);
+                 }
+               else
+                 {
+                  PrintFormat(">>> [50%% DRAWDOWN RELIEF SL TIGHTENED] BUY #%d (Lots=%.2f, Loss=$-%.2f) | Old SL=%.2f -> New Tight SL=%.2f (Relief Bid=%.2f - $%.2f) | Peak DD=$%.2f -> Current DD=$%.2f (Reduced by >50%%) | 2H Diff=$%.2f | EMA Ang=%.2f deg",
+                              tkt, OrderLots(), MathAbs(pl), curSL, targetSL, curBid, gapToUse, g_drawdownReliefPeakUSD, currentDrawdown, priceDiff2h, curEmaAng);
+                 }
               }
            }
         }
       else
          if(oType == OP_SELL)
            {
-            targetSL = NormalizeDouble(curAsk + reliefGap, Digits);
+            targetSL = NormalizeDouble(curAsk + gapToUse, Digits);
             if((targetSL - curAsk) < minStopDist)
                targetSL = NormalizeDouble(curAsk + minStopDist, Digits);
 
-            // One-Way Tighten: Only modify if curSL is 0.0 OR targetSL is LOWER than curSL (reduces loss)
-            if(curSL <= 0.0 || (targetSL < curSL && (curSL - targetSL) >= MinimumSLModifyGapRaw))
+            // One-Way Tighten: Only modify if curSL is 0.0 OR targetSL is LOWER than curSL
+            if(targetSL > curAsk && (curSL <= 0.0 || (targetSL < curSL && (curSL - targetSL) >= MinimumSLModifyGapRaw)))
               {
                ResetLastError();
-               bool ok = SafeOrderModify(tkt, oOpen, targetSL, curTP, 0, clrOrange, "DrawdownRelief50Pct");
+               color modColor = isWinner ? clrLimeGreen : clrOrange;
+               string modComment = isWinner ? "DrawdownReliefWin100" : "DrawdownRelief50Pct";
+               bool ok = SafeOrderModify(tkt, oOpen, targetSL, curTP, 0, modColor, modComment);
                if(ok)
                  {
                   modifiedCount++;
+                  if(isWinner) winningModified++; else losingModified++;
                   RegisterDrawdownReliefTicket(tkt);
-                  PrintFormat(">>> [50%% DRAWDOWN RELIEF SL TIGHTENED] SELL #%d (Lots=%.2f, Loss=$-%.2f) | Old SL=%.2f -> New Tight SL=%.2f (Relief Ask=%.2f + $%.2f) | Peak DD=$%.2f -> Current DD=$%.2f (Reduced by >50%%) | 2H Diff=$%.2f | EMA Ang=%.2f deg",
-                              tkt, OrderLots(), MathAbs(pl), curSL, targetSL, curAsk, reliefGap, g_drawdownReliefPeakUSD, currentDrawdown, priceDiff2h, curEmaAng);
+                  if(isWinner)
+                    {
+                     PrintFormat(">>> [50%% DRAWDOWN RELIEF WINNER SL TIGHTENED] SELL #%d (Lots=%.2f, Profit=+$%.2f) | Old SL=%.2f -> New Tight SL=%.2f (Relief Ask=%.2f + $%.2f) | 2H Diff=$%.2f | EMA Ang=%.2f deg",
+                                 tkt, OrderLots(), pl, curSL, targetSL, curAsk, gapToUse, priceDiff2h, curEmaAng);
+                    }
+                  else
+                    {
+                     PrintFormat(">>> [50%% DRAWDOWN RELIEF SL TIGHTENED] SELL #%d (Lots=%.2f, Loss=$-%.2f) | Old SL=%.2f -> New Tight SL=%.2f (Relief Ask=%.2f + $%.2f) | Peak DD=$%.2f -> Current DD=$%.2f (Reduced by >50%%) | 2H Diff=$%.2f | EMA Ang=%.2f deg",
+                                 tkt, OrderLots(), MathAbs(pl), curSL, targetSL, curAsk, gapToUse, g_drawdownReliefPeakUSD, currentDrawdown, priceDiff2h, curEmaAng);
+                    }
                  }
               }
            }
@@ -2171,8 +2209,8 @@ void Check50PctDrawdownReliefTightenSL()
      {
       g_drawdownReliefExecuted = true;
       g_drawdownReliefAppliedCount++;
-      PrintFormat(">>> [50%% DRAWDOWN RELIEF SL APPLIED #%d] Successfully tightened SL on %d losing orders to relief price level (Cushion=$%.2f | 2H Price Diff=$%.2f > $%.0f | EMA Ang=%.2f deg > %.1f deg). Loss capped at 50%% retracement! Ready to repeat on next InpDrawdownReliefMinPeakUSD after hit success.",
-                  g_drawdownReliefAppliedCount, modifiedCount, reliefGap, priceDiff2h, InpDrawdownReliefMinPriceDiff2Hours, curEmaAng, InpDrawdownReliefMinEmaAngle);
+      PrintFormat(">>> [50%% DRAWDOWN RELIEF SL APPLIED #%d] Successfully tightened SL on %d orders (%d losing -$%.0f gap, %d winning -$%.0f gap) | 2H Price Diff=$%.2f | EMA Ang=%.2f deg. Ready to repeat on next peak after hit success.",
+                  g_drawdownReliefAppliedCount, modifiedCount, losingModified, reliefGap, winningModified, winningReliefGap, priceDiff2h, curEmaAng);
       DrawDrawdownReliefIcon("APPLIED", modifiedCount, g_drawdownReliefPeakUSD, currentDrawdown, reliefGap, TimeCurrent(), (curBid > 0 ? curBid : 0.0), 0);
       SendDrawdownReliefPhase1Alert(modifiedCount, g_drawdownReliefPeakUSD, currentDrawdown, reliefGap);
      }
@@ -3495,11 +3533,13 @@ double InpEmaAngleBreakevenBreathingGapRaw = 50.0;   // Extra raw price gap base
 
 // USER RULE (VMULTI-1097): 50% Drawdown Relief StopLoss Tightening (Peak Drawdown >= $100)
 bool   InpEnableDrawdownReliefTightenSL   = true;   // Enable Tighten Losing Order SL on 50% Drawdown Relief
-double InpDrawdownReliefMinPeakUSD        = 100.0;  // Minimum peak drawdown in USD ($100 * mult) to qualify
+double InpDrawdownReliefMinPeakUSD        = 50;//100.0;  // Minimum peak drawdown in USD ($100 * mult) to qualify
 double InpDrawdownReliefPercent           = 0.50;   // Drawdown reduction percentage from peak (50% = 0.50)
-double InpDrawdownReliefSLGapUSD          = 50.0;   // SL cushion in USD ($50) behind relief market price (Bid - 50 / Ask + 50)
-double InpDrawdownReliefMinPriceDiff2Hours = 2000.0; // Minimum price difference in raw USD from last 2 hours (> $2000)
-double InpDrawdownReliefMinEmaAngle       = 6.0;    // Minimum MathAbs(EMAangle) required to trigger relief SL (> 6.0 degrees)
+double InpDrawdownReliefSLGapUSD          = 50.0;   // SL cushion in USD ($50) behind relief market price for losing orders (Bid - 50 / Ask + 50)
+bool   InpDrawdownReliefModifyWinningOrders = true;   // Also modify winning orders during Drawdown Relief
+double InpDrawdownReliefWinningSLGapUSD     = 100.0;  // SL cushion in USD ($100) behind relief market price for winning orders (Bid - 100 / Ask + 100)
+double InpDrawdownReliefMinPriceDiff2Hours = 0;//1000;//2000.0; // Minimum price difference in raw USD from last 2 hours (> $2000)
+double InpDrawdownReliefMinEmaAngle       =0;// 6.0;    // Minimum MathAbs(EMAangle) required to trigger relief SL (> 6.0 degrees)
 double g_drawdownReliefPeakUSD            = 0.0;    // Highest floating drawdown (Balance - Equity) during current cycle
 double g_drawdownReliefLastPeakUSD        = 0.0;    // Preserved peak drawdown for reporting when orders close
 datetime g_drawdownReliefPeakTime         = 0;      // Time when peak drawdown was reached
@@ -4637,8 +4677,16 @@ void CheckAndDrawMultiOrderClosedIcons()
             g_drawdownReliefHitSuccessCount++;
             DrawDrawdownReliefIcon("HIT", 1, repDD, netP, 0.0, cTime, cPrice, tkt);
             reliefHitSuccess = true;
-            PrintFormat(">>> [DRAWDOWN RELIEF SL HIT SUCCESS #%d] Order #%d closed at tight relief SL! Loss capped at $%.2f (Saved from Peak DD: $%.2f). Repeating on every InpDrawdownReliefMinPeakUSD.",
-                        g_drawdownReliefHitSuccessCount, tkt, netP, repDD);
+            if(netP >= 0.0)
+              {
+               PrintFormat(">>> [DRAWDOWN RELIEF SL HIT - WINNER #%d] Order #%d closed at tight relief SL! Profit banked: +$%.2f. Repeating on every InpDrawdownReliefMinPeakUSD.",
+                           g_drawdownReliefHitSuccessCount, tkt, netP);
+              }
+            else
+              {
+               PrintFormat(">>> [DRAWDOWN RELIEF SL HIT SUCCESS #%d] Order #%d closed at tight relief SL! Loss capped at $%.2f (Saved from Peak DD: $%.2f). Repeating on every InpDrawdownReliefMinPeakUSD.",
+                           g_drawdownReliefHitSuccessCount, tkt, netP, repDD);
+              }
            }
          UnregisterDrawdownReliefTicket(tkt);
         }
@@ -13596,7 +13644,18 @@ void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep,s
 // Lots = 0.01 * (10 - cycleStep);
 
 // if(Lots==0.01)
-   Lots=0.04;//MaxRecoveryLot;
+   Lots=0.02;//MaxRecoveryLot;
+   
+   
+   datetime dubaiTime = TimeCurrent() + (ServerToDubaiOffsetHours * 3600);
+   int currentHour = TimeHour(dubaiTime);
+
+   
+   if(MathAbs(GlobalEmaAngle30)>4 && MathAbs(GlobalEmaAngle30)<8)
+   {
+   
+   Lots=0.04;
+   }
 
 // Lots=0.05;//
 // Print("Closed Orders Since EMA Flip: ", closedCount, " | Cycle Step: ", cycleStep, " | Calculated Lots: ", Lots);
@@ -13985,9 +14044,6 @@ void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep,s
 
    if(Lots < 0.01)
       Lots = 0.01;
-
-   datetime dubaiTime = TimeCurrent() + (ServerToDubaiOffsetHours * 3600);
-   int currentHour = TimeHour(dubaiTime);
 
    double effectiveMaxLot = MathMax(MaxRecoveryLot, (InpEnableLsdSweepLotAdjustment && GetLsdSweepSignal() != 0) ? InpLsdSweepLotSize : MaxRecoveryLot);
    if(Lots > effectiveMaxLot)
@@ -19316,7 +19372,7 @@ void UpdateDashboard(DailyProtectionState &state)
 
 // Header Bar
    CreateDashboardPanel(DASH_PREFIX+"HEADER", x, y, w, 36, C'20,55,90');
-   string eaTitle = StringFormat("%s | %s %s", "VMULTI-1114", Symbol(), TimeframeToString(Period()));
+   string eaTitle = StringFormat("%s | %s %s", "VMULTI-1115", Symbol(), TimeframeToString(Period()));
    CreateDashboardLabel(DASH_PREFIX+"TITLE", eaTitle, tx, y+4, 9, clrWhite);
    string priceStatus = StringFormat("BID: %." + IntegerToString(Digits) + "f | ASK: %." + IntegerToString(Digits) + "f | SPR: %d pts", Bid, Ask, (int)MarketInfo(Symbol(), MODE_SPREAD));
    CreateDashboardLabel(DASH_PREFIX+"PRICE", priceStatus, tx, y+19, 8, clrLightGray);
