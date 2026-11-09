@@ -264,7 +264,7 @@ bool   InpEnableEmaFlipWideBreathingSL     = true;   // On EMA flip, modify losi
 double InpEmaFlipWideBreathingMultiplier   = 4.0;    // Multiplier for EMA distance buffer (4X buffer)
 double InpEmaFlipWideBreathingSafeExtraRaw = 100.0;  // Extra safe distance in USD ($100 raw) added to buffer
 double InpEmaFlipWideBreathingMinFloorRaw  = 2000;//1000.0; // Minimum Stop Loss breathing buffer in USD ($1000 raw) on EMA flip
-bool   InpEnableEmaFlipHalfDistPartialCut  = true;   // Close 50% of LOT if LOT > 0.01 when moved 2X EMA distance (half buffer) towards loss
+bool   InpEnableEmaFlipHalfDistPartialCut  = false;  // Close 50% of LOT if LOT > 0.01 when moved 2X EMA distance (half buffer) towards loss (Disabled)
 bool   InpKeepWideLossCushionSL            = false;  // Universal Ratchet Rule: Always allow tightening SL towards profit/breakeven, strictly block widening loss
 bool   InpLimitSLToEmaHighestDistance      = true;   // Cap BUY SL >= EMA - HighestDistance, SELL SL <= EMA + HighestDistance
 bool   InpApplyBreathingToHorizontalOrders = false;  // Keep existing horizontal SL logic; do not modify horizontal line orders on EMA flip
