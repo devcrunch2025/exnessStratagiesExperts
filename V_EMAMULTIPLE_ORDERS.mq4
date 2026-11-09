@@ -42,6 +42,7 @@ CheckBasketProfitClose  Total open basket profit
 */
 
 
+
 string glbVersion = "VMULTI-1116- 90Pct Adverse Cut Widen SL Plus 500 One Time Only";
 
 
