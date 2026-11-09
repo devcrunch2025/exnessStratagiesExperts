@@ -42,7 +42,7 @@ CheckBasketProfitClose  Total open basket profit
 */
 
 
-string glbVersion = "VMULTI-1108- Strict 6 Hours Global Cooldown on EquityProfitLadder5";
+string glbVersion = "VMULTI-1109- EquityProfitLadder5 Min 6h Gap and MathAbs(EMAangle) > 6";
 
 
 
@@ -94,10 +94,11 @@ double   g_stepSize            =1000;// 50.0; // The step increment ($50)
 
 // ===== EQUITY PROFIT LADDER $5 SETTINGS =====
 bool   InpEnableEquityProfitLadder5        = true;   // Enabled: Lowest Equity Recovery Profit Ladder ($10 * multiplier step)
-double InpEquityProfitLadderStepUSD        = 10;//20;//50;//100;//5.0;    // Step size in USD ($5.00)
+double InpEquityProfitLadderStepUSD        = 20;//10;//20;//50;//100;//5.0;    // Step size in USD ($5.00)
 bool   InpEquityLadderUseMultiplier        = true;   // Multiply step size by balancelomultipler ($5 * multiplier)
-double InpEquityLadderSLDistanceRaw        = 100.0;  // StopLoss gap from live price in raw points (-$100 gap)
+double InpEquityLadderSLDistanceRaw        = 50;//100.0;  // StopLoss gap from live price in raw points (-$100 gap)
 double InpEquityLadderMinGapHours          = 6.0;    // Minimum time gap in hours between EquityProfitLadder5 step hits
+double InpEquityLadderMinEmaAngle          = 6.0;    // Minimum MathAbs(EMAangle) required to trigger step hit (> 6.0 degrees)
 bool   InpDrawEquityLadder5Icon            = true;   // Draw special chart icon when EquityProfitLadder5 step is hit
 color  InpEquityLadder5IconColor           = clrAqua;// Chart icon & text color for EquityProfitLadder5
 int    InpEquityLadder5IconCode            = 159;    // Chart icon Wingdings code (159=circle dot, 171=star, 251=checkmark, 221=arrow)
@@ -16974,6 +16975,14 @@ void EquityProfitLadder5()
            }
         }
 
+      // Check minimum EMA angle condition (MathAbs(EMAangle) > 6.0)
+      double curEmaAng = (GlobalEmaAngle30 != 0.0) ? GlobalEmaAngle30 : GetEmaAngleDegrees(30);
+      if(InpEquityLadderMinEmaAngle > 0.0 && MathAbs(curEmaAng) <= InpEquityLadderMinEmaAngle)
+        {
+         // EMA angle is too flat (<= 6.0 deg); wait for strong trend momentum
+         return;
+        }
+
       if(InpPauseEquityProfitHitOnSingleWinningOrder)
         {
          int mktCount = 0;
@@ -17009,7 +17018,8 @@ void EquityProfitLadder5()
             " | LowestEquity=$", DoubleToString(LowestEquity, 2),
             " | Gain From Low=+$", DoubleToString(gainFromLow, 2),
             " | Time=", TimeToString(g_lastEquityLadderHitTime, TIME_DATE|TIME_SECONDS),
-            " | Modifying ALL Open Orders with -$100 StopLoss gap.");
+            " | EMA Angle=", DoubleToString(curEmaAng, 2), " deg (MathAbs > ", DoubleToString(InpEquityLadderMinEmaAngle, 1), ")",
+            " | Modifying ALL Open Orders with -$", DoubleToString(InpEquityLadderSLDistanceRaw, 0), " StopLoss gap.");
       Print("==================================================================");
 
       // Modify all eligible open orders with -$100 raw gap SL
@@ -19206,7 +19216,7 @@ void UpdateDashboard(DailyProtectionState &state)
 
 // Header Bar
    CreateDashboardPanel(DASH_PREFIX+"HEADER", x, y, w, 36, C'20,55,90');
-   string eaTitle = StringFormat("%s | %s %s", "VMULTI-1108", Symbol(), TimeframeToString(Period()));
+   string eaTitle = StringFormat("%s | %s %s", "VMULTI-1109", Symbol(), TimeframeToString(Period()));
    CreateDashboardLabel(DASH_PREFIX+"TITLE", eaTitle, tx, y+4, 9, clrWhite);
    string priceStatus = StringFormat("BID: %." + IntegerToString(Digits) + "f | ASK: %." + IntegerToString(Digits) + "f | SPR: %d pts", Bid, Ask, (int)MarketInfo(Symbol(), MODE_SPREAD));
    CreateDashboardLabel(DASH_PREFIX+"PRICE", priceStatus, tx, y+19, 8, clrLightGray);
