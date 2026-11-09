@@ -42,7 +42,7 @@ CheckBasketProfitClose  Total open basket profit
 */
 
 
-string glbVersion = "VMULTI-1112- Relief SL and EquityLadder Min 2h Price Diff 2000 Raw";
+string glbVersion = "VMULTI-1113- Relief SL and EquityLadder Min 2h Price Diff 2000 and Angle 6";
 
 
 
@@ -1959,6 +1959,8 @@ double Get2HourPriceDifferenceRaw()
    return MathAbs(currentPrice - oldPrice);
   }
 
+double GetEmaAngleDegrees(int lookbackBars = 5);
+
 //+------------------------------------------------------------------+
 //| Check50PctDrawdownReliefTightenSL:                               |
 //| USER RULE (VMULTI-1097):                                         |
@@ -2080,6 +2082,14 @@ void Check50PctDrawdownReliefTightenSL()
         }
      }
 
+   // Check minimum EMA angle condition (MathAbs(EMAangle) > 6.0)
+   double curEmaAng = (GlobalEmaAngle30 != 0.0) ? GlobalEmaAngle30 : GetEmaAngleDegrees(30);
+   if(InpDrawdownReliefMinEmaAngle > 0.0 && MathAbs(curEmaAng) <= InpDrawdownReliefMinEmaAngle)
+     {
+      // EMA angle is too flat (<= 6.0 deg); wait for strong trend momentum
+      return;
+     }
+
 // 50% RELIEF BOUNCE DETECTED! Tighten all losing orders to relief price level!
    RefreshRates();
    double curBid = MarketInfo(Symbol(), MODE_BID);
@@ -2129,8 +2139,8 @@ void Check50PctDrawdownReliefTightenSL()
               {
                modifiedCount++;
                RegisterDrawdownReliefTicket(tkt);
-               PrintFormat(">>> [50%% DRAWDOWN RELIEF SL TIGHTENED] BUY #%d (Lots=%.2f, Loss=$-%.2f) | Old SL=%.2f -> New Tight SL=%.2f (Relief Bid=%.2f - $%.2f) | Peak DD=$%.2f -> Current DD=$%.2f (Reduced by >50%%) | 2H Diff=$%.2f",
-                           tkt, OrderLots(), MathAbs(pl), curSL, targetSL, curBid, reliefGap, g_drawdownReliefPeakUSD, currentDrawdown, priceDiff2h);
+               PrintFormat(">>> [50%% DRAWDOWN RELIEF SL TIGHTENED] BUY #%d (Lots=%.2f, Loss=$-%.2f) | Old SL=%.2f -> New Tight SL=%.2f (Relief Bid=%.2f - $%.2f) | Peak DD=$%.2f -> Current DD=$%.2f (Reduced by >50%%) | 2H Diff=$%.2f | EMA Ang=%.2f deg",
+                           tkt, OrderLots(), MathAbs(pl), curSL, targetSL, curBid, reliefGap, g_drawdownReliefPeakUSD, currentDrawdown, priceDiff2h, curEmaAng);
               }
            }
         }
@@ -2150,8 +2160,8 @@ void Check50PctDrawdownReliefTightenSL()
                  {
                   modifiedCount++;
                   RegisterDrawdownReliefTicket(tkt);
-                  PrintFormat(">>> [50%% DRAWDOWN RELIEF SL TIGHTENED] SELL #%d (Lots=%.2f, Loss=$-%.2f) | Old SL=%.2f -> New Tight SL=%.2f (Relief Ask=%.2f + $%.2f) | Peak DD=$%.2f -> Current DD=$%.2f (Reduced by >50%%) | 2H Diff=$%.2f",
-                              tkt, OrderLots(), MathAbs(pl), curSL, targetSL, curAsk, reliefGap, g_drawdownReliefPeakUSD, currentDrawdown, priceDiff2h);
+                  PrintFormat(">>> [50%% DRAWDOWN RELIEF SL TIGHTENED] SELL #%d (Lots=%.2f, Loss=$-%.2f) | Old SL=%.2f -> New Tight SL=%.2f (Relief Ask=%.2f + $%.2f) | Peak DD=$%.2f -> Current DD=$%.2f (Reduced by >50%%) | 2H Diff=$%.2f | EMA Ang=%.2f deg",
+                              tkt, OrderLots(), MathAbs(pl), curSL, targetSL, curAsk, reliefGap, g_drawdownReliefPeakUSD, currentDrawdown, priceDiff2h, curEmaAng);
                  }
               }
            }
@@ -2161,8 +2171,8 @@ void Check50PctDrawdownReliefTightenSL()
      {
       g_drawdownReliefExecuted = true;
       g_drawdownReliefAppliedCount++;
-      PrintFormat(">>> [50%% DRAWDOWN RELIEF SL APPLIED #%d] Successfully tightened SL on %d losing orders to relief price level (Cushion=$%.2f | 2H Price Diff=$%.2f > $%.0f). Loss capped at 50%% retracement! Ready to repeat on next InpDrawdownReliefMinPeakUSD after hit success.",
-                  g_drawdownReliefAppliedCount, modifiedCount, reliefGap, priceDiff2h, InpDrawdownReliefMinPriceDiff2Hours);
+      PrintFormat(">>> [50%% DRAWDOWN RELIEF SL APPLIED #%d] Successfully tightened SL on %d losing orders to relief price level (Cushion=$%.2f | 2H Price Diff=$%.2f > $%.0f | EMA Ang=%.2f deg > %.1f deg). Loss capped at 50%% retracement! Ready to repeat on next InpDrawdownReliefMinPeakUSD after hit success.",
+                  g_drawdownReliefAppliedCount, modifiedCount, reliefGap, priceDiff2h, InpDrawdownReliefMinPriceDiff2Hours, curEmaAng, InpDrawdownReliefMinEmaAngle);
       DrawDrawdownReliefIcon("APPLIED", modifiedCount, g_drawdownReliefPeakUSD, currentDrawdown, reliefGap, TimeCurrent(), (curBid > 0 ? curBid : 0.0), 0);
       SendDrawdownReliefPhase1Alert(modifiedCount, g_drawdownReliefPeakUSD, currentDrawdown, reliefGap);
      }
@@ -3489,6 +3499,7 @@ double InpDrawdownReliefMinPeakUSD        = 100.0;  // Minimum peak drawdown in 
 double InpDrawdownReliefPercent           = 0.50;   // Drawdown reduction percentage from peak (50% = 0.50)
 double InpDrawdownReliefSLGapUSD          = 50.0;   // SL cushion in USD ($50) behind relief market price (Bid - 50 / Ask + 50)
 double InpDrawdownReliefMinPriceDiff2Hours = 2000.0; // Minimum price difference in raw USD from last 2 hours (> $2000)
+double InpDrawdownReliefMinEmaAngle       = 6.0;    // Minimum MathAbs(EMAangle) required to trigger relief SL (> 6.0 degrees)
 double g_drawdownReliefPeakUSD            = 0.0;    // Highest floating drawdown (Balance - Equity) during current cycle
 double g_drawdownReliefLastPeakUSD        = 0.0;    // Preserved peak drawdown for reporting when orders close
 datetime g_drawdownReliefPeakTime         = 0;      // Time when peak drawdown was reached
@@ -19297,7 +19308,7 @@ void UpdateDashboard(DailyProtectionState &state)
 
 // Header Bar
    CreateDashboardPanel(DASH_PREFIX+"HEADER", x, y, w, 36, C'20,55,90');
-   string eaTitle = StringFormat("%s | %s %s", "VMULTI-1112", Symbol(), TimeframeToString(Period()));
+   string eaTitle = StringFormat("%s | %s %s", "VMULTI-1113", Symbol(), TimeframeToString(Period()));
    CreateDashboardLabel(DASH_PREFIX+"TITLE", eaTitle, tx, y+4, 9, clrWhite);
    string priceStatus = StringFormat("BID: %." + IntegerToString(Digits) + "f | ASK: %." + IntegerToString(Digits) + "f | SPR: %d pts", Bid, Ask, (int)MarketInfo(Symbol(), MODE_SPREAD));
    CreateDashboardLabel(DASH_PREFIX+"PRICE", priceStatus, tx, y+19, 8, clrLightGray);
