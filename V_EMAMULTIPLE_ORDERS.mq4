@@ -42,7 +42,7 @@ CheckBasketProfitClose  Total open basket profit
 */
 
 
-string glbVersion = "VMULTI-1097- 50% Drawdown Relief SL Tighten (Peak DD >= $100)";
+string glbVersion = "VMULTI-1098- Drawdown Relief SL Special Chart Icon on Success";
 
 
 
@@ -1935,6 +1935,8 @@ void Check50PctDrawdownReliefTightenSL()
          Print(">>> [DRAWDOWN RELIEF RESET] Equity ($", DoubleToString(equity, 2),
                ") >= Balance ($", DoubleToString(balance, 2), "). Drawdown cleared! Resetting peak tracker.");
         }
+      if(g_drawdownReliefPeakUSD > 0.0)
+         g_drawdownReliefLastPeakUSD = g_drawdownReliefPeakUSD;
       g_drawdownReliefPeakUSD  = 0.0;
       g_drawdownReliefArmed    = false;
       g_drawdownReliefExecuted = false;
@@ -1969,6 +1971,8 @@ void Check50PctDrawdownReliefTightenSL()
         {
          Print(">>> [DRAWDOWN RELIEF RESET] No open losing orders. Resetting peak tracker.");
         }
+      if(g_drawdownReliefPeakUSD > 0.0)
+         g_drawdownReliefLastPeakUSD = g_drawdownReliefPeakUSD;
       g_drawdownReliefPeakUSD  = 0.0;
       g_drawdownReliefArmed    = false;
       g_drawdownReliefExecuted = false;
@@ -2063,6 +2067,7 @@ void Check50PctDrawdownReliefTightenSL()
             if(ok)
               {
                modifiedCount++;
+               RegisterDrawdownReliefTicket(tkt);
                PrintFormat(">>> [50%% DRAWDOWN RELIEF SL TIGHTENED] BUY #%d (Lots=%.2f, Loss=$-%.2f) | Old SL=%.2f -> New Tight SL=%.2f (Relief Bid=%.2f - $%.2f) | Peak DD=$%.2f -> Current DD=$%.2f (Reduced by >50%%)",
                            tkt, OrderLots(), MathAbs(pl), curSL, targetSL, curBid, reliefGap, g_drawdownReliefPeakUSD, currentDrawdown);
               }
@@ -2082,6 +2087,7 @@ void Check50PctDrawdownReliefTightenSL()
             if(ok)
               {
                modifiedCount++;
+               RegisterDrawdownReliefTicket(tkt);
                PrintFormat(">>> [50%% DRAWDOWN RELIEF SL TIGHTENED] SELL #%d (Lots=%.2f, Loss=$-%.2f) | Old SL=%.2f -> New Tight SL=%.2f (Relief Ask=%.2f + $%.2f) | Peak DD=$%.2f -> Current DD=$%.2f (Reduced by >50%%)",
                            tkt, OrderLots(), MathAbs(pl), curSL, targetSL, curAsk, reliefGap, g_drawdownReliefPeakUSD, currentDrawdown);
               }
@@ -2094,6 +2100,7 @@ void Check50PctDrawdownReliefTightenSL()
       g_drawdownReliefExecuted = true;
       PrintFormat(">>> [50%% DRAWDOWN RELIEF SL APPLIED] Successfully tightened SL on %d losing orders to relief price level (Cushion=$%.2f). Loss capped at 50%% retracement!",
                   modifiedCount, reliefGap);
+      DrawDrawdownReliefIcon("APPLIED", modifiedCount, g_drawdownReliefPeakUSD, currentDrawdown, reliefGap, TimeCurrent(), (curBid > 0 ? curBid : 0.0), 0);
      }
   }
 
@@ -3413,10 +3420,21 @@ double InpDrawdownReliefMinPeakUSD        = 100.0;  // Minimum peak drawdown in 
 double InpDrawdownReliefPercent           = 0.50;   // Drawdown reduction percentage from peak (50% = 0.50)
 double InpDrawdownReliefSLGapUSD          = 50.0;   // SL cushion in USD ($50) behind relief market price (Bid - 50 / Ask + 50)
 double g_drawdownReliefPeakUSD            = 0.0;    // Highest floating drawdown (Balance - Equity) during current cycle
+double g_drawdownReliefLastPeakUSD        = 0.0;    // Preserved peak drawdown for reporting when orders close
 datetime g_drawdownReliefPeakTime         = 0;      // Time when peak drawdown was reached
 bool   g_drawdownReliefArmed              = false;  // True when peak drawdown reached >= InpDrawdownReliefMinPeakUSD
 bool   g_drawdownReliefExecuted           = false;  // True when relief SL tightening was executed for current cycle
 void   Check50PctDrawdownReliefTightenSL();
+
+// USER RULE (VMULTI-1098): Special Chart Icon for Drawdown Relief SL Hit / Applied
+bool   InpDrawDrawdownReliefIcon           = true;    // Draw special chart icon when tight relief SL succeeds / is hit
+color  InpDrawdownReliefIconColor          = clrGold; // Chart icon & text color for Drawdown Relief
+int    InpDrawdownReliefIconCode           = 251;     // Chart icon Wingdings code (251=checkmark, 171=star, 159=dot, 238=shield)
+int    InpDrawdownReliefFontSize           = 10;      // Chart icon text font size
+void   DrawDrawdownReliefIcon(string iconType, int orderCount, double peakDD, double currentDD, double slGap, datetime hitTime = 0, double hitPrice = 0.0, int primaryTicket = 0);
+void   RegisterDrawdownReliefTicket(int ticket);
+bool   IsDrawdownReliefTicket(int ticket);
+void   UnregisterDrawdownReliefTicket(int ticket);
 
 double GetTrendAwareStopLoss(int orderType, double standardGapUSD, double curSL = 0.0, string callerName = "", double orderProfit = 0.0, double openPrice = 0.0);
 
@@ -4004,6 +4022,148 @@ void DrawMethod6HitIcon(int orderCount, double comboProfit, datetime hitTime = 0
   }
 
 //+------------------------------------------------------------------+
+//| Drawdown Relief Ticket Registry & Special Chart Icon Engine      |
+//+------------------------------------------------------------------+
+#define MAX_DRAWDOWN_RELIEF_TICKETS 100
+int    g_drawdownReliefTickets[MAX_DRAWDOWN_RELIEF_TICKETS];
+int    g_drawdownReliefTicketCount = 0;
+
+void RegisterDrawdownReliefTicket(int ticket)
+  {
+   if(ticket <= 0)
+      return;
+   for(int i = 0; i < g_drawdownReliefTicketCount; i++)
+     {
+      if(g_drawdownReliefTickets[i] == ticket)
+         return;
+     }
+   if(g_drawdownReliefTicketCount < MAX_DRAWDOWN_RELIEF_TICKETS)
+     {
+      g_drawdownReliefTickets[g_drawdownReliefTicketCount] = ticket;
+      g_drawdownReliefTicketCount++;
+     }
+  }
+
+bool IsDrawdownReliefTicket(int ticket)
+  {
+   if(ticket <= 0)
+      return false;
+   for(int i = 0; i < g_drawdownReliefTicketCount; i++)
+     {
+      if(g_drawdownReliefTickets[i] == ticket)
+         return true;
+     }
+   return false;
+  }
+
+void UnregisterDrawdownReliefTicket(int ticket)
+  {
+   if(ticket <= 0)
+      return;
+   for(int i = 0; i < g_drawdownReliefTicketCount; i++)
+     {
+      if(g_drawdownReliefTickets[i] == ticket)
+        {
+         for(int j = i; j < g_drawdownReliefTicketCount - 1; j++)
+            g_drawdownReliefTickets[j] = g_drawdownReliefTickets[j + 1];
+         g_drawdownReliefTicketCount--;
+         break;
+        }
+     }
+  }
+
+//+------------------------------------------------------------------+
+//| DrawDrawdownReliefIcon:                                          |
+//| Draws a distinct special chart icon when tight relief SL succeeds|
+//| (APPLIED) or when price hits the tight relief SL (HIT).          |
+//+------------------------------------------------------------------+
+void DrawDrawdownReliefIcon(string iconType, int orderCount, double peakDD, double currentDD, double slGap, datetime hitTime = 0, double hitPrice = 0.0, int primaryTicket = 0)
+  {
+   if(!InpDrawDrawdownReliefIcon)
+      return;
+
+   if(hitTime <= 0)
+      hitTime = TimeCurrent();
+
+   datetime barTime = hitTime;
+   string baseName = PREFIX + "RLF_" + iconType + "_" + IntegerToString(primaryTicket) + "_" + IntegerToString((int)barTime);
+
+   // Prevent duplicate icon on the same bar for the same ticket
+   if(ObjectFind(0, baseName) >= 0 || ObjectFind(0, baseName + "_TXT") >= 0)
+      return;
+
+   double atr = iATR(Symbol(), Period(), 14, 1);
+   if(atr <= 0.0)
+      atr = 30 * Point;
+   if(atr <= 0.0)
+      atr = 1.0;
+
+   double markerPrice = 0.0;
+   double labelPrice  = 0.0;
+
+   if(hitPrice > 0.0)
+     {
+      markerPrice = hitPrice;
+      labelPrice  = markerPrice + (atr * 0.35);
+     }
+   else
+     {
+      markerPrice = High[0] + (atr * 0.25);
+      labelPrice  = markerPrice + (atr * 0.35);
+     }
+
+   color iconColor = InpDrawdownReliefIconColor;
+   int   iconCode  = (InpDrawdownReliefIconCode > 0 ? InpDrawdownReliefIconCode : 251);
+   int   fontSize  = (InpDrawdownReliefFontSize > 0 ? InpDrawdownReliefFontSize : 10);
+
+   string txtName = baseName + "_TXT";
+   string labelText = "";
+   string tooltip   = "";
+
+   if(iconType == "APPLIED")
+     {
+      labelText = StringFormat("RLF SL x%d (DD: $%.0f->$%.0f)", orderCount, peakDD, currentDD);
+      tooltip   = StringFormat("50%% Drawdown Relief SL Applied | Orders Tightened: %d | Peak DD: $%.2f -> Relief DD: $%.2f (Reduced >50%%) | SL Cushion: $%.1f | Time: %s",
+                               orderCount, peakDD, currentDD, slGap,
+                               TimeToString(hitTime, TIME_DATE|TIME_MINUTES|TIME_SECONDS));
+     }
+   else // "HIT"
+     {
+      labelText = StringFormat("RLF SL HIT #%d ($%.2f)", primaryTicket, currentDD);
+      tooltip   = StringFormat("50%% Drawdown Relief SL HIT | Ticket #%d | Loss Capped at: $%.2f (Saved from Peak DD: $%.2f) | ClosePrice: %.2f | Time: %s",
+                               primaryTicket, currentDD, peakDD, hitPrice,
+                               TimeToString(hitTime, TIME_DATE|TIME_MINUTES|TIME_SECONDS));
+     }
+
+   // 1. Solid Marker Icon (Wingdings 251 check, 171 star, 159 dot, or 238 shield)
+   ObjectCreate(0, baseName, OBJ_ARROW, 0, barTime, markerPrice);
+   ObjectSetInteger(0, baseName, OBJPROP_ARROWCODE, iconCode);
+   ObjectSetInteger(0, baseName, OBJPROP_COLOR, iconColor);
+   ObjectSetInteger(0, baseName, OBJPROP_WIDTH, 4);
+   ObjectSetInteger(0, baseName, OBJPROP_BACK, false);
+   ObjectSetInteger(0, baseName, OBJPROP_SELECTABLE, false);
+   ObjectSetInteger(0, baseName, OBJPROP_HIDDEN, false);
+   ObjectSetString(0, baseName, OBJPROP_TOOLTIP, tooltip);
+
+   // 2. Bold Text Label
+   ObjectCreate(0, txtName, OBJ_TEXT, 0, barTime, labelPrice);
+   ObjectSetString(0, txtName, OBJPROP_TEXT, labelText);
+   ObjectSetString(0, txtName, OBJPROP_FONT, "Arial Black");
+   ObjectSetInteger(0, txtName, OBJPROP_FONTSIZE, fontSize);
+   ObjectSetInteger(0, txtName, OBJPROP_COLOR, iconColor);
+   ObjectSetInteger(0, txtName, OBJPROP_BACK, false);
+   ObjectSetInteger(0, txtName, OBJPROP_SELECTABLE, false);
+   ObjectSetInteger(0, txtName, OBJPROP_HIDDEN, false);
+   ObjectSetString(0, txtName, OBJPROP_TOOLTIP, tooltip);
+
+   ChartRedraw(0);
+
+   Print(">>> [DRAWDOWN RELIEF SPECIAL CHART ICON] Placed '", labelText, "' on chart at bar ",
+         TimeToString(barTime, TIME_DATE|TIME_MINUTES), " | Peak DD: $", DoubleToString(peakDD, 2),
+         " -> Current DD: $", DoubleToString(currentDD, 2));
+  }
+
+//+------------------------------------------------------------------+
 //| METHOD-WISE ANALYTICS & LOGGING ENGINE                           |
 //| Tracks trigger time, expected profit, participating orders, and  |
 //| actual released profit when orders close.                        |
@@ -4225,7 +4385,7 @@ void PrintMethodAnalyticsSummaryReport()
 
 void CheckAndDrawMultiOrderClosedIcons()
   {
-   if(!InpDrawMultiOrderClosedIcons)
+   if(!InpDrawMultiOrderClosedIcons && !InpDrawDrawdownReliefIcon)
       return;
 
    int histTotal = OrdersHistoryTotal();
@@ -4269,6 +4429,20 @@ void CheckAndDrawMultiOrderClosedIcons()
          continue;
 
       int tkt = OrderTicket();
+      if(IsDrawdownReliefTicket(tkt))
+        {
+         double cSL = OrderStopLoss();
+         double cPrice = OrderClosePrice();
+         double pDiff = (cSL > 0.0) ? MathAbs(cPrice - cSL) : 9999.0;
+         if(pDiff <= 100.0 * Point || StringFind(OrderComment(), "[sl]") >= 0)
+           {
+            double netP = OrderProfit() + OrderSwap() + OrderCommission();
+            double repDD = (g_drawdownReliefPeakUSD > 0.0 ? g_drawdownReliefPeakUSD : g_drawdownReliefLastPeakUSD);
+            DrawDrawdownReliefIcon("HIT", 1, repDD, netP, 0.0, cTime, cPrice, tkt);
+           }
+         UnregisterDrawdownReliefTicket(tkt);
+        }
+
       int dummyCombo = 0;
       int mId = GetMethodForTicket(tkt, dummyCombo);
 
