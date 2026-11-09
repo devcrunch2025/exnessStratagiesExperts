@@ -4148,10 +4148,100 @@ void ModifyPairProfitWithStopLoss()
   }
 
 //+------------------------------------------------------------------+
-//| METHOD 6: Multi-Order Combination (> 2 Orders) SL Modifier       |
-//| Checks combinations of more than 2 orders (3, 4, or basket)      |
-//| where combined profit (mix of profit or loss) > $20 * multiplier.|
-//| Modifies all participating orders with $150 StopLoss USD gap.    |
+//| METHOD 6: Multi-Order Combination (> 2 Orders) Execution         |
+//| Checks combinations of >= 2 orders (pairs, triplets, quartets,   |
+//| basket) where combined profit >= $20 * multiplier.               |
+//| USER ACTION:                                                     |
+//| 1) FIRST: Close losing orders in the combination at market       |
+//| 2) THEN:  Modify winning orders with StopLoss at Current Price   |
+//+------------------------------------------------------------------+
+void ExecuteMethod6CombinationAction(int &comboIndices[], int comboCount, double comboSum,
+                                     int &candTickets[], int &candTypes[], double &candLots[],
+                                     double &candOpenPrices[], double &candTakeProfits[],
+                                     double &candProfits[], bool &isProcessed[])
+  {
+   Print(">>> [METHOD 6 TRIGGERED] Combination of ", comboCount, " orders hit Profit = $", DoubleToString(comboSum, 2),
+         " >= Threshold. Executing Action: 1) Close losing orders at market, 2) Modify profit orders with SL at current price.");
+
+   // 1. FIRST: Close losing orders at market
+   for(int c = 0; c < comboCount; c++)
+     {
+      int idx = comboIndices[c];
+      if(candProfits[idx] < 0.0)
+        {
+         int tkt = candTickets[idx];
+         double lossUSD = candProfits[idx];
+         Print(">>> [METHOD 6: CLOSING LOSING ORDER] Ticket #", tkt,
+               " (", (candTypes[idx] == OP_BUY ? "BUY " : "SELL "), DoubleToString(candLots[idx], 2), "L)",
+               " | Loss=-$", DoubleToString(MathAbs(lossUSD), 2),
+               " closed at market as part of +$", DoubleToString(comboSum, 2), " combination!");
+
+         if(CloseMarketOrderDirect(tkt))
+           {
+            RecordMethodModification(tkt, 6, comboCount, lossUSD);
+           }
+         isProcessed[idx] = true;
+        }
+     }
+
+   // 2. SECOND: Modify winning orders with StopLoss at Current Price
+   RefreshRates();
+   double curBid = MarketInfo(Symbol(), MODE_BID);
+   double curAsk = MarketInfo(Symbol(), MODE_ASK);
+   double minStopDist = GetRequiredStopDistance();
+   if(minStopDist < 20.0)
+      minStopDist = 20.0;
+
+   for(int c = 0; c < comboCount; c++)
+     {
+      int idx = comboIndices[c];
+      if(candProfits[idx] >= 0.0)
+        {
+         int tkt = candTickets[idx];
+         int oType = candTypes[idx];
+         double oOpen = candOpenPrices[idx];
+         double oTP = candTakeProfits[idx];
+         double winUSD = candProfits[idx];
+
+         RefreshRates();
+         curBid = MarketInfo(Symbol(), MODE_BID);
+         curAsk = MarketInfo(Symbol(), MODE_ASK);
+
+         // Current Price StopLoss (tightest broker-allowed stop)
+         double targetSL = (oType == OP_BUY) ? NormalizeDouble(curBid - minStopDist, Digits)
+                                             : NormalizeDouble(curAsk + minStopDist, Digits);
+
+         // Ensure profit order maintains at least Breakeven
+         if(oType == OP_BUY && targetSL < oOpen)
+            targetSL = oOpen;
+         else if(oType == OP_SELL && targetSL > oOpen)
+            targetSL = oOpen;
+
+         if(targetSL > 0.0)
+           {
+            bool modified = SafeOrderModify(tkt, oOpen, targetSL, oTP, 0, (oType == OP_BUY ? clrLimeGreen : clrTomato), "Method 6");
+            if(modified)
+              {
+               RecordMethodModification(tkt, 6, comboCount, winUSD);
+               Print(">>> [METHOD 6: WINNER SL LOCKED AT CURRENT PRICE] Ticket #", tkt,
+                     " (", (oType == OP_BUY ? "BUY " : "SELL "), DoubleToString(candLots[idx], 2), "L)",
+                     " | Profit=+$", DoubleToString(winUSD, 2),
+                     " | Locked SL=", DoubleToString(targetSL, Digits),
+                     " (Current Price - ", DoubleToString(minStopDist, Digits), ")");
+              }
+           }
+         isProcessed[idx] = true;
+        }
+     }
+
+   // Draw chart icon
+   double iconPrice = (candTypes[comboIndices[0]] == OP_BUY ? MarketInfo(Symbol(), MODE_BID) : MarketInfo(Symbol(), MODE_ASK));
+   DrawMethod6HitIcon(comboCount, comboSum, TimeCurrent(), iconPrice);
+   InvalidateTotalEAOrdersCache();
+  }
+
+//+------------------------------------------------------------------+
+//| ModifyMethod6MultiOrderCombinationsOver5USD                      |
 //+------------------------------------------------------------------+
 void ModifyMethod6MultiOrderCombinationsOver5USD()
   {
@@ -4166,8 +4256,7 @@ void ModifyMethod6MultiOrderCombinationsOver5USD()
    double candStopLosses[MAX_M6_ORDERS];
    double candTakeProfits[MAX_M6_ORDERS];
    double candProfits[MAX_M6_ORDERS];
-   bool   qualifyForSL[MAX_M6_ORDERS];
-   int    candComboSize[MAX_M6_ORDERS];
+   bool   isProcessed[MAX_M6_ORDERS];
    ArrayInitialize(candTickets, 0);
    ArrayInitialize(candTypes, 0);
    ArrayInitialize(candLots, 0.0);
@@ -4175,8 +4264,7 @@ void ModifyMethod6MultiOrderCombinationsOver5USD()
    ArrayInitialize(candStopLosses, 0.0);
    ArrayInitialize(candTakeProfits, 0.0);
    ArrayInitialize(candProfits, 0.0);
-   ArrayInitialize(qualifyForSL, false);
-   ArrayInitialize(candComboSize, 0);
+   ArrayInitialize(isProcessed, false);
    int candCount = 0;
 
    int mult = (balancelomultipler > 0) ? balancelomultipler : 1;
@@ -4213,266 +4301,191 @@ void ModifyMethod6MultiOrderCombinationsOver5USD()
       candStopLosses[candCount] = OrderStopLoss();
       candTakeProfits[candCount]= OrderTakeProfit();
       candProfits[candCount]    = OrderProfit() + OrderSwap() + OrderCommission();
-      qualifyForSL[candCount]   = false;
+      isProcessed[candCount]    = false;
       candCount++;
      }
 
    if(candCount < minOrders)
       return;
 
-   int    qualifyingCombinationsCount = 0;
-   double bestComboProfit = 0.0;
-   int    bestComboOrders = 0;
-
-   // 1. Total Basket Check (All open orders combined >= minOrders)
-   double totalBasketPL = 0.0;
-   for(int b = 0; b < candCount; b++)
-      totalBasketPL += candProfits[b];
-
-   if(candCount >= minOrders && totalBasketPL > threshold)
-     {
-      for(int b = 0; b < candCount; b++)
-        {
-         qualifyForSL[b] = true;
-         candComboSize[b] = candCount;
-        }
-      qualifyingCombinationsCount++;
-      if(totalBasketPL > bestComboProfit)
-        {
-         bestComboProfit = totalBasketPL;
-         bestComboOrders = candCount;
-        }
-     }
-
-   // 2. All 2-Order Combinations (if minOrders <= 2)
+   // 1. PRIORITY PAIR CHECK (Win + Loss): Pair with at least one losing order if sum >= threshold
    if(minOrders <= 2)
      {
       int searchLimit2 = MathMin(candCount, 30);
       for(int i = 0; i < searchLimit2 - 1; i++)
         {
+         if(isProcessed[i])
+            continue;
          for(int j = i + 1; j < searchLimit2; j++)
            {
-            double sum2 = candProfits[i] + candProfits[j];
-            if(sum2 > threshold)
+            if(isProcessed[j])
+               continue;
+
+            if(candProfits[i] < 0.0 || candProfits[j] < 0.0)
               {
-               qualifyForSL[i] = true;
-               qualifyForSL[j] = true;
-               if(candComboSize[i] == 0) candComboSize[i] = 2;
-               if(candComboSize[j] == 0) candComboSize[j] = 2;
-               if(sum2 > bestComboProfit)
+               double sum2 = candProfits[i] + candProfits[j];
+               if(sum2 >= threshold)
                  {
-                  bestComboProfit = sum2;
-                  bestComboOrders = 2;
+                  int combo[2];
+                  combo[0] = i; combo[1] = j;
+                  ExecuteMethod6CombinationAction(combo, 2, sum2, candTickets, candTypes, candLots,
+                                                  candOpenPrices, candTakeProfits, candProfits, isProcessed);
+                  break;
                  }
-               qualifyingCombinationsCount++;
               }
            }
         }
      }
 
-   // 3. All 3-Order Combinations (Triplets: i, j, k) - Profit or Loss mix
+   // 2. PRIORITY TRIPLET CHECK (Win + Losses): Check combinations of 3 orders with at least one loss
    int searchLimit3 = MathMin(candCount, 20);
    for(int i = 0; i < searchLimit3 - 2; i++)
      {
+      if(isProcessed[i])
+         continue;
       for(int j = i + 1; j < searchLimit3 - 1; j++)
         {
+         if(isProcessed[j])
+            continue;
          for(int k = j + 1; k < searchLimit3; k++)
            {
-            double sum3 = candProfits[i] + candProfits[j] + candProfits[k];
-            if(sum3 > threshold)
+            if(isProcessed[k])
+               continue;
+
+            if(candProfits[i] < 0.0 || candProfits[j] < 0.0 || candProfits[k] < 0.0)
               {
-               qualifyForSL[i] = true;
-               qualifyForSL[j] = true;
-               qualifyForSL[k] = true;
-               if(candComboSize[i] == 0) candComboSize[i] = 3;
-               if(candComboSize[j] == 0) candComboSize[j] = 3;
-               if(candComboSize[k] == 0) candComboSize[k] = 3;
-               if(sum3 > bestComboProfit)
+               double sum3 = candProfits[i] + candProfits[j] + candProfits[k];
+               if(sum3 >= threshold)
                  {
-                  bestComboProfit = sum3;
-                  bestComboOrders = 3;
+                  int combo[3];
+                  combo[0] = i; combo[1] = j; combo[2] = k;
+                  ExecuteMethod6CombinationAction(combo, 3, sum3, candTickets, candTypes, candLots,
+                                                  candOpenPrices, candTakeProfits, candProfits, isProcessed);
+                  break;
                  }
-               qualifyingCombinationsCount++;
               }
            }
+         if(isProcessed[i])
+            break;
         }
      }
 
-   // 4. All 4-Order Combinations (Quartets: i, j, k, m) - Profit or Loss mix
+   // 3. PRIORITY QUARTET CHECK (Win + Losses): Check combinations of 4 orders with at least one loss
    int searchLimit4 = MathMin(candCount, 12);
    for(int i = 0; i < searchLimit4 - 3; i++)
      {
+      if(isProcessed[i])
+         continue;
       for(int j = i + 1; j < searchLimit4 - 2; j++)
         {
+         if(isProcessed[j])
+            continue;
          for(int k = j + 1; k < searchLimit4 - 1; k++)
            {
+            if(isProcessed[k])
+               continue;
             for(int m = k + 1; m < searchLimit4; m++)
               {
-               double sum4 = candProfits[i] + candProfits[j] + candProfits[k] + candProfits[m];
-               if(sum4 > threshold)
+               if(isProcessed[m])
+                  continue;
+
+               if(candProfits[i] < 0.0 || candProfits[j] < 0.0 || candProfits[k] < 0.0 || candProfits[m] < 0.0)
                  {
-                  qualifyForSL[i] = true;
-                  qualifyForSL[j] = true;
-                  qualifyForSL[k] = true;
-                  qualifyForSL[m] = true;
-                  if(candComboSize[i] == 0) candComboSize[i] = 4;
-                  if(candComboSize[j] == 0) candComboSize[j] = 4;
-                  if(candComboSize[k] == 0) candComboSize[k] = 4;
-                  if(candComboSize[m] == 0) candComboSize[m] = 4;
-                  if(sum4 > bestComboProfit)
+                  double sum4 = candProfits[i] + candProfits[j] + candProfits[k] + candProfits[m];
+                  if(sum4 >= threshold)
                     {
-                     bestComboProfit = sum4;
-                     bestComboOrders = 4;
+                     int combo[4];
+                     combo[0] = i; combo[1] = j; combo[2] = k; combo[3] = m;
+                     ExecuteMethod6CombinationAction(combo, 4, sum4, candTickets, candTypes, candLots,
+                                                     candOpenPrices, candTakeProfits, candProfits, isProcessed);
+                     break;
                     }
-                  qualifyingCombinationsCount++;
                  }
+              }
+            if(isProcessed[i])
+               break;
+           }
+         if(isProcessed[i])
+            break;
+        }
+     }
+
+   // 4. ANY REMAINING PAIRS (e.g. 2 Wins >= threshold)
+   if(minOrders <= 2)
+     {
+      int searchLimit2 = MathMin(candCount, 30);
+      for(int i = 0; i < searchLimit2 - 1; i++)
+        {
+         if(isProcessed[i])
+            continue;
+         for(int j = i + 1; j < searchLimit2; j++)
+           {
+            if(isProcessed[j])
+               continue;
+
+            double sum2 = candProfits[i] + candProfits[j];
+            if(sum2 >= threshold)
+              {
+               int combo[2];
+               combo[0] = i; combo[1] = j;
+               ExecuteMethod6CombinationAction(combo, 2, sum2, candTickets, candTypes, candLots,
+                                               candOpenPrices, candTakeProfits, candProfits, isProcessed);
+               break;
               }
            }
         }
      }
 
-   if(qualifyingCombinationsCount == 0)
-      return;
-
-   if(bestComboOrders == 0)
+   // 5. ANY REMAINING TRIPLETS (e.g. 3 Wins >= threshold)
+   for(int i = 0; i < searchLimit3 - 2; i++)
      {
-      int qCount = 0;
-      double qPL = 0.0;
-      for(int q = 0; q < candCount; q++)
-        {
-         if(qualifyForSL[q])
-           {
-            qCount++;
-            qPL += candProfits[q];
-           }
-        }
-      bestComboOrders = (qCount > 0 ? qCount : 3);
-      bestComboProfit = (qPL > 0 ? qPL : threshold);
-     }
-
-   // 5. Modify qualifying orders with $150 USD gap StopLoss
-   RefreshRates();
-   double minDistance = GetRequiredStopDistance();
-   if(minDistance < 20.0)
-      minDistance = 20.0;
-
-   double rawGap = (InpMethod6SLDistanceUSD > 0.0) ? InpMethod6SLDistanceUSD : 150.0;
-   if(rawGap < minDistance)
-      rawGap = minDistance;
-
-   double curBid = MarketInfo(Symbol(), MODE_BID);
-   double curAsk = MarketInfo(Symbol(), MODE_ASK);
-   int modifiedSuccessCount = 0;
-
-   for(int k = 0; k < candCount; k++)
-     {
-      if(!qualifyForSL[k])
+      if(isProcessed[i])
          continue;
-
-      int tkt = candTickets[k];
-      if(!OrderSelect(tkt, SELECT_BY_TICKET, MODE_TRADES))
-         continue;
-
-      int    oType = OrderType();
-      double oOpen = OrderOpenPrice();
-      double curSL = OrderStopLoss();
-      double curTP = OrderTakeProfit();
-      double oLots = OrderLots();
-      double curPL = OrderProfit() + OrderSwap() + OrderCommission();
-
-      RefreshRates();
-      curBid = MarketInfo(Symbol(), MODE_BID);
-      curAsk = MarketInfo(Symbol(), MODE_ASK);
-
-      double proposedSL = GetTrendAwareStopLoss(oType, rawGap, curSL, "Method 6", curPL, oOpen);
-      bool   shouldModify = false;
-
-      double rawProfitGap = (oType == OP_BUY) ? (curBid - oOpen) : (oOpen - curAsk);
-      bool isSteepAngle = (InpEnableDoubleSlGapOnSteepAngle && MathAbs(GlobalEmaAngle30) > InpDoubleSlGapAngle);
-      bool isProfitGapReached = (rawProfitGap > InpDoubleSlMinProfitGapRaw);
-
-      // Clamp proposedSL to openPrice if profit gap reached (USER RULE: never modify with loss amount)
-      if(isProfitGapReached)
+      for(int j = i + 1; j < searchLimit3 - 1; j++)
         {
-         if(oType == OP_BUY && proposedSL < oOpen)
-            proposedSL = oOpen;
-         else if(oType == OP_SELL && proposedSL > oOpen)
-            proposedSL = oOpen;
-        }
-
-      // Common Gate Barrier: Method 6 can ONLY move StopLoss strictly forward (higher for BUY, lower for SELL)
-      // StopLoss can NEVER go backwards to less profit or more loss!
-      if(oType == OP_BUY)
-        {
-         if(proposedSL >= curBid)
+         if(isProcessed[j])
             continue;
+         for(int k = j + 1; k < searchLimit3; k++)
+           {
+            if(isProcessed[k])
+               continue;
 
-         if(curSL == 0.0 || (proposedSL > curSL && (proposedSL - curSL) >= MinimumSLModifyGapRaw))
-           {
-            shouldModify = true;
+            double sum3 = candProfits[i] + candProfits[j] + candProfits[k];
+            if(sum3 >= threshold)
+              {
+               int combo[3];
+               combo[0] = i; combo[1] = j; combo[2] = k;
+               ExecuteMethod6CombinationAction(combo, 3, sum3, candTickets, candTypes, candLots,
+                                               candOpenPrices, candTakeProfits, candProfits, isProcessed);
+               break;
+              }
            }
-        }
-      else if(oType == OP_SELL)
-        {
-         if(proposedSL <= curAsk)
-            continue;
-
-         if(curSL == 0.0 || (proposedSL < curSL && (curSL - proposedSL) >= MinimumSLModifyGapRaw))
-           {
-            shouldModify = true;
-           }
-        }
-
-      if(shouldModify && proposedSL > 0.0)
-        {
-         ResetLastError();
-         bool modified = SafeOrderModify(tkt, oOpen, proposedSL, curTP, 0, (oType == OP_BUY ? clrLimeGreen : clrTomato), "Method 6");
-         if(modified)
-           {
-            modifiedSuccessCount++;
-            RecordMethodModification(tkt, 6, (candComboSize[k] > 0 ? candComboSize[k] : 3), curPL);
-            Print("METHOD 6 COMBINATION (>=2 ORDERS >$5) SL MODIFIED | Ticket #", tkt,
-                  " | Type=", (oType == OP_BUY ? "BUY" : "SELL"),
-                  " | P/L=$", DoubleToString(curPL, 2),
-                  " | New SL=", DoubleToString(proposedSL, Digits),
-                  " (Gap=$", DoubleToString(rawGap, 1), ")");
-           }
-        }
-      else
-        {
-         // Diagnostic reason logging when an order in the combination is not modified
-         if(oType == OP_BUY && curSL > 0.0 && proposedSL <= curSL)
-           {
-            Print(">>> [METHOD 6 ORDER NOT MODIFIED] Ticket #", tkt, " (BUY ", DoubleToString(oLots, 2), "L)",
-                  " | Current SL=", DoubleToString(curSL, Digits),
-                  " is ALREADY higher/better than Method 6 SL=", DoubleToString(proposedSL, Digits),
-                  " | Reason: Preserving existing tighter SL / breakeven / profit lock!");
-           }
-         else if(oType == OP_SELL && curSL > 0.0 && proposedSL >= curSL)
-           {
-            Print(">>> [METHOD 6 ORDER NOT MODIFIED] Ticket #", tkt, " (SELL ", DoubleToString(oLots, 2), "L)",
-                  " | Current SL=", DoubleToString(curSL, Digits),
-                  " is ALREADY lower/better than Method 6 SL=", DoubleToString(proposedSL, Digits),
-                  " | Reason: Preserving existing tighter SL / breakeven / profit lock!");
-           }
-         else if(curSL > 0.0 && MathAbs(curSL - proposedSL) < MinimumSLModifyGapRaw)
-           {
-            Print(">>> [METHOD 6 ORDER NOT MODIFIED] Ticket #", tkt,
-                  " | Already at target SL (Gap < MinimumSLModifyGapRaw).");
-           }
+         if(isProcessed[i])
+            break;
         }
      }
 
-   // 6. When Method 6 Profit Threshold Hits -> Draw Icon On Chart
-   if(qualifyingCombinationsCount > 0)
+   // 6. TOTAL BASKET CHECK (All remaining un-processed open orders)
+   int remainingCount = 0;
+   double totalBasketPL = 0.0;
+   int basketIndices[MAX_M6_ORDERS];
+   for(int b = 0; b < candCount; b++)
      {
-      DrawMethod6HitIcon(bestComboOrders, bestComboProfit, TimeCurrent(), (curBid > 0 ? curBid : Bid));
+      if(!isProcessed[b])
+        {
+         basketIndices[remainingCount] = b;
+         totalBasketPL += candProfits[b];
+         remainingCount++;
+        }
+     }
+
+   if(remainingCount >= minOrders && totalBasketPL >= threshold)
+     {
+      ExecuteMethod6CombinationAction(basketIndices, remainingCount, totalBasketPL, candTickets, candTypes, candLots,
+                                      candOpenPrices, candTakeProfits, candProfits, isProcessed);
      }
   }
 
-//+------------------------------------------------------------------+
-//|                                                                  |
-//+------------------------------------------------------------------+
 //+------------------------------------------------------------------+
 //| Modify SL to live price with $50 gap or close on server error    |
 //+------------------------------------------------------------------+
