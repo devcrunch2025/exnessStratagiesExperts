@@ -44,7 +44,7 @@ CheckBasketProfitClose  Total open basket profit
 
 
 
-string glbVersion = "VMULTI-1105- EMA Angle > 4 Breakeven Extra -50 Raw Gap Breathing SL";
+string glbVersion = "VMULTI-1106- EquityProfitLadder5 Minimum 6 Hours Gap Between Step Hits";
 
 
 
@@ -99,6 +99,7 @@ bool   InpEnableEquityProfitLadder5        = true;   // Enabled: Lowest Equity R
 double InpEquityProfitLadderStepUSD        = 10;//20;//50;//100;//5.0;    // Step size in USD ($5.00)
 bool   InpEquityLadderUseMultiplier        = true;   // Multiply step size by balancelomultipler ($5 * multiplier)
 double InpEquityLadderSLDistanceRaw        = 100.0;  // StopLoss gap from live price in raw points (-$100 gap)
+double InpEquityLadderMinGapHours          = 6.0;    // Minimum time gap in hours between EquityProfitLadder5 step hits
 bool   InpDrawEquityLadder5Icon            = true;   // Draw special chart icon when EquityProfitLadder5 step is hit
 color  InpEquityLadder5IconColor           = clrAqua;// Chart icon & text color for EquityProfitLadder5
 int    InpEquityLadder5IconCode            = 159;    // Chart icon Wingdings code (159=circle dot, 171=star, 251=checkmark, 221=arrow)
@@ -16802,10 +16803,11 @@ void CheckDynamicStepLadder()
 //| 3. If equity falls to a new low, updates LowestEquity baseline.  |
 //| 4. When no orders are open, synchronizes state cleanly.          |
 //+------------------------------------------------------------------+
-double LowestEquity               = 0.0;
-bool   LowestEquityInitialized    = false;
-double g_equityLadderNextTarget   = 0.0;
-int    g_equityLadderStepCounter  = 0;
+double   LowestEquity               = 0.0;
+bool     LowestEquityInitialized    = false;
+double   g_equityLadderNextTarget   = 0.0;
+int      g_equityLadderStepCounter  = 0;
+datetime g_lastEquityLadderHitTime  = 0;
 
 //+------------------------------------------------------------------+
 //| DrawEquityProfitLadder5HitIcon:                                  |
@@ -16924,6 +16926,7 @@ void EquityProfitLadder5()
       LowestEquity              = AccountEquity();
       g_equityLadderNextTarget  = 0.0;
       g_equityLadderStepCounter = 0;
+      g_lastEquityLadderHitTime = 0;
       LowestEquityInitialized   = false;
       return;
      }
@@ -16940,12 +16943,14 @@ void EquityProfitLadder5()
       LowestEquity              = curEquity;
       g_equityLadderNextTarget  = curEquity + stepUSD;
       g_equityLadderStepCounter = 0;
+      g_lastEquityLadderHitTime = 0;
       LowestEquityInitialized   = true;
 
       Print("EQUITY PROFIT LADDER $5 INITIALIZED | Equity=$", DoubleToString(curEquity, 2),
             " | LowestEquity=$", DoubleToString(LowestEquity, 2),
             " | Step=$", DoubleToString(stepUSD, 2),
-            " | NextTarget=$", DoubleToString(g_equityLadderNextTarget, 2));
+            " | NextTarget=$", DoubleToString(g_equityLadderNextTarget, 2),
+            " | MinGapHours=", DoubleToString(InpEquityLadderMinGapHours, 1));
       return;
      }
 
@@ -16960,6 +16965,17 @@ void EquityProfitLadder5()
 // 5. Equity moved UP by step ($5 * multiplier) from the low
    if(curEquity >= g_equityLadderNextTarget)
      {
+      // Check minimum time gap between step hits (e.g. 6 hours)
+      if(InpEquityLadderMinGapHours > 0.0 && g_lastEquityLadderHitTime > 0)
+        {
+         datetime minNextAllowedTime = g_lastEquityLadderHitTime + (datetime)(InpEquityLadderMinGapHours * 3600.0);
+         if(TimeCurrent() < minNextAllowedTime)
+           {
+            // Minimum time gap has not elapsed yet; keep waiting
+            return;
+           }
+        }
+
       if(InpPauseEquityProfitHitOnSingleWinningOrder)
         {
          int mktCount = 0;
@@ -16985,6 +17001,7 @@ void EquityProfitLadder5()
         }
 
       g_equityLadderStepCounter++;
+      g_lastEquityLadderHitTime = TimeCurrent();
       double gainFromLow = curEquity - LowestEquity;
 
       Print("==================================================================");
@@ -16993,6 +17010,7 @@ void EquityProfitLadder5()
             " >= Target=$", DoubleToString(g_equityLadderNextTarget, 2),
             " | LowestEquity=$", DoubleToString(LowestEquity, 2),
             " | Gain From Low=+$", DoubleToString(gainFromLow, 2),
+            " | Time=", TimeToString(g_lastEquityLadderHitTime, TIME_DATE|TIME_SECONDS),
             " | Modifying ALL Open Orders with -$100 StopLoss gap.");
       Print("==================================================================");
 
@@ -17007,7 +17025,8 @@ void EquityProfitLadder5()
       g_equityLadderNextTarget = curEquity + stepUSD;
 
       Print("EQUITY PROFIT LADDER RATCHETED | New Lowest Baseline=$", DoubleToString(LowestEquity, 2),
-            " | Next Step Target=$", DoubleToString(g_equityLadderNextTarget, 2));
+            " | Next Step Target=$", DoubleToString(g_equityLadderNextTarget, 2),
+            " | Next Hit Earliest=", TimeToString(g_lastEquityLadderHitTime + (datetime)(InpEquityLadderMinGapHours * 3600.0), TIME_DATE|TIME_MINUTES));
      }
   }
 
@@ -19255,7 +19274,20 @@ void UpdateDashboard(DailyProtectionState &state)
    color tgtClr = (gbltargetEquityCounter > 0 || dayPL >= 0) ? clrLime : clrTomato;
    CreateDashboardLabel(DASH_PREFIX+"TGTEQ", tgtEqStr, tx, y+110, 8, tgtClr);
 
-   string eqLadderStatus = (LowestEquity > 0.0) ? StringFormat(" | Eq$5: Low $%.0f->Tgt $%.0f (#%d)", LowestEquity, g_equityLadderNextTarget, g_equityLadderStepCounter) : "";
+   string eqLadderStatus = "";
+   if(LowestEquity > 0.0)
+     {
+      datetime minNextAllowed = g_lastEquityLadderHitTime + (datetime)(InpEquityLadderMinGapHours * 3600.0);
+      if(InpEquityLadderMinGapHours > 0.0 && g_lastEquityLadderHitTime > 0 && TimeCurrent() < minNextAllowed)
+        {
+         double remHours = (double)(minNextAllowed - TimeCurrent()) / 3600.0;
+         eqLadderStatus = StringFormat(" | Eq$5: Wait %.1fh (#%d)", remHours, g_equityLadderStepCounter);
+        }
+      else
+        {
+         eqLadderStatus = StringFormat(" | Eq$5: Low $%.0f->Tgt $%.0f (#%d)", LowestEquity, g_equityLadderNextTarget, g_equityLadderStepCounter);
+        }
+     }
    string cycleStr = StringFormat("CYCLE / LOCK: %s$%.2f / Next: $%.2f | Lock: $%.2f%s", (totalCycleProfit >= 0 ? "+" : "-"), MathAbs(totalCycleProfit), emaNextTarget, emaLockedPrf, eqLadderStatus);
    CreateDashboardLabel(DASH_PREFIX+"LAD_CYCLE", cycleStr, tx, y+126, 8, (totalCycleProfit >= 0 ? clrLime : clrTomato));
 
