@@ -42,7 +42,7 @@ CheckBasketProfitClose  Total open basket profit
 */
 
 
-string glbVersion = "VMULTI-1098- Drawdown Relief SL Special Chart Icon on Success";
+string glbVersion = "VMULTI-1099- Repeat Drawdown Relief SL on Every Peak DD Hit Success";
 
 
 
@@ -1935,11 +1935,7 @@ void Check50PctDrawdownReliefTightenSL()
          Print(">>> [DRAWDOWN RELIEF RESET] Equity ($", DoubleToString(equity, 2),
                ") >= Balance ($", DoubleToString(balance, 2), "). Drawdown cleared! Resetting peak tracker.");
         }
-      if(g_drawdownReliefPeakUSD > 0.0)
-         g_drawdownReliefLastPeakUSD = g_drawdownReliefPeakUSD;
-      g_drawdownReliefPeakUSD  = 0.0;
-      g_drawdownReliefArmed    = false;
-      g_drawdownReliefExecuted = false;
+      ResetDrawdownReliefCycle("Equity >= Balance (drawdown cleared)");
       return;
      }
 
@@ -1971,11 +1967,7 @@ void Check50PctDrawdownReliefTightenSL()
         {
          Print(">>> [DRAWDOWN RELIEF RESET] No open losing orders. Resetting peak tracker.");
         }
-      if(g_drawdownReliefPeakUSD > 0.0)
-         g_drawdownReliefLastPeakUSD = g_drawdownReliefPeakUSD;
-      g_drawdownReliefPeakUSD  = 0.0;
-      g_drawdownReliefArmed    = false;
-      g_drawdownReliefExecuted = false;
+      ResetDrawdownReliefCycle("No open losing orders");
       return;
      }
 
@@ -2098,8 +2090,9 @@ void Check50PctDrawdownReliefTightenSL()
    if(modifiedCount > 0)
      {
       g_drawdownReliefExecuted = true;
-      PrintFormat(">>> [50%% DRAWDOWN RELIEF SL APPLIED] Successfully tightened SL on %d losing orders to relief price level (Cushion=$%.2f). Loss capped at 50%% retracement!",
-                  modifiedCount, reliefGap);
+      g_drawdownReliefAppliedCount++;
+      PrintFormat(">>> [50%% DRAWDOWN RELIEF SL APPLIED #%d] Successfully tightened SL on %d losing orders to relief price level (Cushion=$%.2f). Loss capped at 50%% retracement! Ready to repeat on next InpDrawdownReliefMinPeakUSD after hit success.",
+                  g_drawdownReliefAppliedCount, modifiedCount, reliefGap);
       DrawDrawdownReliefIcon("APPLIED", modifiedCount, g_drawdownReliefPeakUSD, currentDrawdown, reliefGap, TimeCurrent(), (curBid > 0 ? curBid : 0.0), 0);
      }
   }
@@ -3436,6 +3429,12 @@ void   RegisterDrawdownReliefTicket(int ticket);
 bool   IsDrawdownReliefTicket(int ticket);
 void   UnregisterDrawdownReliefTicket(int ticket);
 
+// USER RULE (VMULTI-1099): Repeat Drawdown Relief on every InpDrawdownReliefMinPeakUSD after hit success
+bool   InpDrawdownReliefRepeatOnHitSuccess = true;   // Repeat drawdown relief cycle on every InpDrawdownReliefMinPeakUSD hit success
+int    g_drawdownReliefHitSuccessCount     = 0;      // Total number of successful relief SL hits
+int    g_drawdownReliefAppliedCount        = 0;      // Total number of times relief SL tightening was executed
+void   ResetDrawdownReliefCycle(string reason = "");
+
 double GetTrendAwareStopLoss(int orderType, double standardGapUSD, double curSL = 0.0, string callerName = "", double orderProfit = 0.0, double openPrice = 0.0);
 
 // Visual Chart Icons for Multi-Order Closes (+2, +3, +4...) from the 6 Methods
@@ -4164,6 +4163,35 @@ void DrawDrawdownReliefIcon(string iconType, int orderCount, double peakDD, doub
   }
 
 //+------------------------------------------------------------------+
+//| ResetDrawdownReliefCycle:                                        |
+//| Resets drawdown relief tracking so the process repeats on every  |
+//| InpDrawdownReliefMinPeakUSD after hit success or full recovery.  |
+//+------------------------------------------------------------------+
+void ResetDrawdownReliefCycle(string reason = "")
+  {
+   if(g_drawdownReliefPeakUSD > 0.0)
+      g_drawdownReliefLastPeakUSD = g_drawdownReliefPeakUSD;
+
+   double mult = (balancelomultipler > 0) ? balancelomultipler : 1.0;
+   double minPeakRequired = InpDrawdownReliefMinPeakUSD * mult;
+   if(minPeakRequired <= 0.0)
+      minPeakRequired = 100.0;
+
+   PrintFormat(">>> [DRAWDOWN RELIEF RESET TO REPEAT] %s | Peak DD was $%.2f. Cycle reset! Ready to repeat on next >= $%.2f drawdown (Total Hit Successes: %d, Total Executions: %d).",
+               (reason != "" ? reason : "Tight relief SL hit success"),
+               g_drawdownReliefLastPeakUSD,
+               minPeakRequired,
+               g_drawdownReliefHitSuccessCount,
+               g_drawdownReliefAppliedCount);
+
+   g_drawdownReliefPeakUSD      = 0.0;
+   g_drawdownReliefPeakTime     = 0;
+   g_drawdownReliefArmed        = false;
+   g_drawdownReliefExecuted     = false;
+   g_drawdownReliefTicketCount  = 0;
+  }
+
+//+------------------------------------------------------------------+
 //| METHOD-WISE ANALYTICS & LOGGING ENGINE                           |
 //| Tracks trigger time, expected profit, participating orders, and  |
 //| actual released profit when orders close.                        |
@@ -4399,6 +4427,7 @@ void CheckAndDrawMultiOrderClosedIcons()
 
    #define MAX_HIST_SCAN 200
    int scanCount = MathMin(histTotal, MAX_HIST_SCAN);
+   bool reliefHitSuccess = false;
 
    struct SClosedOrderInfo
      {
@@ -4438,7 +4467,11 @@ void CheckAndDrawMultiOrderClosedIcons()
            {
             double netP = OrderProfit() + OrderSwap() + OrderCommission();
             double repDD = (g_drawdownReliefPeakUSD > 0.0 ? g_drawdownReliefPeakUSD : g_drawdownReliefLastPeakUSD);
+            g_drawdownReliefHitSuccessCount++;
             DrawDrawdownReliefIcon("HIT", 1, repDD, netP, 0.0, cTime, cPrice, tkt);
+            reliefHitSuccess = true;
+            PrintFormat(">>> [DRAWDOWN RELIEF SL HIT SUCCESS #%d] Order #%d closed at tight relief SL! Loss capped at $%.2f (Saved from Peak DD: $%.2f). Repeating on every InpDrawdownReliefMinPeakUSD.",
+                        g_drawdownReliefHitSuccessCount, tkt, netP, repDD);
            }
          UnregisterDrawdownReliefTicket(tkt);
         }
@@ -4455,6 +4488,15 @@ void CheckAndDrawMultiOrderClosedIcons()
      }
 
    s_lastCheckedHistTotal = histTotal;
+
+   // USER RULE (VMULTI-1099): Repeat Drawdown Relief process on every InpDrawdownReliefMinPeakUSD after hit success
+   if((reliefHitSuccess || g_drawdownReliefTicketCount == 0) && g_drawdownReliefExecuted)
+     {
+      if(InpDrawdownReliefRepeatOnHitSuccess)
+        {
+         ResetDrawdownReliefCycle("Tight relief SL hit success - Ready to repeat on next InpDrawdownReliefMinPeakUSD");
+        }
+     }
 
    if(cCount < 2)
       return;
@@ -7169,6 +7211,13 @@ void OnDeinit(const int reason)
    ClearSweepGlobalVariables();
    GenerateTesterSummaryReport();
    PrintMethodAnalyticsSummaryReport();
+   if(g_drawdownReliefAppliedCount > 0 || g_drawdownReliefHitSuccessCount > 0)
+     {
+      double mult = (balancelomultipler > 0) ? balancelomultipler : 1.0;
+      PrintFormat(">>> [DRAWDOWN RELIEF SUMMARY] Total Tighten Executions: %d | Total SL Hits (Loss Capped): %d | Mode: Repeating on every $%.2f DD",
+                  g_drawdownReliefAppliedCount, g_drawdownReliefHitSuccessCount,
+                  (InpDrawdownReliefMinPeakUSD * mult));
+     }
   }
 
 int StartupProtectionTicks = 0;
