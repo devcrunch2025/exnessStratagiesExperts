@@ -42,7 +42,7 @@ CheckBasketProfitClose  Total open basket profit
 */
 
 
-string glbVersion = "VMULTI-1097 -Method 6";
+string glbVersion = "VMULTI-1097- 50% Drawdown Relief SL Tighten (Peak DD >= $100)";
 
 
 
@@ -1903,6 +1903,201 @@ void Check90PctSLAdversePartialCutAndDoubleSL()
   }
 
 //+------------------------------------------------------------------+
+//| Check50PctDrawdownReliefTightenSL:                               |
+//| USER RULE (VMULTI-1097):                                         |
+//| "Solution 2: Tighten Losing Order SLs to the Relief Price Level. |
+//|  Condition is this should be activate tighten when the          |
+//|  difference between account balance - equity is more than 100."  |
+//|                                                                  |
+//| 1. Only activates if Peak Drawdown (Balance - Equity) >= $100.0  |
+//| 2. When floating loss reduces by >= 50% from that peak, tightens |
+//|    all losing order SLs behind relief market price (Bid-50/Ask+50).|
+//| 3. Locks in the 50% reduced loss so adverse trend resumption     |
+//|    cannot expand drawdown back into catastrophic losses!         |
+//+------------------------------------------------------------------+
+void Check50PctDrawdownReliefTightenSL()
+  {
+   if(!InpEnableDrawdownReliefTightenSL)
+      return;
+
+   double balance = AccountBalance();
+   double equity  = AccountEquity();
+   if(balance <= 0.0)
+      return;
+
+   double currentDrawdown = balance - equity;
+
+   // Auto-reset when equity >= balance (no floating drawdown)
+   if(currentDrawdown <= 0.0)
+     {
+      if(g_drawdownReliefArmed)
+        {
+         Print(">>> [DRAWDOWN RELIEF RESET] Equity ($", DoubleToString(equity, 2),
+               ") >= Balance ($", DoubleToString(balance, 2), "). Drawdown cleared! Resetting peak tracker.");
+        }
+      g_drawdownReliefPeakUSD  = 0.0;
+      g_drawdownReliefArmed    = false;
+      g_drawdownReliefExecuted = false;
+      return;
+     }
+
+   // Check open losing orders count for this symbol & magic number
+   int losingCount = 0;
+   double totalLosingPL = 0.0;
+   for(int i = OrdersTotal() - 1; i >= 0; i--)
+     {
+      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
+         continue;
+      if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber)
+         continue;
+      int oType = OrderType();
+      if(oType != OP_BUY && oType != OP_SELL)
+         continue;
+
+      double pl = OrderProfit() + OrderSwap() + OrderCommission();
+      if(pl < 0.0)
+        {
+         losingCount++;
+         totalLosingPL += pl;
+        }
+     }
+
+   // If no losing orders remain, reset tracker
+   if(losingCount == 0)
+     {
+      if(g_drawdownReliefArmed)
+        {
+         Print(">>> [DRAWDOWN RELIEF RESET] No open losing orders. Resetting peak tracker.");
+        }
+      g_drawdownReliefPeakUSD  = 0.0;
+      g_drawdownReliefArmed    = false;
+      g_drawdownReliefExecuted = false;
+      return;
+     }
+
+   double mult = (balancelomultipler > 0) ? balancelomultipler : 1.0;
+   double minPeakRequired = InpDrawdownReliefMinPeakUSD * mult;
+   if(minPeakRequired <= 0.0)
+      minPeakRequired = 100.0;
+
+   // Track highest drawdown reached during this cycle
+   if(currentDrawdown > g_drawdownReliefPeakUSD)
+     {
+      g_drawdownReliefPeakUSD  = currentDrawdown;
+      g_drawdownReliefPeakTime = TimeCurrent();
+      g_drawdownReliefExecuted = false; // Reset executed flag if a new worse peak is made
+     }
+
+   // Arm only when peak reaches or breaches minimum threshold ($100 * mult)
+   if(g_drawdownReliefPeakUSD >= minPeakRequired)
+     {
+      if(!g_drawdownReliefArmed)
+        {
+         g_drawdownReliefArmed = true;
+         PrintFormat(">>> [DRAWDOWN RELIEF ARMED] Peak Drawdown reached $%.2f >= Minimum $%.2f ($100*mult). Monitoring for 50%% relief bounce (Target Drawdown <= $%.2f)...",
+                     g_drawdownReliefPeakUSD, minPeakRequired, g_drawdownReliefPeakUSD * (1.0 - InpDrawdownReliefPercent));
+        }
+     }
+   else
+     {
+      // Below $100 -> do not activate, avoid interfering with small fluctuations
+      return;
+     }
+
+   // If already executed for this peak level, wait until a new worse peak occurs or cycle resets
+   if(g_drawdownReliefExecuted)
+      return;
+
+   // Check if current drawdown has reduced by >= 50% from the peak
+   double reliefFraction = (InpDrawdownReliefPercent > 0.0 && InpDrawdownReliefPercent < 1.0) ? InpDrawdownReliefPercent : 0.50;
+   double reliefTargetDrawdown = g_drawdownReliefPeakUSD * (1.0 - reliefFraction);
+
+   if(currentDrawdown > reliefTargetDrawdown)
+      return; // Has not reduced by 50% yet
+
+   // 50% RELIEF BOUNCE DETECTED! Tighten all losing orders to relief price level!
+   RefreshRates();
+   double curBid = MarketInfo(Symbol(), MODE_BID);
+   double curAsk = MarketInfo(Symbol(), MODE_ASK);
+   double minStopDist = GetRequiredStopDistance();
+   if(minStopDist < 20.0)
+      minStopDist = 20.0;
+
+   double reliefGap = (InpDrawdownReliefSLGapUSD > 0.0) ? InpDrawdownReliefSLGapUSD : 50.0;
+   if(reliefGap < minStopDist)
+      reliefGap = minStopDist;
+
+   int modifiedCount = 0;
+
+   for(int k = OrdersTotal() - 1; k >= 0; k--)
+     {
+      if(!OrderSelect(k, SELECT_BY_POS, MODE_TRADES))
+         continue;
+      if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber)
+         continue;
+      int tkt = OrderTicket();
+      int oType = OrderType();
+      if(oType != OP_BUY && oType != OP_SELL)
+         continue;
+
+      double pl = OrderProfit() + OrderSwap() + OrderCommission();
+      if(pl >= 0.0)
+         continue; // Only losing orders!
+
+      double oOpen = OrderOpenPrice();
+      double curSL = OrderStopLoss();
+      double curTP = OrderTakeProfit();
+      double targetSL = 0.0;
+
+      if(oType == OP_BUY)
+        {
+         targetSL = NormalizeDouble(curBid - reliefGap, Digits);
+         if((curBid - targetSL) < minStopDist)
+            targetSL = NormalizeDouble(curBid - minStopDist, Digits);
+
+         // One-Way Tighten: Only modify if curSL is 0.0 OR targetSL is HIGHER than curSL (reduces loss)
+         if(curSL <= 0.0 || (targetSL > curSL && (targetSL - curSL) >= MinimumSLModifyGapRaw))
+           {
+            ResetLastError();
+            bool ok = SafeOrderModify(tkt, oOpen, targetSL, curTP, 0, clrOrange, "DrawdownRelief50Pct");
+            if(ok)
+              {
+               modifiedCount++;
+               PrintFormat(">>> [50%% DRAWDOWN RELIEF SL TIGHTENED] BUY #%d (Lots=%.2f, Loss=$-%.2f) | Old SL=%.2f -> New Tight SL=%.2f (Relief Bid=%.2f - $%.2f) | Peak DD=$%.2f -> Current DD=$%.2f (Reduced by >50%%)",
+                           tkt, OrderLots(), MathAbs(pl), curSL, targetSL, curBid, reliefGap, g_drawdownReliefPeakUSD, currentDrawdown);
+              }
+           }
+        }
+      else if(oType == OP_SELL)
+        {
+         targetSL = NormalizeDouble(curAsk + reliefGap, Digits);
+         if((targetSL - curAsk) < minStopDist)
+            targetSL = NormalizeDouble(curAsk + minStopDist, Digits);
+
+         // One-Way Tighten: Only modify if curSL is 0.0 OR targetSL is LOWER than curSL (reduces loss)
+         if(curSL <= 0.0 || (targetSL < curSL && (curSL - targetSL) >= MinimumSLModifyGapRaw))
+           {
+            ResetLastError();
+            bool ok = SafeOrderModify(tkt, oOpen, targetSL, curTP, 0, clrOrange, "DrawdownRelief50Pct");
+            if(ok)
+              {
+               modifiedCount++;
+               PrintFormat(">>> [50%% DRAWDOWN RELIEF SL TIGHTENED] SELL #%d (Lots=%.2f, Loss=$-%.2f) | Old SL=%.2f -> New Tight SL=%.2f (Relief Ask=%.2f + $%.2f) | Peak DD=$%.2f -> Current DD=$%.2f (Reduced by >50%%)",
+                           tkt, OrderLots(), MathAbs(pl), curSL, targetSL, curAsk, reliefGap, g_drawdownReliefPeakUSD, currentDrawdown);
+              }
+           }
+        }
+     }
+
+   if(modifiedCount > 0)
+     {
+      g_drawdownReliefExecuted = true;
+      PrintFormat(">>> [50%% DRAWDOWN RELIEF SL APPLIED] Successfully tightened SL on %d losing orders to relief price level (Cushion=$%.2f). Loss capped at 50%% retracement!",
+                  modifiedCount, reliefGap);
+     }
+  }
+
+//+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
 void ApplyEmaFlipWideBreathingProtection(int prevDirection, int newDirection)
@@ -3211,6 +3406,17 @@ bool   InpEnableDoubleSlGapOnSteepAngle    = true;  // Double SL gap (e.g. $150 
 double InpDoubleSlGapAngle                 = 3.0;   // Minimum EMA angle (degrees) to double the SL gap (MathAbs(EMAangle) > 3.0)
 double InpDoubleSlMinProfitGapRaw          = 350;//500.0; // Minimum raw price gap ($500.0) in profit direction (openprice - liveprice)
 double InpDoubleSlGapMultiplier            = 2.0;   // Gap multiplier (default 2.0 = double gap $150 to $300)
+
+// USER RULE (VMULTI-1097): 50% Drawdown Relief StopLoss Tightening (Peak Drawdown >= $100)
+bool   InpEnableDrawdownReliefTightenSL   = true;   // Enable Tighten Losing Order SL on 50% Drawdown Relief
+double InpDrawdownReliefMinPeakUSD        = 100.0;  // Minimum peak drawdown in USD ($100 * mult) to qualify
+double InpDrawdownReliefPercent           = 0.50;   // Drawdown reduction percentage from peak (50% = 0.50)
+double InpDrawdownReliefSLGapUSD          = 50.0;   // SL cushion in USD ($50) behind relief market price (Bid - 50 / Ask + 50)
+double g_drawdownReliefPeakUSD            = 0.0;    // Highest floating drawdown (Balance - Equity) during current cycle
+datetime g_drawdownReliefPeakTime         = 0;      // Time when peak drawdown was reached
+bool   g_drawdownReliefArmed              = false;  // True when peak drawdown reached >= InpDrawdownReliefMinPeakUSD
+bool   g_drawdownReliefExecuted           = false;  // True when relief SL tightening was executed for current cycle
+void   Check50PctDrawdownReliefTightenSL();
 
 double GetTrendAwareStopLoss(int orderType, double standardGapUSD, double curSL = 0.0, string callerName = "", double orderProfit = 0.0, double openPrice = 0.0);
 
@@ -6996,6 +7202,7 @@ void OnTick()
    CheckEmaFlipHalfDistancePartialLossCut();
    CheckMaxLossCap001Lots();
    Check90PctSLAdversePartialCutAndDoubleSL();
+   Check50PctDrawdownReliefTightenSL();
    CheckEquitySurplusReset();
    PruneEquityHitSecuredTickets();
 
@@ -10126,7 +10333,7 @@ bool CanModifyStopLossForHigherProfit(int ticket, double proposedSL, string call
 
 // USER RULE: Orders secured by Equity Target Hit:
 // "profit stoploss value ok. loss stoploss is not ok."
-   if(IsEquityHitSecuredOrder(ticket) && callerName != "EquityTargetHit_LossTighten" && StringFind(callerName, "Method") < 0)
+   if(IsEquityHitSecuredOrder(ticket) && callerName != "EquityTargetHit_LossTighten" && callerName != "DrawdownRelief50Pct" && StringFind(callerName, "Method") < 0)
      {
       bool isLossSL = (oType == OP_BUY && normPropSL < oOpen) || (oType == OP_SELL && normPropSL > oOpen);
       if(isLossSL)
