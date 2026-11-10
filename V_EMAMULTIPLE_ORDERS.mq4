@@ -1,4 +1,4 @@
-//+------------------------------------------------------------------+
+﻿//+------------------------------------------------------------------+
 //|                  SSL CHANNEL CROSS EA - CONTINUOUS EQUITY LADDER |
 //|                  TWO-STAGE PROFIT LADDER | CONTINUOUS RESET      |
 //+------------------------------------------------------------------+
@@ -43,7 +43,7 @@ CheckBasketProfitClose  Total open basket profit
 
 
 
-string glbVersion = "VMULTI-1141- Fresh Day Start Full EQ-DD Reset (00:00 GST)";
+string glbVersion = "VMULTI-1141- Final - Fresh Day Start Full EQ-DD Reset (00:00 GST)";
 
 
 
