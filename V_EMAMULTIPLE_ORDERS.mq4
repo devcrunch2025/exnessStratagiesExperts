@@ -43,7 +43,7 @@ CheckBasketProfitClose  Total open basket profit
 
 
 
-string glbVersion = "VMULTI-1124- EQ-DD Min Loss Filter & One-Shot Tier Latch";
+string glbVersion = "VMULTI-1125- Honor Horiz Order Min Gap & 5-Min Retry Window";
 
 
 
@@ -21681,7 +21681,8 @@ void ManageLsdSweepLineStopLossProtection()
 //+------------------------------------------------------------------+
 //+------------------------------------------------------------------+
 //| HasMinimumHorizontalOrderGap                                     |
-//| USER RULE: "minimum $200 between 2 horizonal eqh orders same type"|
+//| USER RULE: Enforce configured min gap (e.g. $100) between 2        |
+//| horizontal EQH orders of same type.                                |
 //| Checks whether proposed entry price has at least minGapUSD       |
 //| distance from all existing open horizontal orders of same type.  |
 //| For BUY: checks existing "EQH-G" / "EQH-G Long" orders           |
@@ -21689,8 +21690,10 @@ void ManageLsdSweepLineStopLossProtection()
 //+------------------------------------------------------------------+
 bool HasMinimumHorizontalOrderGap(int orderType, double proposedPrice, double minGapUSD)
   {
-// USER RULE: Enforce strict minimum $200 price gap between 2 horizontal EQH orders of same type
-   double effectiveGap = (minGapUSD >= 200.0) ? minGapUSD : 200.0;
+// Honor configured InpHorizontalOrderSameTypeMinGapUSD (0 or negative disables check)
+   if(minGapUSD <= 0.0)
+      return true;
+   double effectiveGap = minGapUSD;
 
    string targetPattern = (orderType == OP_BUY) ? "EQH-G" : "EQH-R";
 
@@ -21719,11 +21722,22 @@ bool HasMinimumHorizontalOrderGap(int orderType, double proposedPrice, double mi
 
       if(dist < effectiveGap)
         {
-         Print(">>> [HORIZONTAL ORDER GAP BLOCKED] Proposed ", (orderType == OP_BUY ? "EQH-G Long" : "EQH-R Short"),
-               " at ", DoubleToString(proposedPrice, Digits),
-               " is within $", DoubleToString(dist, 2), " of open Ticket #", OrderTicket(),
-               " (Open=", DoubleToString(existingOpen, Digits),
-               ", Gap=$", DoubleToString(dist, 2), " < Minimum $", DoubleToString(effectiveGap, 2), "). Order creation BLOCKED!");
+         static datetime s_lastGapBlockLogBuy  = 0;
+         static datetime s_lastGapBlockLogSell = 0;
+         datetime nowT    = TimeCurrent();
+         datetime lastLog = (orderType == OP_BUY) ? s_lastGapBlockLogBuy : s_lastGapBlockLogSell;
+         if(lastLog == 0 || (nowT - lastLog) >= 30 || nowT < lastLog)
+           {
+            if(orderType == OP_BUY)
+               s_lastGapBlockLogBuy = nowT;
+            else
+               s_lastGapBlockLogSell = nowT;
+            Print(">>> [HORIZONTAL ORDER GAP BLOCKED] Proposed ", (orderType == OP_BUY ? "EQH-G Long" : "EQH-R Short"),
+                  " at ", DoubleToString(proposedPrice, Digits),
+                  " is within $", DoubleToString(dist, 2), " of open Ticket #", OrderTicket(),
+                  " (Open=", DoubleToString(existingOpen, Digits),
+                  ", Gap=$", DoubleToString(dist, 2), " < Minimum $", DoubleToString(effectiveGap, 2), "). Order creation BLOCKED!");
+           }
          return false;
         }
      }
@@ -22148,24 +22162,37 @@ void CheckNewRedLineCloseBuyAndOpenSell()
    if(curEqhStart <= 0)
       return;
 
-// Check if this red horizontal line is NEW (not handled yet)
-   static datetime s_lastHandledRedLineStart = 0;
+// Track initial sweep vs Step-3 retry state while within the 5-minute window
+   static datetime s_lastHandledRedLineStart   = 0;
+   static datetime s_pendingRetryRedLineStart  = 0;
+   static datetime s_firstDetectedEqhLineStart = 0;
+   static datetime s_firstDetectedEqhTime      = 0;
 
-// If already handled this red horizontal line, exit immediately
-   if(curEqhStart == s_lastHandledRedLineStart)
+   bool initialPhaseDone = (curEqhStart == s_lastHandledRedLineStart);
+   bool retryPending     = (curEqhStart == s_pendingRetryRedLineStart);
+
+// If already handled this red horizontal line (and not awaiting a 5-min gap retry), exit immediately
+   if(initialPhaseDone && !retryPending)
       return;
+
+// If retrying after a gap/send block, stop immediately if the line has already ended on the chart
+   if(retryPending && (g_endedEqHighStart == curEqhStart || (g_lastEqHighLineStart == 0 && GetEQR_R_Price(true) <= 0.0)))
+     {
+      s_lastHandledRedLineStart  = curEqhStart;
+      s_pendingRetryRedLineStart = 0;
+      return;
+     }
 
 // Check if an order was already created for this red line
    if(HasOrderBeenCreatedForLsdLine("EQHR", curEqhStart))
      {
-      s_lastHandledRedLineStart = curEqhStart;
+      s_lastHandledRedLineStart  = curEqhStart;
+      s_pendingRetryRedLineStart = 0;
       return;
      }
 
 // USER RULE: "Horizontal orders should create within 5 min duration when the Line is initialed . do not create horizontal orders after 5 min"
    int maxDurationSec = (InpHorizontalLineMaxDurationSeconds > 0) ? InpHorizontalLineMaxDurationSeconds : 300;
-   static datetime s_firstDetectedEqhLineStart = 0;
-   static datetime s_firstDetectedEqhTime = 0;
    if(curEqhStart != s_firstDetectedEqhLineStart)
      {
       s_firstDetectedEqhLineStart = curEqhStart;
@@ -22175,167 +22202,176 @@ void CheckNewRedLineCloseBuyAndOpenSell()
    if(elapsedSec > maxDurationSec)
      {
       static datetime s_lastExpiredLogEqh = 0;
-      if(TimeCurrent() - s_lastExpiredLogEqh >= 30)
+      if(s_lastExpiredLogEqh == 0 || TimeCurrent() - s_lastExpiredLogEqh >= 30 || TimeCurrent() < s_lastExpiredLogEqh)
         {
          s_lastExpiredLogEqh = TimeCurrent();
          Print(">>> [RED LINE ORDER BLOCKED] EQH-R line initiated at ", TimeToStr(s_firstDetectedEqhTime, TIME_DATE|TIME_MINUTES),
                " is older than 5 min (Elapsed=", elapsedSec, "s > ", maxDurationSec,
                "s). Rule: Do not create horizontal orders after 5 min!");
         }
-      s_lastHandledRedLineStart = curEqhStart;
+      s_lastHandledRedLineStart  = curEqhStart;
+      s_pendingRetryRedLineStart = 0;
       g_lastOrderEqHighLineStart = curEqhStart; // Mark line as handled so it never creates later
       return;
      }
 
-// USER RULE: "Do not create any HOrizontal line orders when gap between horizontal line and EMAdirection gap is <$200 gap"
-   double liveEma = iMA(Symbol(), Period(), InpEMA200Period, InpEMAPriceShift, MODE_EMA, PRICE_CLOSE, 0);
+   double liveEma  = iMA(Symbol(), Period(), InpEMA200Period, InpEMAPriceShift, MODE_EMA, PRICE_CLOSE, 0);
    double eqhPrice = GetEQR_R_Price(false);
    if(eqhPrice <= 0.0)
       eqhPrice = g_lastEqHighPrice;
 
-   double minEmaGap = InpHorizontalLineMinEmaGapRaw;
-   double lineEmaGap = (liveEma > 0.0 && eqhPrice > 0.0) ? MathAbs(eqhPrice - liveEma) : 999999.0;
-   double priceEmaGap = (liveEma > 0.0) ? MathAbs(Bid - liveEma) : 999999.0;
+   double mult      = (balancelomultipler > 0) ? balancelomultipler : 1.0;
+   int    recTicket = -1;
 
-   if(minEmaGap > 0.0 && (lineEmaGap < minEmaGap || priceEmaGap < minEmaGap))
+   if(!initialPhaseDone)
      {
-      double curAngle = (GlobalEmaAngle30 != 0.0) ? GlobalEmaAngle30 : GetEmaAngleDegrees(30);
-      if(MathAbs(curAngle) > InpHorizontalLineIgnoreEmaGapAngle)
+      s_pendingRetryRedLineStart = 0;
+
+      // USER RULE: "Do not create any HOrizontal line orders when gap between horizontal line and EMAdirection gap is <$200 gap"
+      double minEmaGap   = InpHorizontalLineMinEmaGapRaw;
+      double lineEmaGap  = (liveEma > 0.0 && eqhPrice > 0.0) ? MathAbs(eqhPrice - liveEma) : 999999.0;
+      double priceEmaGap = (liveEma > 0.0) ? MathAbs(Bid - liveEma) : 999999.0;
+
+      if(minEmaGap > 0.0 && (lineEmaGap < minEmaGap || priceEmaGap < minEmaGap))
         {
-         Print(">>> [RED LINE EMA GAP IGNORED] Gap to EMA is < $", DoubleToString(minEmaGap, 2),
-               " but MathAbs(EMAangle)=", DoubleToString(MathAbs(curAngle), 2), " > ",
-               DoubleToString(InpHorizontalLineIgnoreEmaGapAngle, 1),
-               " deg (USER RULE: Ignore EMA distance filter if MathAbs(EMAangle) > 4). Filter bypassed!");
-        }
-      else
-        {
-         static datetime s_lastBlockedLogEqh = 0;
-         if(TimeCurrent() - s_lastBlockedLogEqh >= 30)
+         double curAngle = (GlobalEmaAngle30 != 0.0) ? GlobalEmaAngle30 : GetEmaAngleDegrees(30);
+         if(MathAbs(curAngle) > InpHorizontalLineIgnoreEmaGapAngle)
            {
-            s_lastBlockedLogEqh = TimeCurrent();
-            Print(">>> [RED LINE ORDER BLOCKED] Gap between EQH-R and EMA is < $", DoubleToString(minEmaGap, 2),
-                  " (Line-EMA Gap=$", DoubleToString(lineEmaGap, 2), ", Price-EMA Gap=$", DoubleToString(priceEmaGap, 2),
-                  ", EQH-R=", DoubleToString(eqhPrice, Digits), ", EMA200=", DoubleToString(liveEma, Digits),
-                  ", MathAbs(EMAangle)=", DoubleToString(MathAbs(curAngle), 2), " <= 4.0). Skipping horizontal line order creation!");
-           }
-         s_lastHandledRedLineStart = curEqhStart;
-         g_lastOrderEqHighLineStart = curEqhStart; // Mark line as handled to enforce 1-order limit
-         return;
-        }
-     }
-// A NEW RED HORIZONTAL LINE HAS STARTED AND QUALIFIES!
-   s_lastHandledRedLineStart = curEqhStart;
-
-   double mult = (balancelomultipler > 0) ? balancelomultipler : 1.0;
-   double maxLossUSD = (InpCloseBuyMaxLossUSD > 0.0) ? (InpCloseBuyMaxLossUSD * mult) : (1.0 * mult);
-
-   Print(">>> [NEW RED LINE DETECTED] EQH-R line started at ", TimeToStr(curEqhStart, TIME_DATE|TIME_MINUTES),
-         " | Price=", DoubleToString(eqhPrice, Digits), " | EMA200=", DoubleToString(liveEma, Digits),
-         " | Gap=$", DoubleToString(lineEmaGap, 2), " (>= $", DoubleToString(minEmaGap, 2), " OK) | Closing eligible BUY orders...");
-
-// Step 1: Scan and delete ALL pending BUY orders immediately (BUYSTOP / BUYLIMIT)
-// UNCONDITIONAL: Must run regardless of whether open market BUY orders exist!
-   for(int p = OrdersTotal() - 1; p >= 0; p--)
-     {
-      if(!OrderSelect(p, SELECT_BY_POS, MODE_TRADES))
-         continue;
-      if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber)
-         continue;
-      int pType = OrderType();
-      if(pType == OP_BUYSTOP || pType == OP_BUYLIMIT)
-        {
-         Print(">>> [NEW RED LINE] Deleting pending BUY order #", OrderTicket(), " Type=", pType, " Lots=", DoubleToString(OrderLots(), 2));
-         SafeOrderDelete(OrderTicket(), clrYellow);
-        }
-     }
-
-// Step 2: Scan all open market BUY orders
-   int openBuyCount = 0;
-   double totalBuyPL = 0.0;
-   int buyTickets[];
-   double buyPLs[];
-   ArrayResize(buyTickets, 0);
-   ArrayResize(buyPLs, 0);
-
-   for(int i = OrdersTotal() - 1; i >= 0; i--)
-     {
-      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
-         continue;
-      if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber)
-         continue;
-      if(OrderType() != OP_BUY)
-         continue;
-
-      openBuyCount++;
-      double pl = OrderProfit() + OrderSwap() + OrderCommission();
-      totalBuyPL += pl;
-
-      int idx = ArraySize(buyTickets);
-      ArrayResize(buyTickets, idx + 1);
-      ArrayResize(buyPLs, idx + 1);
-      buyTickets[idx] = OrderTicket();
-      buyPLs[idx]     = pl;
-     }
-
-   if(openBuyCount > 0)
-     {
-      bool closeAll = (totalBuyPL >= -maxLossUSD);
-
-      for(int b = 0; b < ArraySize(buyTickets); b++)
-        {
-         int tkt = buyTickets[b];
-         double pl = buyPLs[b];
-
-         if(closeAll || pl >= -maxLossUSD)
-           {
-            if(OrderSelect(tkt, SELECT_BY_TICKET, MODE_TRADES))
-              {
-               Print(">>> [NEW RED LINE] Closing BUY Order #", tkt, " Lots=", DoubleToString(OrderLots(), 2),
-                     " P/L=$", DoubleToString(pl, 2), " (Loss < $", DoubleToString(maxLossUSD, 2), " limit)");
-               if(!SafeOrderCloseMarket(tkt, OrderLots(), Slippage, clrYellow))
-                 {
-                  bool closeRes = OrderClose(tkt, OrderLots(), Bid, Slippage, clrYellow);
-                 }
-              }
+            Print(">>> [RED LINE EMA GAP IGNORED] Gap to EMA is < $", DoubleToString(minEmaGap, 2),
+                  " but MathAbs(EMAangle)=", DoubleToString(MathAbs(curAngle), 2), " > ",
+                  DoubleToString(InpHorizontalLineIgnoreEmaGapAngle, 1),
+                  " deg (USER RULE: Ignore EMA distance filter if MathAbs(EMAangle) > 4). Filter bypassed!");
            }
          else
            {
-            Print(">>> [NEW RED LINE] BUY Order #", tkt, " kept open: P/L=$", DoubleToString(pl, 2),
-                  " (Loss exceeds $", DoubleToString(maxLossUSD, 2), " limit)");
+            static datetime s_lastBlockedLogEqh = 0;
+            if(s_lastBlockedLogEqh == 0 || TimeCurrent() - s_lastBlockedLogEqh >= 30 || TimeCurrent() < s_lastBlockedLogEqh)
+              {
+               s_lastBlockedLogEqh = TimeCurrent();
+               Print(">>> [RED LINE ORDER BLOCKED] Gap between EQH-R and EMA is < $", DoubleToString(minEmaGap, 2),
+                     " (Line-EMA Gap=$", DoubleToString(lineEmaGap, 2), ", Price-EMA Gap=$", DoubleToString(priceEmaGap, 2),
+                     ", EQH-R=", DoubleToString(eqhPrice, Digits), ", EMA200=", DoubleToString(liveEma, Digits),
+                     ", MathAbs(EMAangle)=", DoubleToString(MathAbs(curAngle), 2), " <= 4.0). Skipping horizontal line order creation!");
+              }
+            s_lastHandledRedLineStart  = curEqhStart;
+            s_pendingRetryRedLineStart = 0;
+            g_lastOrderEqHighLineStart = curEqhStart; // Mark line as handled to enforce 1-order limit
+            return;
            }
         }
-     }
+      // A NEW RED HORIZONTAL LINE HAS STARTED AND QUALIFIES!
+      s_lastHandledRedLineStart = curEqhStart;
 
-// Step 2b: USER RULE: "BUY order is open and RED horizontal line is started . try to modify BUY order stoploss with Line price -> this is only for first order ."
-   if(InpModifyOppositeOrderSLToLinePrice && eqhPrice > 0.0)
-     {
-      int firstBuyTkt = GetFirstOpenOrderTicket(OP_BUY);
-      if(firstBuyTkt > 0)
-        {
-         TryModifyOrderStopLossToLinePrice(firstBuyTkt, eqhPrice, "EQH-R Red Line");
-        }
-     }
+      double maxLossUSD = (InpCloseBuyMaxLossUSD > 0.0) ? (InpCloseBuyMaxLossUSD * mult) : (1.0 * mult);
 
-// Step 2c: USER RULE: "When horizantal line is started. create recovery order which is smallest loss amount.
-// if RED line started create immidtate recovery order for lowest open sell order. same logic for GREEN horizontal line"
-   int recTicket = -1;
-   if(InpEnableHorizontalLineRecovery)
-     {
-      int parentSellTicket = GetSmallestLossOrderTicket(OP_SELL);
-      if(parentSellTicket > 0)
+      Print(">>> [NEW RED LINE DETECTED] EQH-R line started at ", TimeToStr(curEqhStart, TIME_DATE|TIME_MINUTES),
+            " | Price=", DoubleToString(eqhPrice, Digits), " | EMA200=", DoubleToString(liveEma, Digits),
+            " | Gap=$", DoubleToString(lineEmaGap, 2), " (>= $", DoubleToString(minEmaGap, 2), " OK) | Closing eligible BUY orders...");
+
+      // Step 1: Scan and delete ALL pending BUY orders immediately (BUYSTOP / BUYLIMIT)
+      // UNCONDITIONAL: Must run regardless of whether open market BUY orders exist!
+      for(int p = OrdersTotal() - 1; p >= 0; p--)
         {
-         recTicket = CreateHorizontalLineRecoveryOrder(parentSellTicket, OP_SELL, eqhPrice);
-         if(recTicket > 0)
+         if(!OrderSelect(p, SELECT_BY_POS, MODE_TRADES))
+            continue;
+         if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber)
+            continue;
+         int pType = OrderType();
+         if(pType == OP_BUYSTOP || pType == OP_BUYLIMIT)
            {
-            g_lastOrderEqHighLineStart = curEqhStart; // Enforce 1-order-per-line limit
-            g_lastEqhSellOrderTicket   = recTicket;
+            Print(">>> [NEW RED LINE] Deleting pending BUY order #", OrderTicket(), " Type=", pType, " Lots=", DoubleToString(OrderLots(), 2));
+            SafeOrderDelete(OrderTicket(), clrYellow);
+           }
+        }
+
+      // Step 2: Scan all open market BUY orders
+      int openBuyCount = 0;
+      double totalBuyPL = 0.0;
+      int buyTickets[];
+      double buyPLs[];
+      ArrayResize(buyTickets, 0);
+      ArrayResize(buyPLs, 0);
+
+      for(int i = OrdersTotal() - 1; i >= 0; i--)
+        {
+         if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
+            continue;
+         if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber)
+            continue;
+         if(OrderType() != OP_BUY)
+            continue;
+
+         openBuyCount++;
+         double pl = OrderProfit() + OrderSwap() + OrderCommission();
+         totalBuyPL += pl;
+
+         int idx = ArraySize(buyTickets);
+         ArrayResize(buyTickets, idx + 1);
+         ArrayResize(buyPLs, idx + 1);
+         buyTickets[idx] = OrderTicket();
+         buyPLs[idx]     = pl;
+        }
+
+      if(openBuyCount > 0)
+        {
+         bool closeAll = (totalBuyPL >= -maxLossUSD);
+
+         for(int b = 0; b < ArraySize(buyTickets); b++)
+           {
+            int tkt = buyTickets[b];
+            double pl = buyPLs[b];
+
+            if(closeAll || pl >= -maxLossUSD)
+              {
+               if(OrderSelect(tkt, SELECT_BY_TICKET, MODE_TRADES))
+                 {
+                  Print(">>> [NEW RED LINE] Closing BUY Order #", tkt, " Lots=", DoubleToString(OrderLots(), 2),
+                        " P/L=$", DoubleToString(pl, 2), " (Loss < $", DoubleToString(maxLossUSD, 2), " limit)");
+                  if(!SafeOrderCloseMarket(tkt, OrderLots(), Slippage, clrYellow))
+                    {
+                     bool closeRes = OrderClose(tkt, OrderLots(), Bid, Slippage, clrYellow);
+                    }
+                 }
+              }
+            else
+              {
+               Print(">>> [NEW RED LINE] BUY Order #", tkt, " kept open: P/L=$", DoubleToString(pl, 2),
+                     " (Loss exceeds $", DoubleToString(maxLossUSD, 2), " limit)");
+              }
+           }
+        }
+
+      // Step 2b: USER RULE: "BUY order is open and RED horizontal line is started . try to modify BUY order stoploss with Line price -> this is only for first order ."
+      if(InpModifyOppositeOrderSLToLinePrice && eqhPrice > 0.0)
+        {
+         int firstBuyTkt = GetFirstOpenOrderTicket(OP_BUY);
+         if(firstBuyTkt > 0)
+           {
+            TryModifyOrderStopLossToLinePrice(firstBuyTkt, eqhPrice, "EQH-R Red Line");
+           }
+        }
+
+      // Step 2c: USER RULE: "When horizantal line is started. create recovery order which is smallest loss amount.
+      // if RED line started create immidtate recovery order for lowest open sell order. same logic for GREEN horizontal line"
+      if(InpEnableHorizontalLineRecovery)
+        {
+         int parentSellTicket = GetSmallestLossOrderTicket(OP_SELL);
+         if(parentSellTicket > 0)
+           {
+            recTicket = CreateHorizontalLineRecoveryOrder(parentSellTicket, OP_SELL, eqhPrice);
+            if(recTicket > 0)
+              {
+               g_lastOrderEqHighLineStart = curEqhStart; // Enforce 1-order-per-line limit
+               g_lastEqhSellOrderTicket   = recTicket;
+              }
            }
         }
      }
 
 // Step 3: If no recovery order was created (or if InpOpenLineOrderIfRecoveryCreated is true):
 // Create NEW sell order "EQH-R Short" with LOT InpNewEqhSellOrderLotBase * multiplier
-   if(recTicket <= 0 || InpOpenLineOrderIfRecoveryCreated)
+// Retries while within the 5-minute window if blocked by same-type gap or OrderSend failure.
+   if(retryPending || recTicket <= 0 || InpOpenLineOrderIfRecoveryCreated)
      {
       double baseLot = (InpNewEqhSellOrderLotBase > 0.0) ? InpNewEqhSellOrderLotBase : 0.06;
       double sellLot = NormalizeLots(baseLot * mult);
@@ -22343,7 +22379,7 @@ void CheckNewRedLineCloseBuyAndOpenSell()
       RefreshRates();
       if(!HasMinimumHorizontalOrderGap(OP_SELL, Bid, InpHorizontalOrderSameTypeMinGapUSD))
         {
-         g_lastOrderEqHighLineStart = curEqhStart; // Mark line as handled to enforce 1-order limit & prevent tick spam
+         s_pendingRetryRedLineStart = curEqhStart;
          return;
         }
 
@@ -22352,6 +22388,11 @@ void CheckNewRedLineCloseBuyAndOpenSell()
         {
          g_lastOrderEqHighLineStart = curEqhStart; // Enforce 1-order-per-line limit
          g_lastEqhSellOrderTicket   = tkt;
+         s_pendingRetryRedLineStart = 0;
+        }
+      else
+        {
+         s_pendingRetryRedLineStart = curEqhStart;
         }
      }
   }
@@ -22447,24 +22488,37 @@ void CheckNewGreenLineCloseSellAndOpenBuy()
    if(curEqlStart <= 0)
       return;
 
-// Check if this green horizontal line is NEW (not handled yet)
-   static datetime s_lastHandledGreenLineStart = 0;
+// Track initial sweep vs Step-3 retry state while within the 5-minute window
+   static datetime s_lastHandledGreenLineStart   = 0;
+   static datetime s_pendingRetryGreenLineStart  = 0;
+   static datetime s_firstDetectedEqlLineStart   = 0;
+   static datetime s_firstDetectedEqlTime        = 0;
 
-// If already handled this green horizontal line, exit immediately
-   if(curEqlStart == s_lastHandledGreenLineStart)
+   bool initialPhaseDone = (curEqlStart == s_lastHandledGreenLineStart);
+   bool retryPending     = (curEqlStart == s_pendingRetryGreenLineStart);
+
+// If already handled this green horizontal line (and not awaiting a 5-min gap retry), exit immediately
+   if(initialPhaseDone && !retryPending)
       return;
+
+// If retrying after a gap/send block, stop immediately if the line has already ended on the chart
+   if(retryPending && (g_endedEqLowStart == curEqlStart || (g_lastEqLowLineStart == 0 && GetEQR_G_Price(true) <= 0.0)))
+     {
+      s_lastHandledGreenLineStart  = curEqlStart;
+      s_pendingRetryGreenLineStart = 0;
+      return;
+     }
 
 // Check if an order was already created for this green line
    if(HasOrderBeenCreatedForLsdLine("EQHG", curEqlStart))
      {
-      s_lastHandledGreenLineStart = curEqlStart;
+      s_lastHandledGreenLineStart  = curEqlStart;
+      s_pendingRetryGreenLineStart = 0;
       return;
      }
 
 // USER RULE: "Horizontal orders should create within 5 min duration when the Line is initialed . do not create horizontal orders after 5 min"
    int maxDurationSec = (InpHorizontalLineMaxDurationSeconds > 0) ? InpHorizontalLineMaxDurationSeconds : 300;
-   static datetime s_firstDetectedEqlLineStart = 0;
-   static datetime s_firstDetectedEqlTime = 0;
    if(curEqlStart != s_firstDetectedEqlLineStart)
      {
       s_firstDetectedEqlLineStart = curEqlStart;
@@ -22474,167 +22528,176 @@ void CheckNewGreenLineCloseSellAndOpenBuy()
    if(elapsedSec > maxDurationSec)
      {
       static datetime s_lastExpiredLogEql = 0;
-      if(TimeCurrent() - s_lastExpiredLogEql >= 30)
+      if(s_lastExpiredLogEql == 0 || TimeCurrent() - s_lastExpiredLogEql >= 30 || TimeCurrent() < s_lastExpiredLogEql)
         {
          s_lastExpiredLogEql = TimeCurrent();
          Print(">>> [GREEN LINE ORDER BLOCKED] EQH-G line initiated at ", TimeToStr(s_firstDetectedEqlTime, TIME_DATE|TIME_MINUTES),
                " is older than 5 min (Elapsed=", elapsedSec, "s > ", maxDurationSec,
                "s). Rule: Do not create horizontal orders after 5 min!");
         }
-      s_lastHandledGreenLineStart = curEqlStart;
-      g_lastOrderEqLowLineStart = curEqlStart; // Mark line as handled so it never creates later
+      s_lastHandledGreenLineStart  = curEqlStart;
+      s_pendingRetryGreenLineStart = 0;
+      g_lastOrderEqLowLineStart    = curEqlStart; // Mark line as handled so it never creates later
       return;
      }
 
-// USER RULE: "Do not create any HOrizontal line orders when gap between horizontal line and EMAdirection gap is <$200 gap"
-   double liveEma = iMA(Symbol(), Period(), InpEMA200Period, InpEMAPriceShift, MODE_EMA, PRICE_CLOSE, 0);
+   double liveEma  = iMA(Symbol(), Period(), InpEMA200Period, InpEMAPriceShift, MODE_EMA, PRICE_CLOSE, 0);
    double eqlPrice = GetEQR_G_Price(false);
    if(eqlPrice <= 0.0)
       eqlPrice = g_lastEqLowPrice;
 
-   double minEmaGap = InpHorizontalLineMinEmaGapRaw;
-   double lineEmaGap = (liveEma > 0.0 && eqlPrice > 0.0) ? MathAbs(eqlPrice - liveEma) : 999999.0;
-   double priceEmaGap = (liveEma > 0.0) ? MathAbs(Ask - liveEma) : 999999.0;
+   double mult      = (balancelomultipler > 0) ? balancelomultipler : 1.0;
+   int    recTicket = -1;
 
-   if(minEmaGap > 0.0 && (lineEmaGap < minEmaGap || priceEmaGap < minEmaGap))
+   if(!initialPhaseDone)
      {
-      double curAngle = (GlobalEmaAngle30 != 0.0) ? GlobalEmaAngle30 : GetEmaAngleDegrees(30);
-      if(MathAbs(curAngle) > InpHorizontalLineIgnoreEmaGapAngle)
+      s_pendingRetryGreenLineStart = 0;
+
+      // USER RULE: "Do not create any HOrizontal line orders when gap between horizontal line and EMAdirection gap is <$200 gap"
+      double minEmaGap   = InpHorizontalLineMinEmaGapRaw;
+      double lineEmaGap  = (liveEma > 0.0 && eqlPrice > 0.0) ? MathAbs(eqlPrice - liveEma) : 999999.0;
+      double priceEmaGap = (liveEma > 0.0) ? MathAbs(Ask - liveEma) : 999999.0;
+
+      if(minEmaGap > 0.0 && (lineEmaGap < minEmaGap || priceEmaGap < minEmaGap))
         {
-         Print(">>> [GREEN LINE EMA GAP IGNORED] Gap to EMA is < $", DoubleToString(minEmaGap, 2),
-               " but MathAbs(EMAangle)=", DoubleToString(MathAbs(curAngle), 2), " > ",
-               DoubleToString(InpHorizontalLineIgnoreEmaGapAngle, 1),
-               " deg (USER RULE: Ignore EMA distance filter if MathAbs(EMAangle) > 4). Filter bypassed!");
-        }
-      else
-        {
-         static datetime s_lastBlockedLogEql = 0;
-         if(TimeCurrent() - s_lastBlockedLogEql >= 30)
+         double curAngle = (GlobalEmaAngle30 != 0.0) ? GlobalEmaAngle30 : GetEmaAngleDegrees(30);
+         if(MathAbs(curAngle) > InpHorizontalLineIgnoreEmaGapAngle)
            {
-            s_lastBlockedLogEql = TimeCurrent();
-            Print(">>> [GREEN LINE ORDER BLOCKED] Gap between EQH-G and EMA is < $", DoubleToString(minEmaGap, 2),
-                  " (Line-EMA Gap=$", DoubleToString(lineEmaGap, 2), ", Price-EMA Gap=$", DoubleToString(priceEmaGap, 2),
-                  ", EQH-G=", DoubleToString(eqlPrice, Digits), ", EMA200=", DoubleToString(liveEma, Digits),
-                  ", MathAbs(EMAangle)=", DoubleToString(MathAbs(curAngle), 2), " <= 4.0). Skipping horizontal line order creation!");
-           }
-         s_lastHandledGreenLineStart = curEqlStart;
-         g_lastOrderEqLowLineStart = curEqlStart; // Mark line as handled to enforce 1-order limit
-         return;
-        }
-     }
-// A NEW GREEN HORIZONTAL LINE HAS STARTED AND QUALIFIES!
-   s_lastHandledGreenLineStart = curEqlStart;
-
-   double mult = (balancelomultipler > 0) ? balancelomultipler : 1.0;
-   double maxLossUSD = (InpCloseSellMaxLossUSD > 0.0) ? (InpCloseSellMaxLossUSD * mult) : (1.0 * mult);
-
-   Print(">>> [NEW GREEN LINE DETECTED] EQH-G line started at ", TimeToStr(curEqlStart, TIME_DATE|TIME_MINUTES),
-         " | Price=", DoubleToString(eqlPrice, Digits), " | EMA200=", DoubleToString(liveEma, Digits),
-         " | Gap=$", DoubleToString(lineEmaGap, 2), " (>= $", DoubleToString(minEmaGap, 2), " OK) | Closing eligible SELL orders...");
-
-// Step 1: Scan and delete ALL pending SELL orders immediately (SELLSTOP / SELLLIMIT)
-// UNCONDITIONAL: Must run regardless of whether open market SELL orders exist!
-   for(int p = OrdersTotal() - 1; p >= 0; p--)
-     {
-      if(!OrderSelect(p, SELECT_BY_POS, MODE_TRADES))
-         continue;
-      if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber)
-         continue;
-      int pType = OrderType();
-      if(pType == OP_SELLSTOP || pType == OP_SELLLIMIT)
-        {
-         Print(">>> [NEW GREEN LINE] Deleting pending SELL order #", OrderTicket(), " Type=", pType, " Lots=", DoubleToString(OrderLots(), 2));
-         SafeOrderDelete(OrderTicket(), clrYellow);
-        }
-     }
-
-// Step 2: Scan all open market SELL orders
-   int openSellCount = 0;
-   double totalSellPL = 0.0;
-   int sellTickets[];
-   double sellPLs[];
-   ArrayResize(sellTickets, 0);
-   ArrayResize(sellPLs, 0);
-
-   for(int i = OrdersTotal() - 1; i >= 0; i--)
-     {
-      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
-         continue;
-      if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber)
-         continue;
-      if(OrderType() != OP_SELL)
-         continue;
-
-      openSellCount++;
-      double pl = OrderProfit() + OrderSwap() + OrderCommission();
-      totalSellPL += pl;
-
-      int idx = ArraySize(sellTickets);
-      ArrayResize(sellTickets, idx + 1);
-      ArrayResize(sellPLs, idx + 1);
-      sellTickets[idx] = OrderTicket();
-      sellPLs[idx]     = pl;
-     }
-
-   if(openSellCount > 0)
-     {
-      bool closeAll = (totalSellPL >= -maxLossUSD);
-
-      for(int s = 0; s < ArraySize(sellTickets); s++)
-        {
-         int tkt = sellTickets[s];
-         double pl = sellPLs[s];
-
-         if(closeAll || pl >= -maxLossUSD)
-           {
-            if(OrderSelect(tkt, SELECT_BY_TICKET, MODE_TRADES))
-              {
-               Print(">>> [NEW GREEN LINE] Closing SELL Order #", tkt, " Lots=", DoubleToString(OrderLots(), 2),
-                     " P/L=$", DoubleToString(pl, 2), " (Loss < $", DoubleToString(maxLossUSD, 2), " limit)");
-               if(!SafeOrderCloseMarket(tkt, OrderLots(), Slippage, clrYellow))
-                 {
-                  bool closeRes = OrderClose(tkt, OrderLots(), Ask, Slippage, clrYellow);
-                 }
-              }
+            Print(">>> [GREEN LINE EMA GAP IGNORED] Gap to EMA is < $", DoubleToString(minEmaGap, 2),
+                  " but MathAbs(EMAangle)=", DoubleToString(MathAbs(curAngle), 2), " > ",
+                  DoubleToString(InpHorizontalLineIgnoreEmaGapAngle, 1),
+                  " deg (USER RULE: Ignore EMA distance filter if MathAbs(EMAangle) > 4). Filter bypassed!");
            }
          else
            {
-            Print(">>> [NEW GREEN LINE] SELL Order #", tkt, " kept open: P/L=$", DoubleToString(pl, 2),
-                  " (Loss exceeds $", DoubleToString(maxLossUSD, 2), " limit)");
+            static datetime s_lastBlockedLogEql = 0;
+            if(s_lastBlockedLogEql == 0 || TimeCurrent() - s_lastBlockedLogEql >= 30 || TimeCurrent() < s_lastBlockedLogEql)
+              {
+               s_lastBlockedLogEql = TimeCurrent();
+               Print(">>> [GREEN LINE ORDER BLOCKED] Gap between EQH-G and EMA is < $", DoubleToString(minEmaGap, 2),
+                     " (Line-EMA Gap=$", DoubleToString(lineEmaGap, 2), ", Price-EMA Gap=$", DoubleToString(priceEmaGap, 2),
+                     ", EQH-G=", DoubleToString(eqlPrice, Digits), ", EMA200=", DoubleToString(liveEma, Digits),
+                     ", MathAbs(EMAangle)=", DoubleToString(MathAbs(curAngle), 2), " <= 4.0). Skipping horizontal line order creation!");
+              }
+            s_lastHandledGreenLineStart  = curEqlStart;
+            s_pendingRetryGreenLineStart = 0;
+            g_lastOrderEqLowLineStart    = curEqlStart; // Mark line as handled to enforce 1-order limit
+            return;
            }
         }
-     }
+      // A NEW GREEN HORIZONTAL LINE HAS STARTED AND QUALIFIES!
+      s_lastHandledGreenLineStart = curEqlStart;
 
-// Step 2b: USER RULE: "same logic apply to GREEN line also -> this is only for first order ."
-   if(InpModifyOppositeOrderSLToLinePrice && eqlPrice > 0.0)
-     {
-      int firstSellTkt = GetFirstOpenOrderTicket(OP_SELL);
-      if(firstSellTkt > 0)
-        {
-         TryModifyOrderStopLossToLinePrice(firstSellTkt, eqlPrice, "EQH-G Green Line");
-        }
-     }
+      double maxLossUSD = (InpCloseSellMaxLossUSD > 0.0) ? (InpCloseSellMaxLossUSD * mult) : (1.0 * mult);
 
-// Step 2c: USER RULE: "When horizantal line is started. create recovery order which is smallest loss amount.
-// if RED line started create immidtate recovery order for lowest open sell order. same logic for GREEN horizontal line"
-   int recTicket = -1;
-   if(InpEnableHorizontalLineRecovery)
-     {
-      int parentBuyTicket = GetSmallestLossOrderTicket(OP_BUY);
-      if(parentBuyTicket > 0)
+      Print(">>> [NEW GREEN LINE DETECTED] EQH-G line started at ", TimeToStr(curEqlStart, TIME_DATE|TIME_MINUTES),
+            " | Price=", DoubleToString(eqlPrice, Digits), " | EMA200=", DoubleToString(liveEma, Digits),
+            " | Gap=$", DoubleToString(lineEmaGap, 2), " (>= $", DoubleToString(minEmaGap, 2), " OK) | Closing eligible SELL orders...");
+
+      // Step 1: Scan and delete ALL pending SELL orders immediately (SELLSTOP / SELLLIMIT)
+      // UNCONDITIONAL: Must run regardless of whether open market SELL orders exist!
+      for(int p = OrdersTotal() - 1; p >= 0; p--)
         {
-         recTicket = CreateHorizontalLineRecoveryOrder(parentBuyTicket, OP_BUY, eqlPrice);
-         if(recTicket > 0)
+         if(!OrderSelect(p, SELECT_BY_POS, MODE_TRADES))
+            continue;
+         if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber)
+            continue;
+         int pType = OrderType();
+         if(pType == OP_SELLSTOP || pType == OP_SELLLIMIT)
            {
-            g_lastOrderEqLowLineStart = curEqlStart; // Enforce 1-order-per-line limit
-            g_lastEqlBuyOrderTicket   = recTicket;
+            Print(">>> [NEW GREEN LINE] Deleting pending SELL order #", OrderTicket(), " Type=", pType, " Lots=", DoubleToString(OrderLots(), 2));
+            SafeOrderDelete(OrderTicket(), clrYellow);
+           }
+        }
+
+      // Step 2: Scan all open market SELL orders
+      int openSellCount = 0;
+      double totalSellPL = 0.0;
+      int sellTickets[];
+      double sellPLs[];
+      ArrayResize(sellTickets, 0);
+      ArrayResize(sellPLs, 0);
+
+      for(int i = OrdersTotal() - 1; i >= 0; i--)
+        {
+         if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
+            continue;
+         if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber)
+            continue;
+         if(OrderType() != OP_SELL)
+            continue;
+
+         openSellCount++;
+         double pl = OrderProfit() + OrderSwap() + OrderCommission();
+         totalSellPL += pl;
+
+         int idx = ArraySize(sellTickets);
+         ArrayResize(sellTickets, idx + 1);
+         ArrayResize(sellPLs, idx + 1);
+         sellTickets[idx] = OrderTicket();
+         sellPLs[idx]     = pl;
+        }
+
+      if(openSellCount > 0)
+        {
+         bool closeAll = (totalSellPL >= -maxLossUSD);
+
+         for(int s = 0; s < ArraySize(sellTickets); s++)
+           {
+            int tkt = sellTickets[s];
+            double pl = sellPLs[s];
+
+            if(closeAll || pl >= -maxLossUSD)
+              {
+               if(OrderSelect(tkt, SELECT_BY_TICKET, MODE_TRADES))
+                 {
+                  Print(">>> [NEW GREEN LINE] Closing SELL Order #", tkt, " Lots=", DoubleToString(OrderLots(), 2),
+                        " P/L=$", DoubleToString(pl, 2), " (Loss < $", DoubleToString(maxLossUSD, 2), " limit)");
+                  if(!SafeOrderCloseMarket(tkt, OrderLots(), Slippage, clrYellow))
+                    {
+                     bool closeRes = OrderClose(tkt, OrderLots(), Ask, Slippage, clrYellow);
+                    }
+                 }
+              }
+            else
+              {
+               Print(">>> [NEW GREEN LINE] SELL Order #", tkt, " kept open: P/L=$", DoubleToString(pl, 2),
+                     " (Loss exceeds $", DoubleToString(maxLossUSD, 2), " limit)");
+              }
+           }
+        }
+
+      // Step 2b: USER RULE: "same logic apply to GREEN line also -> this is only for first order ."
+      if(InpModifyOppositeOrderSLToLinePrice && eqlPrice > 0.0)
+        {
+         int firstSellTkt = GetFirstOpenOrderTicket(OP_SELL);
+         if(firstSellTkt > 0)
+           {
+            TryModifyOrderStopLossToLinePrice(firstSellTkt, eqlPrice, "EQH-G Green Line");
+           }
+        }
+
+      // Step 2c: USER RULE: "When horizantal line is started. create recovery order which is smallest loss amount.
+      // if RED line started create immidtate recovery order for lowest open sell order. same logic for GREEN horizontal line"
+      if(InpEnableHorizontalLineRecovery)
+        {
+         int parentBuyTicket = GetSmallestLossOrderTicket(OP_BUY);
+         if(parentBuyTicket > 0)
+           {
+            recTicket = CreateHorizontalLineRecoveryOrder(parentBuyTicket, OP_BUY, eqlPrice);
+            if(recTicket > 0)
+              {
+               g_lastOrderEqLowLineStart = curEqlStart; // Enforce 1-order-per-line limit
+               g_lastEqlBuyOrderTicket   = recTicket;
+              }
            }
         }
      }
 
 // Step 3: If no recovery order was created (or if InpOpenLineOrderIfRecoveryCreated is true):
 // Create NEW buy order "EQH-G Long" with LOT InpNewEqlBuyOrderLotBase * multiplier
-   if(recTicket <= 0 || InpOpenLineOrderIfRecoveryCreated)
+// Retries while within the 5-minute window if blocked by same-type gap or OrderSend failure.
+   if(retryPending || recTicket <= 0 || InpOpenLineOrderIfRecoveryCreated)
      {
       double baseLot = (InpNewEqlBuyOrderLotBase > 0.0) ? InpNewEqlBuyOrderLotBase : 0.06;
       double buyLot = NormalizeLots(baseLot * mult);
@@ -22642,15 +22705,20 @@ void CheckNewGreenLineCloseSellAndOpenBuy()
       RefreshRates();
       if(!HasMinimumHorizontalOrderGap(OP_BUY, Ask, InpHorizontalOrderSameTypeMinGapUSD))
         {
-         g_lastOrderEqLowLineStart = curEqlStart; // Mark line as handled to enforce 1-order limit & prevent tick spam
+         s_pendingRetryGreenLineStart = curEqlStart;
          return;
         }
 
       int tkt = SendLsdGreenLineBuyOrder(buyLot, eqlPrice);
       if(tkt > 0)
         {
-         g_lastOrderEqLowLineStart = curEqlStart; // Enforce 1-order-per-line limit
-         g_lastEqlBuyOrderTicket   = tkt;
+         g_lastOrderEqLowLineStart    = curEqlStart; // Enforce 1-order-per-line limit
+         g_lastEqlBuyOrderTicket      = tkt;
+         s_pendingRetryGreenLineStart = 0;
+        }
+      else
+        {
+         s_pendingRetryGreenLineStart = curEqlStart;
         }
      }
   }
