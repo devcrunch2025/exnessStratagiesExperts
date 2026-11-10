@@ -43,7 +43,7 @@ CheckBasketProfitClose  Total open basket profit
 
 
 
-string glbVersion = "VMULTI-1122- Left Dashboard Top Equity Loss %";
+string glbVersion = "VMULTI-1123- EQ-DD Tier 1..9 (10%-90% Partial Cuts)";
 
 
 
@@ -290,15 +290,22 @@ double Inp90PctSLMinStopLossDistanceUSD     = 1000.0; // Minimum StopLoss distan
 double Inp90PctSLAdversePercent             = 0.90;   // Adverse distance percentage towards SL to trigger (90% = 0.90)
 double Inp90PctSLExpansionGapUSD            = 1000;//500.0;  // StopLoss expansion in raw USD ($500) instead of doubling (ONE TIME ONLY)
 
-// ===== EQUITY-BALANCE % DRAWDOWN TIERED LOT REDUCTION & 50% CLOSE ALL =====
-bool   InpEnableEqDdLotReduction          = true;   // Enable Equity-Balance % DD Tiered Lot Reduction & Close-All
+// ===== EQUITY-BALANCE % DRAWDOWN TIERED LOT REDUCTION (10% STEPS UP TO 90%, NO CLOSE-ALL) =====
+bool   InpEnableEqDdLotReduction          = true;   // Enable Equity-Balance % DD Tiered Lot Reduction
+double InpEqDdStepPct                     = 10.0;   // Drawdown % step size per tier (60%..90% continue 10% steps)
+int    InpEqDdMaxTier                     = 9;      // Highest tier (9 = 90% DD -> reduce 90% of order lots)
 double InpEqDdTier1Pct                    = 10.0;   // Tier 1 DD%: Equity >= 10% below Balance -> reduce 10% of lots
 double InpEqDdTier1CutPct                 = 10.0;   // Tier 1 Lot Reduction % of order lots (min 0.01)
 double InpEqDdTier2Pct                    = 20.0;   // Tier 2 DD%: Equity >= 20% below Balance -> reduce 20% of lots
 double InpEqDdTier2CutPct                 = 20.0;   // Tier 2 Lot Reduction % of order lots (min 0.01)
 double InpEqDdTier3Pct                    = 30.0;   // Tier 3 DD%: Equity >= 30% below Balance -> reduce 30% of lots
 double InpEqDdTier3CutPct                 = 30.0;   // Tier 3 Lot Reduction % of order lots (min 0.01)
-double InpEqDdCloseAllPct                 = 50.0;   // Tier 4 DD%: Equity >= 50% below Balance -> Close ALL losing orders
+double InpEqDdTier4Pct                    = 40.0;   // Tier 4 DD%: Equity >= 40% below Balance -> reduce 40% of lots
+double InpEqDdTier4CutPct                 = 40.0;   // Tier 4 Lot Reduction % of order lots (min 0.01)
+double InpEqDdTier5Pct                    = 50.0;   // Tier 5 DD%: Equity >= 50% below Balance -> reduce 50% of lots
+double InpEqDdTier5CutPct                 = 50.0;   // Tier 5 Lot Reduction % of order lots (min 0.01)
+bool   InpEqDdEnableCloseAll              = false;  // Disabled: continue partial cuts instead of full Close-All
+double InpEqDdCloseAllPct                 = 100.0;  // Close-All threshold (inactive while InpEqDdEnableCloseAll=false)
 double InpEqDdMinCutLots                  = 0.01;   // Minimum partial close lot size (0.01)
 bool   InpDrawEqDdHitIcon                 = true;   // Draw chart icon with DD% when Drawdown % tier hits
 int    InpEqDdHitIconCode                 = 171;    // Chart icon Wingdings code (171=star, 238=shield, 159=dot, 251=check)
@@ -1955,21 +1962,23 @@ void Check90PctSLAdversePartialCutAndDoubleSL()
 //|   Equity <= $540 (-10%) -> Cut 10% lots on losing orders (min 0.01)
 //|   Equity <= $480 (-20%) -> Cut 20% lots on losing orders (min 0.01)
 //|   Equity <= $420 (-30%) -> Cut 30% lots on losing orders (min 0.01)
-//|   Equity <= $300 (-50%) -> Close ALL losing orders completely      |
+//|   Equity <= $360 (-40%) -> Cut 40% lots on losing orders (min 0.01)
+//|   Equity <= $300 (-50%) -> Cut 50% lots on losing orders (min 0.01)
+//|   ... continues 10% steps (-60%, -70%, -80%, -90%, no Close-All) |
 //+------------------------------------------------------------------+
 #define MAX_EQDD_TRACKED_ORDERS 1000
 int      g_eqDdTrackedTickets[MAX_EQDD_TRACKED_ORDERS];
 int      g_eqDdTrackedTiers[MAX_EQDD_TRACKED_ORDERS];
 int      g_eqDdTrackedCount         = 0;
-int      g_eqDdCurrentTier          = 0;     // 0=None, 1=10%, 2=20%, 3=30%, 4=50% Close-All
+int      g_eqDdCurrentTier          = 0;     // 0=None, 1=10%, 2=20%, 3=30%, 4=40%, 5=50% ... 9=90%
 double   g_eqDdCurrentPct           = 0.0;   // Latest ((Balance - Equity) / Balance) * 100
 double   g_eqDdPeakPct              = 0.0;   // Peak DD% in active drawdown cycle
 double   g_eqDdSessionPeakPct       = 0.0;   // Highest DD% across entire session/backtest
-bool     g_eqDdCloseAllPending      = false; // Latch at >= 50% DD until all losing orders closed
-int      g_eqDdTotalPartialCuts     = 0;     // Cumulative count of Tier 1/2/3 partial reductions
-int      g_eqDdTotalCloseAllOrders  = 0;     // Cumulative count of Tier 4 (50%) full losing closes
-double   g_eqDdTotalLotsReduced     = 0.0;   // Cumulative lots closed by Tiers 1-4
-int      g_eqDdLastIconTier         = 0;     // Highest EQ-DD tier (1..4) drawn in active cycle (0=None)
+bool     g_eqDdCloseAllPending      = false; // Inactive unless InpEqDdEnableCloseAll=true
+int      g_eqDdTotalPartialCuts     = 0;     // Cumulative count of Tier 1..9 partial reductions
+int      g_eqDdTotalCloseAllOrders  = 0;     // Cumulative count of full losing closes (when CloseAll enabled)
+double   g_eqDdTotalLotsReduced     = 0.0;   // Cumulative lots closed by Tiers 1..9
+int      g_eqDdLastIconTier         = 0;     // Highest EQ-DD tier (1..9) drawn in active cycle (0=None)
 
 //+------------------------------------------------------------------+
 //|                                                                  |
@@ -2100,6 +2109,51 @@ void ResetEqDdCycleState(string reason = "")
   }
 
 //------------------------------------------------------------------+
+//| ResolveEqDdTierAndCut                                            |
+//| Maps current drawdown % to Tier 1..9 (10%..90% lot reduction)    |
+//------------------------------------------------------------------+
+int ResolveEqDdTierAndCut(double ddPct, double &cutPctOut)
+  {
+   cutPctOut = 0.0;
+   if(ddPct <= 0.0)
+      return 0;
+
+   int    maxT     = (InpEqDdMaxTier >= 5 ? InpEqDdMaxTier : 5);
+   double stepSize = (InpEqDdStepPct > 0.0 ? InpEqDdStepPct : 10.0);
+
+   for(int t = maxT; t >= 6; t--)
+     {
+      double threshPct = t * stepSize;
+      if((ddPct + 1e-6) >= threshPct)
+        {
+         cutPctOut = (threshPct <= 95.0 ? threshPct : 95.0);
+         return t;
+        }
+     }
+
+   if((ddPct + 1e-6) >= InpEqDdTier5Pct)      { cutPctOut = InpEqDdTier5CutPct; return 5; }
+   if((ddPct + 1e-6) >= InpEqDdTier4Pct)      { cutPctOut = InpEqDdTier4CutPct; return 4; }
+   if((ddPct + 1e-6) >= InpEqDdTier3Pct)      { cutPctOut = InpEqDdTier3CutPct; return 3; }
+   if((ddPct + 1e-6) >= InpEqDdTier2Pct)      { cutPctOut = InpEqDdTier2CutPct; return 2; }
+   if((ddPct + 1e-6) >= InpEqDdTier1Pct)      { cutPctOut = InpEqDdTier1CutPct; return 1; }
+   return 0;
+  }
+
+//------------------------------------------------------------------+
+//| GetEqDdTierColor                                                 |
+//------------------------------------------------------------------+
+color GetEqDdTierColor(int tier)
+  {
+   if(tier >= 6) return clrMagenta;
+   if(tier == 5) return clrRed;
+   if(tier == 4) return clrTomato;
+   if(tier == 3) return clrOrangeRed;
+   if(tier == 2) return clrOrange;
+   if(tier == 1) return clrGold;
+   return clrSilver;
+  }
+
+//------------------------------------------------------------------+
 //| DrawEqDdHitIcon                                                  |
 //| Draws chart icon & bold DD% label when EQ-DD tier is hit         |
 //------------------------------------------------------------------+
@@ -2123,36 +2177,30 @@ void DrawEqDdHitIcon(int tier, double ddPct, double ddUSD, double bal, double eq
       atr = 1.0;
 
    double baseHigh    = ((Bars > 0 && High[0] > 0.0) ? High[0] : Bid);
-   double tierOffset  = 0.25 + (safeTier - 1) * 0.85;
+   double tierOffset  = 0.25 + ((safeTier - 1) % 6) * 0.80;
    double markerPrice = (hitPrice > 0.0 ? hitPrice : baseHigh) + (atr * tierOffset);
    double labelPrice  = markerPrice + (atr * 0.35);
 
-   color iconColor = clrGold;
-   if(safeTier >= 4)
-      iconColor = clrRed;
-   else if(safeTier == 3)
-      iconColor = clrOrangeRed;
-   else if(safeTier == 2)
-      iconColor = clrOrange;
+   color iconColor = GetEqDdTierColor(safeTier);
+   int   iconCode  = (InpEqDdHitIconCode > 0 ? InpEqDdHitIconCode : 171);
+   int   fontSize  = (InpEqDdHitFontSize > 0 ? InpEqDdHitFontSize : 10);
 
-   int iconCode = (InpEqDdHitIconCode > 0 ? InpEqDdHitIconCode : 171);
-   int fontSize = (InpEqDdHitFontSize > 0 ? InpEqDdHitFontSize : 10);
-
-   string tierTitle = (safeTier >= 4) ? "TIER 4 CLOSE ALL" : StringFormat("TIER %d (-%.0f%% Lots)", safeTier, cutPct);
-   string labelText = "";
-   if(safeTier >= 4)
+   bool   isCloseAll = (InpEqDdEnableCloseAll && cutPct >= 99.9);
+   string tierTitle  = isCloseAll ? StringFormat("TIER %d CLOSE ALL", safeTier) : StringFormat("TIER %d (-%.0f%% Lots)", safeTier, cutPct);
+   string labelText  = "";
+   if(isCloseAll)
      {
       if(ordersHit > 0)
          labelText = StringFormat("DD %.1f%% CLOSE ALL (x%d)", ddPct, ordersHit);
       else
-         labelText = StringFormat("DD %.1f%% T4 CLOSE ALL", ddPct);
+         labelText = StringFormat("DD %.1f%% T%d CLOSE ALL", ddPct, safeTier);
      }
    else
      {
       if(ordersHit > 0)
          labelText = StringFormat("DD %.1f%% (-%.0f%%L | x%d)", ddPct, cutPct, ordersHit);
       else
-         labelText = StringFormat("DD %.1f%% (T%d Hit)", ddPct, safeTier);
+         labelText = StringFormat("DD %.1f%% (T%d -%.0f%%L)", ddPct, safeTier, cutPct);
      }
 
    string tooltip = StringFormat("EQ-DD %s | Drawdown: %.2f%% (-$%.2f) | Bal: $%.2f -> Eq: $%.2f | Orders Hit: %d (-%.2fL) | Time: %s",
@@ -2212,8 +2260,8 @@ void DrawEqDdHitIcon(int tier, double ddPct, double ddUSD, double bal, double eq
 
 //+------------------------------------------------------------------+
 //| ManageEquityDrawdownTieredLotReduction                           |
-//| Reduces losing order lots by 10%/20%/30% (min 0.01) or closes    |
-//| ALL losing orders at >= 50% Equity-vs-Balance drawdown.          |
+//| Reduces losing order lots by 10%..90% in 10% DD tiers (min 0.01, |
+//| continuing steps 40%, 50%, 60%..90%; no Close-All by default).   |
 //+------------------------------------------------------------------+
 void ManageEquityDrawdownTieredLotReduction()
   {
@@ -2249,29 +2297,14 @@ void ManageEquityDrawdownTieredLotReduction()
       return;
      }
 
-   int    activeTier   = 0;
    double activeCutPct = 0.0;
-
-   if(g_eqDdCloseAllPending || (ddPct + 1e-6) >= InpEqDdCloseAllPct)
+   int    activeTier   = ResolveEqDdTierAndCut(ddPct, activeCutPct);
+   if(InpEqDdEnableCloseAll && (g_eqDdCloseAllPending || (ddPct + 1e-6) >= InpEqDdCloseAllPct))
      {
-      activeTier            = 4;
+      int maxT = (InpEqDdMaxTier >= 5 ? InpEqDdMaxTier : 5);
+      activeTier            = maxT + 1;
       activeCutPct          = 100.0;
       g_eqDdCloseAllPending = true;
-     }
-   else if((ddPct + 1e-6) >= InpEqDdTier3Pct)
-     {
-      activeTier   = 3;
-      activeCutPct = InpEqDdTier3CutPct;
-     }
-   else if((ddPct + 1e-6) >= InpEqDdTier2Pct)
-     {
-      activeTier   = 2;
-      activeCutPct = InpEqDdTier2CutPct;
-     }
-   else if((ddPct + 1e-6) >= InpEqDdTier1Pct)
-     {
-      activeTier   = 1;
-      activeCutPct = InpEqDdTier1CutPct;
      }
 
    g_eqDdCurrentTier = activeTier;
@@ -2371,19 +2404,19 @@ void ManageEquityDrawdownTieredLotReduction()
       double closeLots = 0.0;
       bool   isFullClose = false;
 
-      if(activeTier >= 4)
+      if(InpEqDdEnableCloseAll && activeCutPct >= 99.9)
         {
-         // Tier 4 (>= 50% DD): Close ALL losing orders 100%, including 0.01 lot orders
+         // Optional full Close-All only when explicitly enabled
          closeLots   = oLots;
          isFullClose = true;
         }
       else
         {
-         // Tiers 1-3 (10%/20%/30% DD): Reduce losing lots by cut%, minimum 0.01, keep >= minLot open
+         // Tiers 1..9 (10%/20%/30%/40%/50%..90% DD): Reduce losing lots by cut%, minimum 0.01, keep >= minLot open
          double maxPartial = NormalizeDouble(oLots - minLot, lotDigits);
          if(maxPartial < (lotStep - 1e-8))
            {
-            // Order is already at broker minimum lot (0.01); skip partial cut until recovery or 50% tier
+            // Order is already at broker minimum lot (0.01); keep open until recovery
             continue;
            }
 
@@ -2464,8 +2497,8 @@ void ManageEquityDrawdownTieredLotReduction()
       DrawEqDdHitIcon(activeTier, ddPct, ddUSD, balance, equity, activeCutPct, 0, 0.0);
      }
 
-   // After Tier 4 sweep, check if any losing orders remain open (e.g. if budget/requote split across ticks)
-   if(activeTier >= 4 && remainingClosedFail == 0)
+   // If optional Close-All mode is enabled, clear latch once no losing orders remain
+   if(InpEqDdEnableCloseAll && activeCutPct >= 99.9 && remainingClosedFail == 0)
      {
       int stillLosing = 0;
       for(int j = OrdersTotal() - 1; j >= 0; j--)
@@ -4068,8 +4101,8 @@ double InpOverallBasketSLGapUSD             = 100.0;  // Method 5: Overall hedge
 
 // Method 6: Multi-Order Combinations (> 2 orders, Profit or Loss mix) > $20 Profit SL Modifier
 bool   InpEnableMethod6CombinationSLModify  = true;   // Method 6: Check combinations of >2 orders (profit/loss mix) > $20 profit
-double InpMethod6ProfitThresholdUSD         = 10;//20.0;   // Method 6: Base profit threshold in USD ($20.00 * multiplier)
-double InpMethod6SLDistanceUSD              = 100.0;  // Method 6: StopLoss gap in USD points ($150)
+double InpMethod6ProfitThresholdUSD         = 5;//10;//20.0;   // Method 6: Base profit threshold in USD ($20.00 * multiplier)
+double InpMethod6SLDistanceUSD              = 20.0;  // Method 6: StopLoss gap in USD points ($150)
 int    InpMethod6MinOrderCount              = 2;      // Method 6: Minimum number of orders in combination (default 2 or 3)
 bool   InpDrawMethod6HitIcon                = true;   // Method 6: Draw chart icon when combination profit threshold is hit
 color  InpMethod6HitIconColor               = clrGold;// Method 6: Chart icon & text color
@@ -4176,6 +4209,8 @@ int    GetEqDdSingleTicketTier(int ticket);
 int    GetEqDdOrderExecutedTier(int ticket, string comment = "");
 void   SetEqDdOrderExecutedTier(int ticket, int tier);
 void   ResetEqDdCycleState(string reason = "");
+int    ResolveEqDdTierAndCut(double ddPct, double &cutPctOut);
+color  GetEqDdTierColor(int tier);
 void   DrawEqDdHitIcon(int tier, double ddPct, double ddUSD, double bal, double eq, double cutPct, int ordersHit, double lotsCut, datetime hitTime = 0, double hitPrice = 0.0);
 void   ManageHeavyExposurePartialLossClose();
 bool   CanExecutePartialLossClose(int orderType);
@@ -8112,7 +8147,7 @@ void OnDeinit(const int reason)
      }
    if(g_eqDdTotalPartialCuts > 0 || g_eqDdTotalCloseAllOrders > 0)
      {
-      PrintFormat(">>> [EQ-DD LOT SHIELD SUMMARY] Peak DD=%.2f%% | Partial Cuts (10%%/20%%/30%%): %d | 50%% Close-All Orders: %d | Total Lots Reduced: %.2fL",
+      PrintFormat(">>> [EQ-DD LOT SHIELD SUMMARY] Peak DD=%.2f%% | Partial Cuts (10%%-90%% Tiers): %d | Close-All Orders: %d | Total Lots Reduced: %.2fL",
                   g_eqDdSessionPeakPct, g_eqDdTotalPartialCuts, g_eqDdTotalCloseAllOrders, g_eqDdTotalLotsReduced);
      }
   }
@@ -19952,7 +19987,7 @@ void UpdateDashboard(DailyProtectionState &state)
 
 // Header Bar
    CreateDashboardPanel(DASH_PREFIX+"HEADER", x, y, w, 36, C'20,55,90');
-   string eaTitle = StringFormat("%s | %s %s", "VMULTI-1122", Symbol(), TimeframeToString(Period()));
+   string eaTitle = StringFormat("%s | %s %s", "VMULTI-1123", Symbol(), TimeframeToString(Period()));
    CreateDashboardLabel(DASH_PREFIX+"TITLE", eaTitle, tx, y+4, 9, clrWhite);
    string priceStatus = StringFormat("BID: %." + IntegerToString(Digits) + "f | ASK: %." + IntegerToString(Digits) + "f | SPR: %d pts", Bid, Ask, (int)MarketInfo(Symbol(), MODE_SPREAD));
    CreateDashboardLabel(DASH_PREFIX+"PRICE", priceStatus, tx, y+19, 8, clrLightGray);
@@ -20249,6 +20284,8 @@ void UpdateDashboard(DailyProtectionState &state)
    double dashBal = AccountBalance();
    double dashEq  = AccountEquity();
    double dashDdPct = (dashBal > 0.0 && dashEq < dashBal) ? (((dashBal - dashEq) / dashBal) * 100.0) : 0.0;
+   double dashCutPct = 0.0;
+   int    dashTier = ResolveEqDdTierAndCut(dashDdPct, dashCutPct);
    string eqDdState = "";
    color eqDdClr = clrSilver;
    if(!InpEnableEqDdLotReduction)
@@ -20256,29 +20293,19 @@ void UpdateDashboard(DailyProtectionState &state)
       eqDdState = "DISABLED";
       eqDdClr = clrSilver;
      }
-   else if(g_eqDdCurrentTier >= 4 || g_eqDdCloseAllPending)
+   else if(dashTier >= 1)
      {
-      eqDdState = StringFormat("T4 >=50%% CLOSE ALL! | Cls:%d (-%.2fL)", g_eqDdTotalCloseAllOrders, g_eqDdTotalLotsReduced);
-      eqDdClr = clrRed;
-     }
-   else if(g_eqDdCurrentTier == 3)
-     {
-      eqDdState = StringFormat("T3 30%% (-30%%L) | Next:50%% | Cuts:%d", g_eqDdTotalPartialCuts);
-      eqDdClr = clrOrangeRed;
-     }
-   else if(g_eqDdCurrentTier == 2)
-     {
-      eqDdState = StringFormat("T2 20%% (-20%%L) | Next:30%% | Cuts:%d", g_eqDdTotalPartialCuts);
-      eqDdClr = clrOrange;
-     }
-   else if(g_eqDdCurrentTier == 1)
-     {
-      eqDdState = StringFormat("T1 10%% (-10%%L) | Next:20%% | Cuts:%d", g_eqDdTotalPartialCuts);
-      eqDdClr = clrGold;
+      int    maxT     = (InpEqDdMaxTier >= 5 ? InpEqDdMaxTier : 5);
+      double stepSize = (InpEqDdStepPct > 0.0 ? InpEqDdStepPct : 10.0);
+      double curThresh = (dashTier == 1 ? InpEqDdTier1Pct : (dashTier == 2 ? InpEqDdTier2Pct : (dashTier == 3 ? InpEqDdTier3Pct : (dashTier == 4 ? InpEqDdTier4Pct : (dashTier == 5 ? InpEqDdTier5Pct : dashTier * stepSize)))));
+      double nxtThresh = (dashTier == 1 ? InpEqDdTier2Pct : (dashTier == 2 ? InpEqDdTier3Pct : (dashTier == 3 ? InpEqDdTier4Pct : (dashTier == 4 ? InpEqDdTier5Pct : (dashTier + 1) * stepSize))));
+      string nextStr   = (dashTier < maxT) ? StringFormat("Next:%.0f%%", nxtThresh) : "MAX";
+      eqDdState = StringFormat("T%d %.0f%% (-%.0f%%L) | %s | Cuts:%d", dashTier, curThresh, dashCutPct, nextStr, g_eqDdTotalPartialCuts);
+      eqDdClr   = GetEqDdTierColor(dashTier);
      }
    else
      {
-      eqDdState = StringFormat("OK [Next:10%%] | Cuts:%d | 50%%Cls:%d", g_eqDdTotalPartialCuts, g_eqDdTotalCloseAllOrders);
+      eqDdState = StringFormat("OK [Next:%.0f%%] | Cuts:%d (-%.2fL)", InpEqDdTier1Pct, g_eqDdTotalPartialCuts, g_eqDdTotalLotsReduced);
       eqDdClr = clrLightGray;
      }
    string eqDdLine = StringFormat("EQ-DD CUT   : %.1f%% | %s", dashDdPct, eqDdState);
@@ -20545,31 +20572,10 @@ void UpdateLeftLiveOrdersDashboard()
      {
       double absLoss = liveBal - liveEq;
       string absLossStr = (absLoss >= 1000.0) ? DoubleToString(absLoss, 0) : DoubleToString(absLoss, 2);
-      string tierTag = "";
-      if((eqLossPct + 1e-6) >= InpEqDdCloseAllPct)
-        {
-         tierTag = " [T4]";
-         eqBadgeClr = clrRed;
-        }
-      else if((eqLossPct + 1e-6) >= InpEqDdTier3Pct)
-        {
-         tierTag = " [T3]";
-         eqBadgeClr = clrOrangeRed;
-        }
-      else if((eqLossPct + 1e-6) >= InpEqDdTier2Pct)
-        {
-         tierTag = " [T2]";
-         eqBadgeClr = clrOrange;
-        }
-      else if((eqLossPct + 1e-6) >= InpEqDdTier1Pct)
-        {
-         tierTag = " [T1]";
-         eqBadgeClr = clrGold;
-        }
-      else
-        {
-         eqBadgeClr = clrTomato;
-        }
+      double leftCutPct = 0.0;
+      int    leftTier   = ResolveEqDdTierAndCut(eqLossPct, leftCutPct);
+      string tierTag    = (leftTier >= 1) ? StringFormat(" [T%d]", leftTier) : "";
+      eqBadgeClr        = (leftTier >= 1) ? GetEqDdTierColor(leftTier) : clrTomato;
       eqBadgeTxt = StringFormat("EQ LOSS: %.1f%% (-$%s)%s", eqLossPct, absLossStr, tierTag);
      }
    else
