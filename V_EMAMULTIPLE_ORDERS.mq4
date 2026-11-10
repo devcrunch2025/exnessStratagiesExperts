@@ -43,7 +43,7 @@ CheckBasketProfitClose  Total open basket profit
 
 
 
-string glbVersion = "VMULTI-1129- EQ-DD Pure Per-Side (BUY / SELL Independent Floating Loss Tiers)";
+string glbVersion = "VMULTI-1130- EQ-DD Pure Per-Side With 10% Tier 1 Enabled (10%..90%)";
 
 
 
@@ -290,13 +290,13 @@ double Inp90PctSLMinStopLossDistanceUSD     = 1000.0; // Minimum StopLoss distan
 double Inp90PctSLAdversePercent             = 0.90;   // Adverse distance percentage towards SL to trigger (90% = 0.90)
 double Inp90PctSLExpansionGapUSD            = 1000;//500.0;  // StopLoss expansion in raw USD ($500) instead of doubling (ONE TIME ONLY)
 
-// ===== EQUITY-BALANCE % DRAWDOWN TIERED LOT REDUCTION (PURE PER-SIDE BUY/SELL, 20%..90%) =====
+// ===== EQUITY-BALANCE % DRAWDOWN TIERED LOT REDUCTION (PURE PER-SIDE BUY/SELL, 10%..90%) =====
 bool   InpEnableEqDdLotReduction          = true;   // Enable Per-Side (BUY / SELL Separate) DD% Tiered Lot Reduction
-bool   InpEqDdEnableTier1                 = false;  // Enable Tier 1 (10% DD): false = Disable 10% and start from Tier 2 (20%)
+bool   InpEqDdEnableTier1                 = true;   // Enable Tier 1 (10% DD): true = active 10% -> 20% -> ... 90%
 double InpEqDdStepPct                     = 10.0;   // Drawdown % step size per tier (60%..90% continue 10% steps)
 int    InpEqDdMaxTier                     = 9;      // Highest tier (9 = 90% DD -> reduce 90% of order lots)
-double InpEqDdTier1Pct                    = 10.0;   // Tier 1 DD%: Equity >= 10% below Balance -> reduce 10% of lots (when enabled)
-double InpEqDdTier1CutPct                 = 10.0;   // Tier 1 Lot Reduction % of order lots (min 0.01, when enabled)
+double InpEqDdTier1Pct                    = 10.0;   // Tier 1 DD%: Side Loss >= 10% of Balance -> reduce 10% of lots
+double InpEqDdTier1CutPct                 = 10.0;   // Tier 1 Lot Reduction % of order lots (min 0.01)
 double InpEqDdTier2Pct                    = 20.0;   // Tier 2 DD%: Equity >= 20% below Balance -> reduce 20% of lots
 double InpEqDdTier2CutPct                 = 20.0;   // Tier 2 Lot Reduction % of order lots (min 0.01)
 double InpEqDdTier3Pct                    = 30.0;   // Tier 3 DD%: Equity >= 30% below Balance -> reduce 30% of lots
@@ -1965,8 +1965,9 @@ void Check90PctSLAdversePartialCutAndDoubleSL()
 //| Pure Per-Side BUY / SELL % Drawdown Tiered Lot Reduction         |
 //| Measures BUY basket floating loss vs Balance and SELL basket     |
 //| floating loss vs Balance INDEPENDENTLY (never combined).         |
-//| Example ($600 Balance, InpEqDdEnableTier1 = false):              |
-//|   BUY P/L = -$50 & SELL P/L = -$60 -> Neither hits 20% (No Cut)  |
+//| Example ($600 Balance, InpEqDdEnableTier1 = true):               |
+//|   BUY P/L = -$50 & SELL P/L = -$50 -> Neither hits 10% (No Cut)  |
+//|   SELL P/L <= -$60  (-10%) -> Cut 10% lots on losing SELLs ONLY  |
 //|   SELL P/L <= -$120 (-20%) -> Cut 20% lots on losing SELLs ONLY  |
 //|   SELL P/L <= -$180 (-30%) -> Cut 30% lots on losing SELLs ONLY  |
 //|   ... continues 10% steps (-40%, -50% ... -90%; no Close-All)    |
@@ -20437,7 +20438,7 @@ void UpdateDashboard(DailyProtectionState &state)
 
 // Header Bar
    CreateDashboardPanel(DASH_PREFIX+"HEADER", x, y, w, 36, C'20,55,90');
-   string eaTitle = StringFormat("%s | %s %s", "VMULTI-1129", Symbol(), TimeframeToString(Period()));
+   string eaTitle = StringFormat("%s | %s %s", "VMULTI-1130", Symbol(), TimeframeToString(Period()));
    CreateDashboardLabel(DASH_PREFIX+"TITLE", eaTitle, tx, y+4, 9, clrWhite);
    string priceStatus = StringFormat("BID: %." + IntegerToString(Digits) + "f | ASK: %." + IntegerToString(Digits) + "f | SPR: %d pts", Bid, Ask, (int)MarketInfo(Symbol(), MODE_SPREAD));
    CreateDashboardLabel(DASH_PREFIX+"PRICE", priceStatus, tx, y+19, 8, clrLightGray);
