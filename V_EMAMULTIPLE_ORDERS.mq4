@@ -43,7 +43,7 @@ CheckBasketProfitClose  Total open basket profit
 
 
 
-string glbVersion = "VMULTI-1125- Honor Horiz Order Min Gap & 5-Min Retry Window";
+string glbVersion = "VMULTI-1126- Isolate EQ-DD Tester State & Hide Zero-Hit Icons";
 
 
 
@@ -1968,7 +1968,7 @@ void Check90PctSLAdversePartialCutAndDoubleSL()
 //|   Equity <= $300 (-50%) -> Cut 50% lots on losing orders (min 0.01)
 //|   ... continues 10% steps (-60%, -70%, -80%, -90%, no Close-All) |
 //+------------------------------------------------------------------+
-#define MAX_EQDD_TRACKED_ORDERS 1000
+#define MAX_EQDD_TRACKED_ORDERS 4000
 int      g_eqDdTrackedTickets[MAX_EQDD_TRACKED_ORDERS];
 int      g_eqDdTrackedTiers[MAX_EQDD_TRACKED_ORDERS];
 int      g_eqDdTrackedCount         = 0;
@@ -2004,6 +2004,10 @@ int GetEqDdSingleTicketTier(int ticket)
       if(g_eqDdTrackedTickets[i] == ticket)
          return g_eqDdTrackedTiers[i];
      }
+
+// Bypass shared Terminal GlobalVariables during Strategy Tester/Optimization runs
+   if(IsTesting() || IsOptimization())
+      return 0;
 
    string gvName = EqDdGvKey(ticket);
    if(GlobalVariableCheck(gvName))
@@ -2073,13 +2077,16 @@ void SetEqDdOrderExecutedTier(int ticket, int tier)
    if(ticket <= 0 || tier <= 0)
       return;
 
+   bool useGv = (!IsTesting() && !IsOptimization());
+
    for(int i = 0; i < g_eqDdTrackedCount; i++)
      {
       if(g_eqDdTrackedTickets[i] == ticket)
         {
          if(tier > g_eqDdTrackedTiers[i])
             g_eqDdTrackedTiers[i] = tier;
-         GlobalVariableSet(EqDdGvKey(ticket), (double)g_eqDdTrackedTiers[i]);
+         if(useGv)
+            GlobalVariableSet(EqDdGvKey(ticket), (double)g_eqDdTrackedTiers[i]);
          return;
         }
      }
@@ -2090,7 +2097,8 @@ void SetEqDdOrderExecutedTier(int ticket, int tier)
       g_eqDdTrackedTiers[g_eqDdTrackedCount]   = tier;
       g_eqDdTrackedCount++;
      }
-   GlobalVariableSet(EqDdGvKey(ticket), (double)tier);
+   if(useGv)
+      GlobalVariableSet(EqDdGvKey(ticket), (double)tier);
   }
 
 //+------------------------------------------------------------------+
@@ -2098,15 +2106,20 @@ void SetEqDdOrderExecutedTier(int ticket, int tier)
 //+------------------------------------------------------------------+
 void ResetEqDdCycleState(string reason = "")
   {
-   for(int i = 0; i < g_eqDdTrackedCount; i++)
+   if(!IsTesting() && !IsOptimization())
      {
-      if(g_eqDdTrackedTickets[i] > 0)
-         GlobalVariableDel(EqDdGvKey(g_eqDdTrackedTickets[i]));
+      for(int i = 0; i < g_eqDdTrackedCount; i++)
+        {
+         if(g_eqDdTrackedTickets[i] > 0)
+            GlobalVariableDel(EqDdGvKey(g_eqDdTrackedTickets[i]));
+        }
      }
-   g_eqDdTrackedCount    = 0;
-   g_eqDdCurrentTier     = 0;
-   g_eqDdCurrentPct      = 0.0;
-   g_eqDdPeakPct         = 0.0;
+   g_eqDdTrackedCount     = 0;
+   ArrayInitialize(g_eqDdTrackedTickets, 0);
+   ArrayInitialize(g_eqDdTrackedTiers, 0);
+   g_eqDdCurrentTier      = 0;
+   g_eqDdCurrentPct       = 0.0;
+   g_eqDdPeakPct          = 0.0;
    g_eqDdCloseAllPending  = false;
    g_eqDdLastIconTier     = 0;
    g_eqDdCycleHighestTier = 0;
@@ -2163,7 +2176,7 @@ color GetEqDdTierColor(int tier)
 //------------------------------------------------------------------+
 void DrawEqDdHitIcon(int tier, double ddPct, double ddUSD, double bal, double eq, double cutPct, int ordersHit, double lotsCut, datetime hitTime = 0, double hitPrice = 0.0)
   {
-   if(!InpDrawEqDdHitIcon)
+   if(!InpDrawEqDdHitIcon || ordersHit <= 0)
       return;
 
    if(hitTime <= 0)
@@ -2386,14 +2399,7 @@ void ManageEquityDrawdownTieredLotReduction()
      }
 
    if(candCount == 0)
-     {
-      if(activeTier > g_eqDdLastIconTier)
-        {
-         g_eqDdLastIconTier = activeTier;
-         DrawEqDdHitIcon(activeTier, ddPct, ddUSD, balance, equity, activeCutPct, 0, 0.0);
-        }
       return;
-     }
 
    // Phase 2: Execute tier action on each snapshot candidate
    int    remainingClosedFail = 0;
@@ -2506,11 +2512,6 @@ void ManageEquityDrawdownTieredLotReduction()
       if(activeTier > g_eqDdLastIconTier)
          g_eqDdLastIconTier = activeTier;
       DrawEqDdHitIcon(activeTier, ddPct, ddUSD, balance, equity, activeCutPct, sweepHits, sweepLotsCut);
-     }
-   else if(activeTier > g_eqDdLastIconTier)
-     {
-      g_eqDdLastIconTier = activeTier;
-      DrawEqDdHitIcon(activeTier, ddPct, ddUSD, balance, equity, activeCutPct, 0, 0.0);
      }
 
    // If optional Close-All mode is enabled, clear latch once no losing orders remain
@@ -8093,6 +8094,20 @@ int OnInit()
    DeleteOurObjects();
    g_eqDdLastIconTier     = 0;
    g_eqDdCycleHighestTier = 0;
+   if(IsTesting() || IsOptimization())
+     {
+      g_eqDdTrackedCount        = 0;
+      ArrayInitialize(g_eqDdTrackedTickets, 0);
+      ArrayInitialize(g_eqDdTrackedTiers, 0);
+      g_eqDdCurrentTier         = 0;
+      g_eqDdCurrentPct          = 0.0;
+      g_eqDdPeakPct             = 0.0;
+      g_eqDdSessionPeakPct      = 0.0;
+      g_eqDdCloseAllPending     = false;
+      g_eqDdTotalPartialCuts    = 0;
+      g_eqDdTotalCloseAllOrders = 0;
+      g_eqDdTotalLotsReduced    = 0.0;
+     }
    DeleteDashboardObjects();
    DeleteLeftLiveOrdersDashboardObjects();
    DeleteLiquiditySweepObjects();
