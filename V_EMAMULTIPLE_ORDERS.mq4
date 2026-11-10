@@ -43,7 +43,7 @@ CheckBasketProfitClose  Total open basket profit
 
 
 
-string glbVersion = "VMULTI-1137- Left Dashboard Dubai Time Bar + 50%/30m Night Cut";
+string glbVersion = "VMULTI-1138- Live DD Status & Chronological Latest DD Event on Dashboards";
 
 
 
@@ -2022,6 +2022,10 @@ datetime g_eqDdLastReachTime         = 0;
 string   g_eqDdLastReachSide         = "";
 int      g_eqDdLastReachTier         = 0;
 double   g_eqDdLastReachPct          = 0.0;
+string   g_eqDdLastReachReason       = "";
+datetime g_eqDdLastResetTime         = 0;
+string   g_eqDdLastResetSide         = "";
+int      g_eqDdLastResetTier         = 0;
 
 // Independent BUY side state
 int      g_eqDdBuyCurrentTier        = 0;
@@ -2035,6 +2039,7 @@ int      g_eqDdBuyLastLoggedTier     = 0;
 datetime g_eqDdBuyLastReachTime      = 0;
 int      g_eqDdBuyLastReachTier      = 0;
 double   g_eqDdBuyLastReachPct       = 0.0;
+string   g_eqDdBuyLastReachReason    = "";
 datetime g_eqDdBuyLastHitTime        = 0;
 int      g_eqDdBuyLastHitTier        = 0;
 double   g_eqDdBuyLastHitPct         = 0.0;
@@ -2055,6 +2060,7 @@ int      g_eqDdSellLastLoggedTier    = 0;
 datetime g_eqDdSellLastReachTime     = 0;
 int      g_eqDdSellLastReachTier     = 0;
 double   g_eqDdSellLastReachPct      = 0.0;
+string   g_eqDdSellLastReachReason   = "";
 datetime g_eqDdSellLastHitTime       = 0;
 int      g_eqDdSellLastHitTier       = 0;
 double   g_eqDdSellLastHitPct        = 0.0;
@@ -2256,6 +2262,7 @@ void ResetEqDdSideCycleState(int sideType, string reason = "")
       g_eqDdBuyLastReachTime    = 0;
       g_eqDdBuyLastReachTier    = 0;
       g_eqDdBuyLastReachPct     = 0.0;
+      g_eqDdBuyLastReachReason  = "";
      }
    else if(sideType == OP_SELL)
      {
@@ -2270,6 +2277,7 @@ void ResetEqDdSideCycleState(int sideType, string reason = "")
       g_eqDdSellLastReachTime    = 0;
       g_eqDdSellLastReachTier    = 0;
       g_eqDdSellLastReachPct     = 0.0;
+      g_eqDdSellLastReachReason  = "";
      }
 
    g_eqDdCurrentTier      = MathMax(g_eqDdBuyCurrentTier, g_eqDdSellCurrentTier);
@@ -2280,12 +2288,51 @@ void ResetEqDdSideCycleState(int sideType, string reason = "")
    g_eqDdCycleHighestTier = MathMax(g_eqDdBuyCycleHighestTier, g_eqDdSellCycleHighestTier);
    g_eqDdLastLoggedTier   = MathMax(g_eqDdBuyLastLoggedTier, g_eqDdSellLastLoggedTier);
 
-   if(g_eqDdCycleHighestTier == 0 && g_eqDdCurrentTier == 0)
+   if(sideType == OP_BUY && g_eqDdLastReachSide == "BUY")
      {
-      g_eqDdLastReachTime = 0;
-      g_eqDdLastReachSide = "";
-      g_eqDdLastReachTier = 0;
-      g_eqDdLastReachPct  = 0.0;
+      if(g_eqDdSellLastReachTime > 0 && g_eqDdSellCurrentTier >= g_eqDdSellLastReachTier)
+        {
+         g_eqDdLastReachTime   = g_eqDdSellLastReachTime;
+         g_eqDdLastReachSide   = "SELL";
+         g_eqDdLastReachTier   = g_eqDdSellLastReachTier;
+         g_eqDdLastReachPct    = g_eqDdSellLastReachPct;
+         g_eqDdLastReachReason = g_eqDdSellLastReachReason;
+        }
+      else
+        {
+         g_eqDdLastReachTime   = 0;
+         g_eqDdLastReachSide   = "";
+         g_eqDdLastReachTier   = 0;
+         g_eqDdLastReachPct    = 0.0;
+         g_eqDdLastReachReason = "";
+        }
+     }
+   else if(sideType == OP_SELL && g_eqDdLastReachSide == "SELL")
+     {
+      if(g_eqDdBuyLastReachTime > 0 && g_eqDdBuyCurrentTier >= g_eqDdBuyLastReachTier)
+        {
+         g_eqDdLastReachTime   = g_eqDdBuyLastReachTime;
+         g_eqDdLastReachSide   = "BUY";
+         g_eqDdLastReachTier   = g_eqDdBuyLastReachTier;
+         g_eqDdLastReachPct    = g_eqDdBuyLastReachPct;
+         g_eqDdLastReachReason = g_eqDdBuyLastReachReason;
+        }
+      else
+        {
+         g_eqDdLastReachTime   = 0;
+         g_eqDdLastReachSide   = "";
+         g_eqDdLastReachTier   = 0;
+         g_eqDdLastReachPct    = 0.0;
+         g_eqDdLastReachReason = "";
+        }
+     }
+   else if(g_eqDdCycleHighestTier == 0 && g_eqDdCurrentTier == 0)
+     {
+      g_eqDdLastReachTime   = 0;
+      g_eqDdLastReachSide   = "";
+      g_eqDdLastReachTier   = 0;
+      g_eqDdLastReachPct    = 0.0;
+      g_eqDdLastReachReason = "";
      }
   }
 
@@ -2390,6 +2437,47 @@ color GetEqDdTierColor(int tier)
    if(tier == 2) return clrOrange;
    if(tier == 1) return clrGold;
    return clrSilver;
+  }
+
+//------------------------------------------------------------------+
+//| GetEqDdTierThresholdPct / ResolveNextEqDdTier / FormatDubaiDT    |
+//------------------------------------------------------------------+
+double GetEqDdTierThresholdPct(int tier)
+  {
+   if(tier <= 1) return InpEqDdTier1Pct;
+   if(tier == 2) return InpEqDdTier2Pct;
+   if(tier == 3) return InpEqDdTier3Pct;
+   if(tier == 4) return InpEqDdTier4Pct;
+   if(tier == 5) return InpEqDdTier5Pct;
+   double stepSize = (InpEqDdStepPct > 0.0 ? InpEqDdStepPct : 10.0);
+   return tier * stepSize;
+  }
+
+int ResolveNextEqDdTier(int curTier, int doneTier, double &nextThreshOut)
+  {
+   int firstTier = InpEqDdEnableTier1 ? 1 : 2;
+   int maxT      = (InpEqDdMaxTier >= 5 ? InpEqDdMaxTier : 5);
+   int effTier   = MathMax(curTier, InpEqDdOneShotPerTier ? doneTier : 0);
+   int nextTier  = (effTier < firstTier) ? firstTier : (effTier + 1);
+   if(nextTier > maxT)
+     {
+      nextThreshOut = InpEqDdEnableCloseAll ? InpEqDdCloseAllPct : GetEqDdTierThresholdPct(maxT);
+      return maxT;
+     }
+   nextThreshOut = GetEqDdTierThresholdPct(nextTier);
+   return nextTier;
+  }
+
+string FormatDubaiShortDT(datetime serverTime, bool withSeconds = false)
+  {
+   if(serverTime <= 0)
+      return withSeconds ? "--.-- --:--:--" : "--.-- --:--";
+   datetime dubaiDT = serverTime + (ServerToDubaiOffsetHours * 3600);
+   int flags = withSeconds ? (TIME_DATE|TIME_MINUTES|TIME_SECONDS) : (TIME_DATE|TIME_MINUTES);
+   string fullStr = TimeToString(dubaiDT, flags);
+   if(StringLen(fullStr) >= 16)
+      return StringSubstr(fullStr, 5);
+   return fullStr;
   }
 
 //------------------------------------------------------------------+
@@ -2556,6 +2644,13 @@ void ManageEquityDrawdownForSide(int sideType)
      {
       if(sideCurTier > 0 || sideCycleHighest > 0 || sideLastLogged > 0 || sideCloseAllPending || HasEqDdTrackedSide(sideType))
         {
+         int clearedTier = MathMax(MathMax(sideCurTier, sideCycleHighest), sideLastLogged);
+         if(clearedTier > 0)
+           {
+            g_eqDdLastResetTime = TimeCurrent();
+            g_eqDdLastResetSide = sideName;
+            g_eqDdLastResetTier = clearedTier;
+           }
          PrintFormat(">>> [EQ-DD %s SHIELD RESET] %s P/L ($%s%.2f, Open=%d) >= $0.00. %s drawdown cleared; %s tier locks reset.",
                      sideName, sideName, (sideNetPL >= 0.0 ? "+" : "-"), MathAbs(sideNetPL), sideOrderCount, sideName, sideName);
          ResetEqDdSideCycleState(sideType, "Side P/L >= 0");
@@ -2669,29 +2764,61 @@ void ManageEquityDrawdownForSide(int sideType)
       return;
      }
 
+   string waitReason = "";
+   if(candCount == 0)
+     {
+      if(skippedMinLot > 0 && skippedSmallLoss == 0 && skippedAlreadyCut == 0)
+         waitReason = StringFormat("MinLot(%d)", skippedMinLot);
+      else if(skippedSmallLoss > 0 && skippedMinLot == 0 && skippedAlreadyCut == 0)
+         waitReason = StringFormat("Loss<$%.0f(%d)", minOrderLossUSD, skippedSmallLoss);
+      else if(skippedAlreadyCut > 0 && skippedMinLot == 0 && skippedSmallLoss == 0)
+         waitReason = StringFormat("CutDone(%d)", skippedAlreadyCut);
+      else
+         waitReason = StringFormat("ML:%d <$%.0f:%d Cut:%d", skippedMinLot, minOrderLossUSD, skippedSmallLoss, skippedAlreadyCut);
+
+      if(isBuy)
+        {
+         g_eqDdBuyLastReachPct    = sideDdPct;
+         g_eqDdBuyLastReachReason = waitReason;
+        }
+      else
+        {
+         g_eqDdSellLastReachPct    = sideDdPct;
+         g_eqDdSellLastReachReason = waitReason;
+        }
+      if(g_eqDdLastReachSide == sideName && g_eqDdLastReachTier == activeTier)
+        {
+         g_eqDdLastReachPct    = sideDdPct;
+         g_eqDdLastReachReason = waitReason;
+        }
+     }
+
    if(activeTier > sideLastLogged)
      {
       datetime nowTime = TimeCurrent();
       if(isBuy)
         {
-         g_eqDdBuyLastLoggedTier = activeTier;
-         g_eqDdBuyLastReachTime  = nowTime;
-         g_eqDdBuyLastReachTier  = activeTier;
-         g_eqDdBuyLastReachPct   = sideDdPct;
+         g_eqDdBuyLastLoggedTier  = activeTier;
+         g_eqDdBuyLastReachTime   = nowTime;
+         g_eqDdBuyLastReachTier   = activeTier;
+         g_eqDdBuyLastReachPct    = sideDdPct;
+         g_eqDdBuyLastReachReason = waitReason;
         }
       else
         {
-         g_eqDdSellLastLoggedTier = activeTier;
-         g_eqDdSellLastReachTime  = nowTime;
-         g_eqDdSellLastReachTier  = activeTier;
-         g_eqDdSellLastReachPct   = sideDdPct;
+         g_eqDdSellLastLoggedTier  = activeTier;
+         g_eqDdSellLastReachTime   = nowTime;
+         g_eqDdSellLastReachTier   = activeTier;
+         g_eqDdSellLastReachPct    = sideDdPct;
+         g_eqDdSellLastReachReason = waitReason;
         }
 
-      g_eqDdLastLoggedTier = MathMax(g_eqDdBuyLastLoggedTier, g_eqDdSellLastLoggedTier);
-      g_eqDdLastReachTime  = nowTime;
-      g_eqDdLastReachSide  = sideName;
-      g_eqDdLastReachTier  = activeTier;
-      g_eqDdLastReachPct   = sideDdPct;
+      g_eqDdLastLoggedTier  = MathMax(g_eqDdBuyLastLoggedTier, g_eqDdSellLastLoggedTier);
+      g_eqDdLastReachTime   = nowTime;
+      g_eqDdLastReachSide   = sideName;
+      g_eqDdLastReachTier   = activeTier;
+      g_eqDdLastReachPct    = sideDdPct;
+      g_eqDdLastReachReason = waitReason;
 
       PrintFormat(">>> [EQ-DD %s TIER %d TRIGGERED (-%.0f%% Lots)] Time=%s | Bal=$%.2f Eq=$%.2f | %s DD=%.2f%% (-$%.2f) | Losing=%d Eligible=%d (Skip <$%.2f:%d, MinLot:%d, TierDone:%d)",
                   sideName, activeTier, activeCutPct, TimeToString(nowTime, TIME_DATE|TIME_MINUTES|TIME_SECONDS),
@@ -2851,6 +2978,12 @@ void ManageEquityDrawdownForSide(int sideType)
       g_eqDdLastHitCutPct = activeCutPct;
       g_eqDdLastHitOrders = sweepHits;
       g_eqDdLastHitLots   = sweepLotsCut;
+      if(isBuy)
+         g_eqDdBuyLastReachReason = "";
+      else
+         g_eqDdSellLastReachReason = "";
+      if(g_eqDdLastReachSide == sideName && g_eqDdLastReachTier <= activeTier)
+         g_eqDdLastReachReason = "";
 
       double sidePeak = isBuy ? g_eqDdBuyPeakPct : g_eqDdSellPeakPct;
       PrintFormat(">>> [EQ-DD %s TIER %d HIT CONFIRMED] Time=%s | Bal=$%.2f Eq=$%.2f | %s DD=%.2f%% (-$%.2f) | Action=-%.0f%% Lots | Orders Cut=%d (-%.2fL) | Side Peak=%.2f%%",
@@ -4604,6 +4737,9 @@ void   ResetEqDdSideCycleState(int sideType, string reason = "");
 void   ResetEqDdCycleState(string reason = "");
 int    ResolveEqDdTierAndCut(double ddPct, double &cutPctOut);
 color  GetEqDdTierColor(int tier);
+double GetEqDdTierThresholdPct(int tier);
+int    ResolveNextEqDdTier(int curTier, int doneTier, double &nextThreshOut);
+string FormatDubaiShortDT(datetime serverTime, bool withSeconds = false);
 void   CalcEqDdSideDrawdowns(double balance, double &buyNetPLOut, double &buyDdPctOut, double &sellNetPLOut, double &sellDdPctOut, int &buyCountOut, int &sellCountOut);
 void   DrawEqDdHitIcon(int tier, double ddPct, double ddUSD, double bal, double eq, double cutPct, int ordersHit, double lotsCut, datetime hitTime = 0, double hitPrice = 0.0, string sideTag = "");
 string DubaiNightCloseGvKey();
@@ -8478,10 +8614,12 @@ int OnInit()
    g_eqDdBuyCycleHighestTier   = 0;
    g_eqDdBuyLastLoggedTier     = 0;
    g_eqDdBuyLastIconTier       = 0;
+   g_eqDdBuyLastReachReason    = "";
    g_eqDdSellCurrentTier       = 0;
    g_eqDdSellCycleHighestTier  = 0;
    g_eqDdSellLastLoggedTier    = 0;
    g_eqDdSellLastIconTier      = 0;
+   g_eqDdSellLastReachReason   = "";
    g_eqDdForceCloseBudget      = false;
    g_dubaiNightCloseDayKey     = -1;
    g_dubaiDayOpeningEquity     = 0.0;
@@ -8516,6 +8654,10 @@ int OnInit()
       g_eqDdLastReachSide       = "";
       g_eqDdLastReachTier       = 0;
       g_eqDdLastReachPct        = 0.0;
+      g_eqDdLastReachReason     = "";
+      g_eqDdLastResetTime       = 0;
+      g_eqDdLastResetSide       = "";
+      g_eqDdLastResetTier       = 0;
       g_eqDdBuyCurrentPct       = 0.0;
       g_eqDdBuyCurrentUSD       = 0.0;
       g_eqDdBuyPeakPct          = 0.0;
@@ -20921,7 +21063,7 @@ void UpdateDashboard(DailyProtectionState &state)
 
 // Header Bar
    CreateDashboardPanel(DASH_PREFIX+"HEADER", x, y, w, 36, C'20,55,90');
-   string eaTitle = StringFormat("%s | %s %s", "VMULTI-1137", Symbol(), TimeframeToString(Period()));
+   string eaTitle = StringFormat("%s | %s %s", "VMULTI-1138", Symbol(), TimeframeToString(Period()));
    CreateDashboardLabel(DASH_PREFIX+"TITLE", eaTitle, tx, y+4, 9, clrWhite);
    string priceStatus = StringFormat("BID: %." + IntegerToString(Digits) + "f | ASK: %." + IntegerToString(Digits) + "f | SPR: %d pts", Bid, Ask, (int)MarketInfo(Symbol(), MODE_SPREAD));
    CreateDashboardLabel(DASH_PREFIX+"PRICE", priceStatus, tx, y+19, 8, clrLightGray);
@@ -21214,7 +21356,7 @@ void UpdateDashboard(DailyProtectionState &state)
                                   LowestEquity, eqlStep, eqlGate2h, eqlEmaStr);
    CreateDashboardLabel(DASH_PREFIX+"EQL_LINE2", eqlLine2, tx, y+414, 8, clrWhite);
 
-   // --- EQ-DD Pure Per-Side (BUY / SELL) Tiered Lot Reduction Status Line ---
+   // --- EQ-DD Pure Per-Side (BUY / SELL) Current Status & Latest Chronological Event ---
    double dashBal = AccountBalance();
    double dashBuyPL = 0.0, dashBuyDdPct = 0.0, dashSellPL = 0.0, dashSellDdPct = 0.0;
    int    dashBuyCnt = 0, dashSellCnt = 0;
@@ -21224,12 +21366,31 @@ void UpdateDashboard(DailyProtectionState &state)
    int    dashTierS = ResolveEqDdTierAndCut(dashSellDdPct, dashCutS);
    int    dashMaxTier = MathMax(dashTierB, dashTierS);
    int    dashMaxDone = MathMax(g_eqDdBuyCycleHighestTier, g_eqDdSellCycleHighestTier);
+   bool   dashWaitBuy  = (InpEnableEqDdLotReduction && dashTierB > 0 && g_eqDdBuyLastReachTime  > 0 &&
+                          dashTierB >= g_eqDdBuyLastReachTier  && g_eqDdBuyLastReachTime  > g_eqDdBuyLastHitTime  && g_eqDdBuyLastReachReason  != "");
+   bool   dashWaitSell = (InpEnableEqDdLotReduction && dashTierS > 0 && g_eqDdSellLastReachTime > 0 &&
+                          dashTierS >= g_eqDdSellLastReachTier && g_eqDdSellLastReachTime > g_eqDdSellLastHitTime && g_eqDdSellLastReachReason != "");
+   bool   dashPending  = (dashWaitBuy || dashWaitSell);
    string eqDdState = "";
    color  eqDdClr   = clrSilver;
    if(!InpEnableEqDdLotReduction)
      {
       eqDdState = "DISABLED";
       eqDdClr = clrSilver;
+     }
+   else if(g_eqDdCloseAllPending)
+     {
+      eqDdState = StringFormat("CLOSE-ALL PENDING | Cuts:%d", g_eqDdTotalPartialCuts);
+      eqDdClr = clrRed;
+     }
+   else if(dashPending)
+     {
+      bool   pickWaitBuy = (dashWaitBuy && (!dashWaitSell || dashTierB > dashTierS || (dashTierB == dashTierS && dashBuyDdPct >= dashSellDdPct)));
+      string wSideCh = pickWaitBuy ? "B" : "S";
+      int    wTier   = pickWaitBuy ? dashTierB : dashTierS;
+      string wReason = pickWaitBuy ? g_eqDdBuyLastReachReason : g_eqDdSellLastReachReason;
+      eqDdState = StringFormat("%s-T%d WAIT (%s) | Pk:%.1f%%", wSideCh, wTier, wReason, g_eqDdSessionPeakPct);
+      eqDdClr   = GetEqDdTierColor(wTier);
      }
    else if(dashMaxTier >= 1 || (InpEqDdOneShotPerTier && dashMaxDone >= 1))
      {
@@ -21239,45 +21400,81 @@ void UpdateDashboard(DailyProtectionState &state)
       int    curSideT = pickBuy ? dashTierB : dashTierS;
       int    doneSide = pickBuy ? g_eqDdBuyCycleHighestTier : g_eqDdSellCycleHighestTier;
       int    effTier  = (curSideT > doneSide) ? curSideT : doneSide;
-      double stepSize = (InpEqDdStepPct > 0.0 ? InpEqDdStepPct : 10.0);
-      double effCut   = (effTier == 1 ? InpEqDdTier1CutPct : (effTier == 2 ? InpEqDdTier2CutPct : (effTier == 3 ? InpEqDdTier3CutPct : (effTier == 4 ? InpEqDdTier4CutPct : (effTier == 5 ? InpEqDdTier5CutPct : MathMin(95.0, effTier * stepSize))))));
-      string doneTag  = (InpEqDdOneShotPerTier && doneSide >= effTier) ? " DONE" : "";
-      eqDdState = StringFormat("%s-T%d%s (-%.0f%%L) | Cuts:%d", sideCh, effTier, doneTag, effCut, g_eqDdTotalPartialCuts);
+      double nextThresh = 0.0;
+      ResolveNextEqDdTier(curSideT, doneSide, nextThresh);
+      if(curSideT == 0 && doneSide >= 1)
+         eqDdState = StringFormat("%s-RECOV (T%d Next:%.0f%%) | Cuts:%d", sideCh, doneSide, nextThresh, g_eqDdTotalPartialCuts);
+      else
+        {
+         string doneTag = (InpEqDdOneShotPerTier && doneSide >= effTier) ? " DONE" : "";
+         eqDdState = StringFormat("%s-T%d%s Next:%.0f%% | Cuts:%d", sideCh, effTier, doneTag, nextThresh, g_eqDdTotalPartialCuts);
+        }
       eqDdClr   = GetEqDdTierColor(effTier);
      }
    else
      {
       double firstThresh = InpEqDdEnableTier1 ? InpEqDdTier1Pct : InpEqDdTier2Pct;
-      eqDdState = StringFormat("OK [Next:%.0f%%] | Cuts:%d (-%.2fL)", firstThresh, g_eqDdTotalPartialCuts, g_eqDdTotalLotsReduced);
+      eqDdState = StringFormat("OK [Pk:%.1f%% Next:%.0f%%] | Cuts:%d", g_eqDdSessionPeakPct, firstThresh, g_eqDdTotalPartialCuts);
       eqDdClr = clrLightGray;
      }
    string eqDdLine = StringFormat("EQ-DD SIDE  : B:%.1f%% S:%.1f%% | %s", dashBuyDdPct, dashSellDdPct, eqDdState);
    CreateDashboardLabel(DASH_PREFIX+"EQDD_LINE", eqDdLine, tx, y+430, 8, eqDdClr);
 
-   string eqDdHitLine = "DD LAST HIT : NONE YET";
+   string eqDdHitLine = "DD LATEST   : NONE YET";
    color  eqDdHitClr  = clrLightGray;
+   datetime dashPendTime = 0;
+   if(dashWaitBuy && dashWaitSell)
+      dashPendTime = MathMax(g_eqDdBuyLastReachTime, g_eqDdSellLastReachTime);
+   else if(dashWaitBuy)
+      dashPendTime = g_eqDdBuyLastReachTime;
+   else if(dashWaitSell)
+      dashPendTime = g_eqDdSellLastReachTime;
+
    if(!InpEnableEqDdLotReduction)
      {
-      eqDdHitLine = "DD LAST HIT : DISABLED";
+      eqDdHitLine = "DD LATEST   : DISABLED";
       eqDdHitClr  = clrSilver;
+     }
+   else if(dashPendTime > 0 && dashPendTime >= g_eqDdLastHitTime && dashPendTime >= g_eqDdLastResetTime)
+     {
+      bool   pickWaitBuy = (dashWaitBuy && (!dashWaitSell || g_eqDdBuyLastReachTime >= g_eqDdSellLastReachTime));
+      string pCh     = pickWaitBuy ? "B" : "S";
+      int    pTier   = pickWaitBuy ? dashTierB : dashTierS;
+      double pPct    = pickWaitBuy ? dashBuyDdPct : dashSellDdPct;
+      string pReason = pickWaitBuy ? g_eqDdBuyLastReachReason : g_eqDdSellLastReachReason;
+      eqDdHitLine = StringFormat("DD LATEST   : %s-T%d WAIT %.1f%% @ %s GST (%s)",
+                                 pCh, pTier, pPct, FormatDubaiShortDT(dashPendTime, false), pReason);
+      eqDdHitClr  = GetEqDdTierColor(pTier);
+     }
+   else if(g_eqDdLastResetTime > 0 && g_eqDdLastResetTime > g_eqDdLastHitTime)
+     {
+      eqDdHitLine = StringFormat("DD LATEST   : %s CLEARED (T%d->OK) @ %s GST",
+                                 g_eqDdLastResetSide, g_eqDdLastResetTier,
+                                 FormatDubaiShortDT(g_eqDdLastResetTime, false));
+      eqDdHitClr  = clrLime;
      }
    else if(g_eqDdLastHitTime > 0)
      {
-      string hitSideStr = (g_eqDdLastHitSide != "" ? (g_eqDdLastHitSide + " ") : "");
-      string hitOkTag   = (dashMaxDone == 0 && dashMaxTier == 0) ? " [OK]" : "";
-      eqDdHitLine = StringFormat("DD LAST HIT : %sT%d (-%.0f%%L) @ %s | x%d (-%.2fL)%s",
-                                 hitSideStr, g_eqDdLastHitTier, g_eqDdLastHitCutPct,
-                                 TimeToString(g_eqDdLastHitTime, TIME_DATE|TIME_MINUTES),
-                                 g_eqDdLastHitOrders, g_eqDdLastHitLots, hitOkTag);
-      eqDdHitClr  = GetEqDdTierColor(g_eqDdLastHitTier);
+      string hitSideCh = (g_eqDdLastHitSide != "" ? StringSubstr(g_eqDdLastHitSide, 0, 1) : "?");
+      string hitOkTag  = (dashMaxDone == 0 && dashMaxTier == 0) ? " [OK]" : "";
+      eqDdHitLine = StringFormat("DD LATEST   : %s-T%d %.1f%% (-%.0f%%L) @ %s GST x%d%s",
+                                 hitSideCh, g_eqDdLastHitTier, g_eqDdLastHitPct, g_eqDdLastHitCutPct,
+                                 FormatDubaiShortDT(g_eqDdLastHitTime, false),
+                                 g_eqDdLastHitOrders, hitOkTag);
+      eqDdHitClr  = (dashMaxDone == 0 && dashMaxTier == 0) ? clrGold : GetEqDdTierColor(g_eqDdLastHitTier);
      }
    else if(g_eqDdLastReachTime > 0)
      {
-      string reachSideStr = (g_eqDdLastReachSide != "" ? (g_eqDdLastReachSide + " ") : "");
-      eqDdHitLine = StringFormat("DD LAST HIT : %sT%d REACHED @ %s (Wait Elig)",
-                                 reachSideStr, g_eqDdLastReachTier,
-                                 TimeToString(g_eqDdLastReachTime, TIME_DATE|TIME_MINUTES));
+      string rSideCh = (g_eqDdLastReachSide != "" ? StringSubstr(g_eqDdLastReachSide, 0, 1) : "?");
+      eqDdHitLine = StringFormat("DD LATEST   : %s-T%d REACH %.1f%% @ %s GST",
+                                 rSideCh, g_eqDdLastReachTier, g_eqDdLastReachPct,
+                                 FormatDubaiShortDT(g_eqDdLastReachTime, false));
       eqDdHitClr  = GetEqDdTierColor(g_eqDdLastReachTier);
+     }
+   else if(g_drawdownReliefPeakUSD > 0.0)
+     {
+      eqDdHitLine = StringFormat("DD LATEST   : NONE YET | RLF Pk:$%.0f DD:$%.0f", g_drawdownReliefPeakUSD, curDD);
+      eqDdHitClr  = g_drawdownReliefExecuted ? clrLime : (g_drawdownReliefArmed ? clrGold : clrDeepSkyBlue);
      }
    CreateDashboardLabel(DASH_PREFIX+"EQDD_HIT", eqDdHitLine, tx, y+446, 8, eqDdHitClr);
 
@@ -21639,7 +21836,7 @@ void UpdateLeftLiveOrdersDashboard()
       if(type==OP_BUY || type==OP_SELL)
          netPL+=orderPL;
      }
-   int x=LeftDashboardX, y=LeftDashboardY, tx=x+12, width=MathMax(LeftDashboardWidth+280, 620), panelHeight=rows*20+176;
+   int x=LeftDashboardX, y=LeftDashboardY, tx=x+12, width=MathMax(LeftDashboardWidth+280, 620), panelHeight=rows*20+198;
    color pnlColor=clrWhite;
    if(netPL>0)
       pnlColor=clrLime;
@@ -21671,6 +21868,7 @@ void UpdateLeftLiveOrdersDashboard()
    double maxSideDdUSD = buyDom ? liveBuyDdUSD : liveSellDdUSD;
    string maxSideName  = buyDom ? "BUY" : "SELL";
 
+   double curAcctDdUSD = (liveBal > liveEq) ? (liveBal - liveEq) : 0.0;
    color  eqBadgeClr = clrSilver;
    string eqBadgeTxt = "";
    if(liveBuyDdPct > 0.0 && liveSellDdPct > 0.0)
@@ -21682,114 +21880,196 @@ void UpdateLeftLiveOrdersDashboard()
          datetime domHitT = buyDom ? g_eqDdBuyLastHitTime : g_eqDdSellLastHitTime;
          int      domHitR = buyDom ? g_eqDdBuyLastHitTier : g_eqDdSellLastHitTier;
          if(domHitT > 0 && domHitR == leftTier)
-            hitTag = StringFormat(" [%s:T%d %s]", domCh, leftTier, TimeToString(domHitT, TIME_MINUTES));
+            hitTag = StringFormat(" [%s:T%d %s]", domCh, leftTier, TimeToString(domHitT + (ServerToDubaiOffsetHours * 3600), TIME_MINUTES));
          else
             hitTag = StringFormat(" [%s:T%d]", domCh, leftTier);
         }
-      else if(g_eqDdLastHitTime > 0)
-        {
-         string lCh = (g_eqDdLastHitSide != "" ? StringSubstr(g_eqDdLastHitSide, 0, 1) : "?");
-         hitTag = StringFormat(" [%s:T%d]", lCh, g_eqDdLastHitTier);
-        }
+      else if(g_eqDdSessionPeakPct > 0.0)
+         hitTag = StringFormat(" | Pk:%.1f%%", g_eqDdSessionPeakPct);
       eqBadgeClr = (leftTier >= 1) ? GetEqDdTierColor(leftTier) : clrTomato;
       eqBadgeTxt = StringFormat("DD B:%.1f%% S:%.1f%%%s", liveBuyDdPct, liveSellDdPct, hitTag);
      }
    else if(maxSideDdPct > 0.0)
      {
       string absLossStr = (maxSideDdUSD >= 1000.0) ? DoubleToString(maxSideDdUSD, 0) : DoubleToString(maxSideDdUSD, 2);
-      string tierTag = "";
+      string tierTag    = "";
+      int    domDoneT   = buyDom ? g_eqDdBuyCycleHighestTier : g_eqDdSellCycleHighestTier;
+      double domCutPct  = buyDom ? tmpCutB : tmpCutS;
       if(leftTier >= 1)
-        {
-         datetime sHitT = buyDom ? g_eqDdBuyLastHitTime : g_eqDdSellLastHitTime;
-         int      sHitR = buyDom ? g_eqDdBuyLastHitTier : g_eqDdSellLastHitTier;
-         if(sHitT > 0 && sHitR == leftTier)
-            tierTag = StringFormat(" [T%d %s]", leftTier, TimeToString(sHitT, TIME_MINUTES));
-         else
-            tierTag = StringFormat(" [T%d]", leftTier);
-        }
-      else if(g_eqDdLastHitTime > 0)
-        {
-         string lCh = (g_eqDdLastHitSide != "" ? StringSubstr(g_eqDdLastHitSide, 0, 1) : "?");
-         tierTag = StringFormat(" [%s:T%d %s]", lCh, g_eqDdLastHitTier, TimeToString(g_eqDdLastHitTime, TIME_MINUTES));
-        }
+         tierTag = StringFormat(" [T%d -%.0f%%L]", leftTier, domCutPct);
+      else if(domDoneT >= 1)
+         tierTag = StringFormat(" [T%d Done]", domDoneT);
+      else if(g_eqDdSessionPeakPct > 0.0)
+         tierTag = StringFormat(" | Pk:%.1f%%", g_eqDdSessionPeakPct);
       eqBadgeClr = (leftTier >= 1) ? GetEqDdTierColor(leftTier) : clrTomato;
       eqBadgeTxt = StringFormat("%s DD: %.1f%% (-$%s)%s", maxSideName, maxSideDdPct, absLossStr, tierTag);
      }
    else
      {
       string gainStr = (eqDiffUSD >= 1000.0) ? DoubleToString(eqDiffUSD, 0) : DoubleToString(eqDiffUSD, 2);
-      string lCh     = (g_eqDdLastHitSide != "" ? (StringSubstr(g_eqDdLastHitSide, 0, 1) + ":") : "");
-      string lastTag = (g_eqDdLastHitTime > 0) ? StringFormat(" [%sT%d %s]", lCh, g_eqDdLastHitTier, TimeToString(g_eqDdLastHitTime, TIME_MINUTES)) : "";
+      string pkTag   = (g_eqDdSessionPeakPct > 0.0) ? StringFormat(" | Pk:%.1f%%", g_eqDdSessionPeakPct) : "";
       eqBadgeClr = (eqDiffUSD > 0.0) ? clrLime : clrSilver;
-      eqBadgeTxt = StringFormat("SIDE DD: 0.0%% (+$%s)%s", gainStr, lastTag);
+      eqBadgeTxt = StringFormat("SIDE DD: 0.0%% (+$%s)%s", gainStr, pkTag);
      }
    CreateLeftLivePanel(LEFT_LIVE_PREFIX+"EQDD_BG", x+206, y+6, width-314, 26, C'14,18,26');
    CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"EQDD_TXT", eqBadgeTxt, x+214, y+11, 9, eqBadgeClr);
    CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"SYMBOL", Symbol()+"  |  "+TimeframeToString(Period()), x+width-102, y+10, 8, clrLightGray);
 
-   // Top Special EQ-DD Hit Time & Tier Banner (Pure Per-Side)
-   string ddBannerTxt = "DD HIT : NONE YET";
-   color  ddBannerClr = clrSilver;
-   bool   anySideActive = (g_eqDdBuyCycleHighestTier >= 1 || g_eqDdSellCycleHighestTier >= 1 || leftTier >= 1);
+   // Row 2 (y+38): Live Current DD Status Bar (Per-Side % / Active Tier / Wait / Next Trigger)
+   bool leftWaitBuy  = (InpEnableEqDdLotReduction && buyTier  > 0 && g_eqDdBuyLastReachTime  > 0 && buyTier  >= g_eqDdBuyLastReachTier  && g_eqDdBuyLastReachTime  > g_eqDdBuyLastHitTime  && g_eqDdBuyLastReachReason  != "");
+   bool leftWaitSell = (InpEnableEqDdLotReduction && sellTier > 0 && g_eqDdSellLastReachTime > 0 && sellTier >= g_eqDdSellLastReachTier && g_eqDdSellLastReachTime > g_eqDdSellLastHitTime && g_eqDdSellLastReachReason != "");
+   bool leftPending  = (leftWaitBuy || leftWaitSell);
+   bool anySideDone  = (g_eqDdBuyCycleHighestTier >= 1 || g_eqDdSellCycleHighestTier >= 1);
+
+   string ddStatLeftTxt  = "";
+   color  ddStatLeftClr  = clrSilver;
+   string ddStatRightTxt = "";
+   color  ddStatRightClr = clrLightGray;
+
    if(!InpEnableEqDdLotReduction)
      {
-      ddBannerTxt = "DD HIT : DISABLED";
-      ddBannerClr = clrSilver;
+      string rlfStateTag = g_drawdownReliefExecuted ? "SL SET" : (g_drawdownReliefArmed ? "ARMED" : (g_drawdownReliefPeakUSD > 0.0 ? "TRACK" : "IDLE"));
+      ddStatLeftTxt  = StringFormat("DD STATUS  : EQ-DD DISABLED (RLF: %s | AcctDD:$%.0f)", rlfStateTag, curAcctDdUSD);
+      ddStatLeftClr  = clrSilver;
+      ddStatRightTxt = "EQ-DD Off";
+      ddStatRightClr = clrSilver;
      }
-   else if(g_eqDdLastHitTime > 0)
+   else
      {
-      string hitSideLbl   = (g_eqDdLastHitSide   != "" ? (g_eqDdLastHitSide   + " ") : "");
-      string reachSideLbl = (g_eqDdLastReachSide != "" ? (g_eqDdLastReachSide + " ") : "");
-      bool   reachStillPending = (g_eqDdLastReachTime > g_eqDdLastHitTime &&
-                                  ((g_eqDdLastReachSide == "BUY"  && buyTier  >= g_eqDdLastReachTier) ||
-                                   (g_eqDdLastReachSide == "SELL" && sellTier >= g_eqDdLastReachTier)));
-      if(reachStillPending)
+      bool   pickStatBuy = (MathMax(buyTier, g_eqDdBuyCycleHighestTier) > MathMax(sellTier, g_eqDdSellCycleHighestTier)) ||
+                           (MathMax(buyTier, g_eqDdBuyCycleHighestTier) == MathMax(sellTier, g_eqDdSellCycleHighestTier) && liveBuyDdPct >= liveSellDdPct);
+      int    statCurT   = pickStatBuy ? buyTier : sellTier;
+      int    statDoneT  = pickStatBuy ? g_eqDdBuyCycleHighestTier : g_eqDdSellCycleHighestTier;
+      double statCutPct = pickStatBuy ? tmpCutB : tmpCutS;
+      string statSideCh = pickStatBuy ? "B" : "S";
+      double nextThresh = 0.0;
+      int    nextTier   = ResolveNextEqDdTier(statCurT, statDoneT, nextThresh);
+      ddStatRightTxt = StringFormat("Next:T%d@%.0f%% | Cut:%d(-%.2fL)", nextTier, nextThresh, g_eqDdTotalPartialCuts, g_eqDdTotalLotsReduced);
+      ddStatRightClr = (g_eqDdTotalPartialCuts > 0 || leftTier >= 1) ? clrGold : clrLightGray;
+
+      if(g_eqDdCloseAllPending)
         {
-         ddBannerTxt = StringFormat("DD HIT : %sT%d @ %s (-%.2fL) | NOW %sT%d @ %s (%.1f%% Wait Elig)",
-                                    hitSideLbl, g_eqDdLastHitTier, TimeToString(g_eqDdLastHitTime, TIME_MINUTES|TIME_SECONDS), g_eqDdLastHitLots,
-                                    reachSideLbl, g_eqDdLastReachTier, TimeToString(g_eqDdLastReachTime, TIME_MINUTES|TIME_SECONDS), g_eqDdLastReachPct);
-         ddBannerClr = GetEqDdTierColor(g_eqDdLastReachTier);
+         ddStatLeftTxt = StringFormat("DD STATUS  : CLOSE-ALL | B:%.1f%% S:%.1f%% | Pk:%.1f%%", liveBuyDdPct, liveSellDdPct, g_eqDdSessionPeakPct);
+         ddStatLeftClr = clrRed;
         }
-      else if(anySideActive)
+      else if(leftPending)
         {
-         ddBannerTxt = StringFormat("DD HIT : %sT%d (-%.0f%%L) @ %s | %.1f%% (-$%.2f) | Cut x%d (-%.2fL)",
-                                    hitSideLbl, g_eqDdLastHitTier, g_eqDdLastHitCutPct,
-                                    TimeToString(g_eqDdLastHitTime, TIME_DATE|TIME_MINUTES|TIME_SECONDS),
-                                    g_eqDdLastHitPct, g_eqDdLastHitUSD, g_eqDdLastHitOrders, g_eqDdLastHitLots);
-         ddBannerClr = GetEqDdTierColor(g_eqDdLastHitTier);
+         bool   pickWBuy = (leftWaitBuy && (!leftWaitSell || buyTier > sellTier || (buyTier == sellTier && liveBuyDdPct >= liveSellDdPct)));
+         string wSCh     = pickWBuy ? "B" : "S";
+         int    wT       = pickWBuy ? buyTier : sellTier;
+         string wRsn     = pickWBuy ? g_eqDdBuyLastReachReason : g_eqDdSellLastReachReason;
+         double wPct     = pickWBuy ? liveBuyDdPct : liveSellDdPct;
+         ddStatLeftTxt = StringFormat("DD STATUS  : %s-T%d WAIT (%s) | B:%.1f%% S:%.1f%% | Pk:%.1f%%",
+                                      wSCh, wT, wRsn, liveBuyDdPct, liveSellDdPct, g_eqDdSessionPeakPct);
+         if(StringLen(ddStatLeftTxt) > 61)
+            ddStatLeftTxt = StringFormat("DD STATUS  : %s-T%d WAIT (%s) | %.1f%% | Pk:%.1f%%", wSCh, wT, wRsn, wPct, g_eqDdSessionPeakPct);
+         ddStatLeftClr = GetEqDdTierColor(wT);
+        }
+      else if(leftTier >= 1)
+        {
+         ddStatLeftTxt = StringFormat("DD STATUS  : %s-T%d ACTIVE (-%.0f%%L) | B:%.1f%% S:%.1f%% | Pk:%.1f%%",
+                                      statSideCh, leftTier, statCutPct, liveBuyDdPct, liveSellDdPct, g_eqDdSessionPeakPct);
+         ddStatLeftClr = GetEqDdTierColor(leftTier);
+        }
+      else if(anySideDone)
+        {
+         ddStatLeftTxt = StringFormat("DD STATUS  : %s-RECOV (T%d Done) | B:%.1f%% S:%.1f%% | Pk:%.1f%%",
+                                      statSideCh, statDoneT, liveBuyDdPct, liveSellDdPct, g_eqDdSessionPeakPct);
+         ddStatLeftClr = clrGold;
         }
       else
         {
-         ddBannerTxt = StringFormat("LAST DD: %sT%d (-%.0f%%L) @ %s | %.1f%% (-$%.2f) | x%d (-%.2fL) [OK]",
-                                    hitSideLbl, g_eqDdLastHitTier, g_eqDdLastHitCutPct,
-                                    TimeToString(g_eqDdLastHitTime, TIME_DATE|TIME_MINUTES|TIME_SECONDS),
-                                    g_eqDdLastHitPct, g_eqDdLastHitUSD, g_eqDdLastHitOrders, g_eqDdLastHitLots);
-         ddBannerClr = GetEqDdTierColor(g_eqDdLastHitTier);
+         ddStatLeftTxt = StringFormat("DD STATUS  : OK | B:%.1f%% S:%.1f%% | AcctDD:$%.0f | Pk:%.1f%%",
+                                      liveBuyDdPct, liveSellDdPct, curAcctDdUSD, g_eqDdSessionPeakPct);
+         ddStatLeftClr = (maxSideDdPct > 0.0) ? clrWhite : clrLime;
         }
+     }
+   CreateLeftLivePanel(LEFT_LIVE_PREFIX+"DD_STATBAR", x, y+38, width, 22, C'18,24,34');
+   CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"DD_STAT_L", ddStatLeftTxt, tx, y+43, 8, ddStatLeftClr);
+   CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"DD_STAT_R", ddStatRightTxt, x+444, y+43, 8, ddStatRightClr);
+
+   // Row 3 (y+60): Chronological Latest DD Event Banner (Hit / Wait / Cleared in Dubai Time)
+   string ddBannerTxt = "DD LATEST  : NONE YET";
+   color  ddBannerClr = clrSilver;
+   datetime leftPendTime = 0;
+   if(leftWaitBuy && leftWaitSell)
+      leftPendTime = MathMax(g_eqDdBuyLastReachTime, g_eqDdSellLastReachTime);
+   else if(leftWaitBuy)
+      leftPendTime = g_eqDdBuyLastReachTime;
+   else if(leftWaitSell)
+      leftPendTime = g_eqDdSellLastReachTime;
+
+   if(!InpEnableEqDdLotReduction)
+     {
+      ddBannerTxt = "DD LATEST  : EQ-DD PROTECTION DISABLED";
+      ddBannerClr = clrSilver;
+     }
+   else if(leftPendTime > 0 && leftPendTime >= g_eqDdLastHitTime && leftPendTime >= g_eqDdLastResetTime)
+     {
+      bool   pickWBuy = (leftWaitBuy && (!leftWaitSell || g_eqDdBuyLastReachTime >= g_eqDdSellLastReachTime));
+      string wSide    = pickWBuy ? "BUY" : "SELL";
+      int    wT       = pickWBuy ? buyTier : sellTier;
+      double wPct     = pickWBuy ? liveBuyDdPct : liveSellDdPct;
+      double wUsd     = pickWBuy ? liveBuyDdUSD : liveSellDdUSD;
+      string wRsn     = pickWBuy ? g_eqDdBuyLastReachReason : g_eqDdSellLastReachReason;
+      ddBannerTxt = StringFormat("DD LATEST  : %s T%d WAIT @ %s GST | %.1f%% (-$%.1f) | %s",
+                                 wSide, wT, FormatDubaiShortDT(leftPendTime, true), wPct, wUsd, wRsn);
+      ddBannerClr = GetEqDdTierColor(wT);
+     }
+   else if(g_eqDdLastResetTime > 0 && g_eqDdLastResetTime > g_eqDdLastHitTime)
+     {
+      if(g_eqDdLastHitTime > 0)
+        {
+         string hCh = (g_eqDdLastHitSide != "" ? StringSubstr(g_eqDdLastHitSide, 0, 1) : "?");
+         ddBannerTxt = StringFormat("DD LATEST  : %s CLEARED (T%d->OK) @ %s GST | Last:%s-T%d x%d(-%.2fL)",
+                                    g_eqDdLastResetSide, g_eqDdLastResetTier, FormatDubaiShortDT(g_eqDdLastResetTime, false),
+                                    hCh, g_eqDdLastHitTier, g_eqDdLastHitOrders, g_eqDdLastHitLots);
+        }
+      else
+         ddBannerTxt = StringFormat("DD LATEST  : %s CLEARED (T%d->OK) @ %s GST | Loss Cleared [OK]",
+                                    g_eqDdLastResetSide, g_eqDdLastResetTier, FormatDubaiShortDT(g_eqDdLastResetTime, true));
+      ddBannerClr = clrLime;
+     }
+   else if(g_eqDdLastHitTime > 0)
+     {
+      string hitSideLbl = (g_eqDdLastHitSide != "" ? (g_eqDdLastHitSide + " ") : "");
+      string okTag      = (!anySideDone && leftTier == 0) ? " [OK]" : "";
+      ddBannerTxt = StringFormat("DD LATEST  : %sT%d (-%.0f%%L) @ %s GST | %.1f%% (-$%.1f) | x%d (-%.2fL)%s",
+                                 hitSideLbl, g_eqDdLastHitTier, g_eqDdLastHitCutPct,
+                                 FormatDubaiShortDT(g_eqDdLastHitTime, true),
+                                 g_eqDdLastHitPct, g_eqDdLastHitUSD, g_eqDdLastHitOrders, g_eqDdLastHitLots, okTag);
+      ddBannerClr = (!anySideDone && leftTier == 0) ? clrGold : GetEqDdTierColor(g_eqDdLastHitTier);
      }
    else if(g_eqDdLastReachTime > 0)
      {
-      double leftMult = (balancelomultipler > 0) ? balancelomultipler : 1.0;
-      double minLossReq = InpEqDdMinOrderLossUSD * leftMult;
-      double minLotReq  = MarketInfo(Symbol(), MODE_MINLOT);
-      if(minLotReq <= 0.0) minLotReq = 0.01;
       string reachSideLbl = (g_eqDdLastReachSide != "" ? (g_eqDdLastReachSide + " ") : "");
-      ddBannerTxt = StringFormat("DD WAIT: %sT%d @ %s | %.1f%% (Need Loss>=$%.0f & Lot>%.2f)",
-                                 reachSideLbl, g_eqDdLastReachTier,
-                                 TimeToString(g_eqDdLastReachTime, TIME_DATE|TIME_MINUTES|TIME_SECONDS),
-                                 g_eqDdLastReachPct, minLossReq, minLotReq);
+      string rsnTag       = (g_eqDdLastReachReason != "" ? g_eqDdLastReachReason : "Waiting Elig");
+      ddBannerTxt = StringFormat("DD LATEST  : %sT%d REACH @ %s GST | %.1f%% | %s",
+                                 reachSideLbl, g_eqDdLastReachTier, FormatDubaiShortDT(g_eqDdLastReachTime, true),
+                                 g_eqDdLastReachPct, rsnTag);
       ddBannerClr = GetEqDdTierColor(g_eqDdLastReachTier);
+     }
+   else if(g_drawdownReliefExecuted || g_drawdownReliefArmed || g_drawdownReliefPeakUSD > 0.0)
+     {
+      double rMult = (balancelomultipler > 0) ? balancelomultipler : 1.0;
+      double rReq  = (InpDrawdownReliefMinPeakUSD > 0.0 ? InpDrawdownReliefMinPeakUSD * rMult : 100.0 * rMult);
+      string rTag  = g_drawdownReliefExecuted ? StringFormat("SL SET (Hits:%d)", g_drawdownReliefHitSuccessCount)
+                                              : (g_drawdownReliefArmed ? StringFormat("ARMED (Tgt <=$%.0f)", g_drawdownReliefPeakUSD * (1.0 - InpDrawdownReliefPercent))
+                                                                       : StringFormat("TRACK $%.0f/$%.0f", g_drawdownReliefPeakUSD, rReq));
+      ddBannerTxt = StringFormat("DD LATEST  : EQ-DD NONE YET | RLF %s | AcctDD:$%.1f", rTag, curAcctDdUSD);
+      ddBannerClr = g_drawdownReliefExecuted ? clrLime : (g_drawdownReliefArmed ? clrGold : clrDeepSkyBlue);
      }
    else
      {
       int    firstTier   = InpEqDdEnableTier1 ? 1 : 2;
       double firstThresh = InpEqDdEnableTier1 ? InpEqDdTier1Pct : InpEqDdTier2Pct;
       double firstCut    = InpEqDdEnableTier1 ? InpEqDdTier1CutPct : InpEqDdTier2CutPct;
-      ddBannerTxt = StringFormat("DD HIT : NONE YET  (Per-Side Next: T%d @ %.0f%% BUY/SELL -> -%.0f%% Lots)", firstTier, firstThresh, firstCut);
+      ddBannerTxt = StringFormat("DD LATEST  : NONE YET | Per-Side T%d@%.0f%% (-%.0f%%L) .. T%d@%.0f%% Armed",
+                                 firstTier, firstThresh, firstCut, InpEqDdMaxTier, GetEqDdTierThresholdPct(InpEqDdMaxTier));
       ddBannerClr = clrSilver;
      }
-   CreateLeftLivePanel(LEFT_LIVE_PREFIX+"EQDD_HITBAR", x, y+38, width, 22, C'18,24,34');
-   CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"EQDD_HITTXT", ddBannerTxt, tx, y+43, 8, ddBannerClr);
+   CreateLeftLivePanel(LEFT_LIVE_PREFIX+"EQDD_HITBAR", x, y+60, width, 22, C'14,20,30');
+   CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"EQDD_HITTXT", ddBannerTxt, tx, y+65, 8, ddBannerClr);
 
    // Dubai Time & Night-Close Status Bar
    datetime dNowServer = TimeCurrent();
@@ -21910,29 +22190,29 @@ void UpdateLeftLiveOrdersDashboard()
       leftDubaiStatClr = clrLightGray;
      }
 
-   CreateLeftLivePanel(LEFT_LIVE_PREFIX+"DUBAI_BAR", x, y+60, width, 22, C'16,28,44');
-   CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"DUBAI_TIME", leftDubaiTimeTxt, tx, y+65, 8, leftDubaiTimeClr);
-   CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"DUBAI_STAT", leftDubaiStatTxt, x+268, y+65, 8, leftDubaiStatClr);
+   CreateLeftLivePanel(LEFT_LIVE_PREFIX+"DUBAI_BAR", x, y+82, width, 22, C'16,28,44');
+   CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"DUBAI_TIME", leftDubaiTimeTxt, tx, y+87, 8, leftDubaiTimeClr);
+   CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"DUBAI_STAT", leftDubaiStatTxt, x+268, y+87, 8, leftDubaiStatClr);
 
-   CreateLeftLivePanel(LEFT_LIVE_PREFIX+"SUMMARYBAR", x, y+82, width, 42, C'25,31,42');
+   CreateLeftLivePanel(LEFT_LIVE_PREFIX+"SUMMARYBAR", x, y+104, width, 42, C'25,31,42');
 
 // Top Row: Buy Lot and Buy P/L , sell LOT and sell P/l - Net P/L
    string topRowText = "BUY " + DoubleToString(buyLots,2) + " (P/L " + buyPLStr + ") , SELL " + DoubleToString(sellLots,2) + " (P/L " + sellPLStr + ") - NET " + netPLStr;
-   CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"TOTALS", topRowText, tx, y+89, 9, pnlColor);
+   CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"TOTALS", topRowText, tx, y+111, 9, pnlColor);
 
 // Second Row: Orders Count Summary
    string summaryText = "ORDERS " + IntegerToString(total) + "/" + IntegerToString(MaxOpenOrders) +
                         "   BUY " + IntegerToString(buyCount) +
                         "   SELL " + IntegerToString(sellCount) +
                         "   PEND " + IntegerToString(pendingCount);
-   CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"SUMMARY", summaryText, tx, y+106, 8, clrWhite);
+   CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"SUMMARY", summaryText, tx, y+128, 8, clrWhite);
 
-   CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"HEAD", "TYPE     LOT       OPEN            SL     GAP      P/L     VERIFIED", tx, y+132, 8, clrSilver);
+   CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"HEAD", "TYPE     LOT       OPEN            SL     GAP      P/L     VERIFIED", tx, y+154, 8, clrSilver);
 
    for(int r=0; r<24; r++)
      {
-      CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"ROW"+IntegerToString(r), "", tx, y+152+(r*20), 8, clrWhite);
-      CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"VERIFY"+IntegerToString(r), "", tx+350, y+152+(r*20), 8, clrSilver);
+      CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"ROW"+IntegerToString(r), "", tx, y+174+(r*20), 8, clrWhite);
+      CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"VERIFY"+IntegerToString(r), "", tx+350, y+174+(r*20), 8, clrSilver);
      }
 
    int row=0;
@@ -22076,14 +22356,14 @@ void UpdateLeftLiveOrdersDashboard()
          rowColor=clrLime;
       if((type==OP_BUY || type==OP_SELL) && pl<0)
          rowColor=clrOrangeRed;
-      CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"ROW"+IntegerToString(row), rowText, tx, y+152+(row*20), 8, rowColor);
-      CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"VERIFY"+IntegerToString(row), verifiedStatus, tx+350, y+152+(row*20), 8, verifiedColor);
+      CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"ROW"+IntegerToString(row), rowText, tx, y+174+(row*20), 8, rowColor);
+      CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"VERIFY"+IntegerToString(row), verifiedStatus, tx+350, y+174+(row*20), 8, verifiedColor);
       row++;
      }
    if(total==0)
-      CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"EMPTY", "NO ACTIVE EA ORDERS", tx, y+152, 9, clrSilver);
+      CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"EMPTY", "NO ACTIVE EA ORDERS", tx, y+174, 9, clrSilver);
    else
-      CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"EMPTY", "Showing "+IntegerToString(MathMin(total,rows))+" of "+IntegerToString(total)+" orders", tx, y+152+(rows*20)+4, 8, clrSilver);
+      CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"EMPTY", "Showing "+IntegerToString(MathMin(total,rows))+" of "+IntegerToString(total)+" orders", tx, y+174+(rows*20)+4, 8, clrSilver);
    ChartRedraw(0);
   }
 //+------------------------------------------------------------------+
