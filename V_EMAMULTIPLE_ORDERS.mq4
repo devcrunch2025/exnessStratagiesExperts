@@ -43,7 +43,7 @@ CheckBasketProfitClose  Total open basket profit
 
 
 
-string glbVersion = "VMULTI-1127- Guarantee EQ-DD Hit Execution, Tier Logs, Top Dashboard Time & Tier";
+string glbVersion = "VMULTI-1128- EQ-DD Disable 10% Tier 1, Continue From 20% Tier 2";
 
 
 
@@ -290,12 +290,13 @@ double Inp90PctSLMinStopLossDistanceUSD     = 1000.0; // Minimum StopLoss distan
 double Inp90PctSLAdversePercent             = 0.90;   // Adverse distance percentage towards SL to trigger (90% = 0.90)
 double Inp90PctSLExpansionGapUSD            = 1000;//500.0;  // StopLoss expansion in raw USD ($500) instead of doubling (ONE TIME ONLY)
 
-// ===== EQUITY-BALANCE % DRAWDOWN TIERED LOT REDUCTION (10% STEPS UP TO 90%, NO CLOSE-ALL) =====
+// ===== EQUITY-BALANCE % DRAWDOWN TIERED LOT REDUCTION (20%..90% BY DEFAULT, 10% DISABLED) =====
 bool   InpEnableEqDdLotReduction          = true;   // Enable Equity-Balance % DD Tiered Lot Reduction
+bool   InpEqDdEnableTier1                 = false;  // Enable Tier 1 (10% DD): false = Disable 10% and start from Tier 2 (20%)
 double InpEqDdStepPct                     = 10.0;   // Drawdown % step size per tier (60%..90% continue 10% steps)
 int    InpEqDdMaxTier                     = 9;      // Highest tier (9 = 90% DD -> reduce 90% of order lots)
-double InpEqDdTier1Pct                    = 10.0;   // Tier 1 DD%: Equity >= 10% below Balance -> reduce 10% of lots
-double InpEqDdTier1CutPct                 = 10.0;   // Tier 1 Lot Reduction % of order lots (min 0.01)
+double InpEqDdTier1Pct                    = 10.0;   // Tier 1 DD%: Equity >= 10% below Balance -> reduce 10% of lots (when enabled)
+double InpEqDdTier1CutPct                 = 10.0;   // Tier 1 Lot Reduction % of order lots (min 0.01, when enabled)
 double InpEqDdTier2Pct                    = 20.0;   // Tier 2 DD%: Equity >= 20% below Balance -> reduce 20% of lots
 double InpEqDdTier2CutPct                 = 20.0;   // Tier 2 Lot Reduction % of order lots (min 0.01)
 double InpEqDdTier3Pct                    = 30.0;   // Tier 3 DD%: Equity >= 30% below Balance -> reduce 30% of lots
@@ -1963,7 +1964,7 @@ void Check90PctSLAdversePartialCutAndDoubleSL()
 //+------------------------------------------------------------------+
 //| Equity-Balance % Drawdown Tiered Lot Reduction & 50% Close-All   |
 //| Example ($600 Balance):                                          |
-//|   Equity <= $540 (-10%) -> Cut 10% lots on losing orders (min 0.01)
+//|   (Tier 1 -10% disabled by default; InpEqDdEnableTier1 = false)  |
 //|   Equity <= $480 (-20%) -> Cut 20% lots on losing orders (min 0.01)
 //|   Equity <= $420 (-30%) -> Cut 30% lots on losing orders (min 0.01)
 //|   Equity <= $360 (-40%) -> Cut 40% lots on losing orders (min 0.01)
@@ -2171,7 +2172,7 @@ int ResolveEqDdTierAndCut(double ddPct, double &cutPctOut)
    if((ddPct + 1e-6) >= InpEqDdTier4Pct)      { cutPctOut = InpEqDdTier4CutPct; return 4; }
    if((ddPct + 1e-6) >= InpEqDdTier3Pct)      { cutPctOut = InpEqDdTier3CutPct; return 3; }
    if((ddPct + 1e-6) >= InpEqDdTier2Pct)      { cutPctOut = InpEqDdTier2CutPct; return 2; }
-   if((ddPct + 1e-6) >= InpEqDdTier1Pct)      { cutPctOut = InpEqDdTier1CutPct; return 1; }
+   if(InpEqDdEnableTier1 && (ddPct + 1e-6) >= InpEqDdTier1Pct) { cutPctOut = InpEqDdTier1CutPct; return 1; }
    return 0;
   }
 
@@ -8267,8 +8268,9 @@ void OnDeinit(const int reason)
      }
    if(g_eqDdTotalPartialCuts > 0 || g_eqDdTotalCloseAllOrders > 0)
      {
-      PrintFormat(">>> [EQ-DD LOT SHIELD SUMMARY] Peak DD=%.2f%% | Partial Cuts (10%%-90%% Tiers): %d | Close-All Orders: %d | Total Lots Reduced: %.2fL",
-                  g_eqDdSessionPeakPct, g_eqDdTotalPartialCuts, g_eqDdTotalCloseAllOrders, g_eqDdTotalLotsReduced);
+      string tierRangeStr = InpEqDdEnableTier1 ? "10%-90%" : "20%-90%";
+      PrintFormat(">>> [EQ-DD LOT SHIELD SUMMARY] Peak DD=%.2f%% | Partial Cuts (%s Tiers): %d | Close-All Orders: %d | Total Lots Reduced: %.2fL",
+                  g_eqDdSessionPeakPct, tierRangeStr, g_eqDdTotalPartialCuts, g_eqDdTotalCloseAllOrders, g_eqDdTotalLotsReduced);
      }
   }
 
@@ -20117,7 +20119,7 @@ void UpdateDashboard(DailyProtectionState &state)
 
 // Header Bar
    CreateDashboardPanel(DASH_PREFIX+"HEADER", x, y, w, 36, C'20,55,90');
-   string eaTitle = StringFormat("%s | %s %s", "VMULTI-1127", Symbol(), TimeframeToString(Period()));
+   string eaTitle = StringFormat("%s | %s %s", "VMULTI-1128", Symbol(), TimeframeToString(Period()));
    CreateDashboardLabel(DASH_PREFIX+"TITLE", eaTitle, tx, y+4, 9, clrWhite);
    string priceStatus = StringFormat("BID: %." + IntegerToString(Digits) + "f | ASK: %." + IntegerToString(Digits) + "f | SPR: %d pts", Bid, Ask, (int)MarketInfo(Symbol(), MODE_SPREAD));
    CreateDashboardLabel(DASH_PREFIX+"PRICE", priceStatus, tx, y+19, 8, clrLightGray);
@@ -20438,7 +20440,8 @@ void UpdateDashboard(DailyProtectionState &state)
      }
    else
      {
-      eqDdState = StringFormat("OK [Next:%.0f%%] | Cuts:%d (-%.2fL)", InpEqDdTier1Pct, g_eqDdTotalPartialCuts, g_eqDdTotalLotsReduced);
+      double firstThresh = InpEqDdEnableTier1 ? InpEqDdTier1Pct : InpEqDdTier2Pct;
+      eqDdState = StringFormat("OK [Next:%.0f%%] | Cuts:%d (-%.2fL)", firstThresh, g_eqDdTotalPartialCuts, g_eqDdTotalLotsReduced);
       eqDdClr = clrLightGray;
      }
    string eqDdLine = StringFormat("EQ-DD CUT   : %.1f%% | %s", dashDdPct, eqDdState);
@@ -20806,7 +20809,10 @@ void UpdateLeftLiveOrdersDashboard()
      }
    else
      {
-      ddBannerTxt = StringFormat("DD HIT : NONE YET  (Next: T1 @ %.0f%% DD -> -%.0f%% Lots)", InpEqDdTier1Pct, InpEqDdTier1CutPct);
+      int    firstTier   = InpEqDdEnableTier1 ? 1 : 2;
+      double firstThresh = InpEqDdEnableTier1 ? InpEqDdTier1Pct : InpEqDdTier2Pct;
+      double firstCut    = InpEqDdEnableTier1 ? InpEqDdTier1CutPct : InpEqDdTier2CutPct;
+      ddBannerTxt = StringFormat("DD HIT : NONE YET  (Next: T%d @ %.0f%% DD -> -%.0f%% Lots)", firstTier, firstThresh, firstCut);
       ddBannerClr = clrSilver;
      }
    CreateLeftLivePanel(LEFT_LIVE_PREFIX+"EQDD_HITBAR", x, y+38, width, 22, C'18,24,34');
