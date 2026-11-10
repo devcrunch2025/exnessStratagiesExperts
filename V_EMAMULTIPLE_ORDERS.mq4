@@ -43,7 +43,7 @@ CheckBasketProfitClose  Total open basket profit
 
 
 
-string glbVersion = "VMULTI-1131- Dubai 10PM-12AM One-Side Close-All (Once Per Day)";
+string glbVersion = "VMULTI-1132- EQ-DD Disable 10% Tier 1 (Continue From 20%..90%)";
 
 
 
@@ -290,9 +290,9 @@ double Inp90PctSLMinStopLossDistanceUSD     = 1000.0; // Minimum StopLoss distan
 double Inp90PctSLAdversePercent             = 0.90;   // Adverse distance percentage towards SL to trigger (90% = 0.90)
 double Inp90PctSLExpansionGapUSD            = 1000;//500.0;  // StopLoss expansion in raw USD ($500) instead of doubling (ONE TIME ONLY)
 
-// ===== EQUITY-BALANCE % DRAWDOWN TIERED LOT REDUCTION (PURE PER-SIDE BUY/SELL, 10%..90%) =====
+// ===== EQUITY-BALANCE % DRAWDOWN TIERED LOT REDUCTION (PURE PER-SIDE BUY/SELL, 20%..90%) =====
 bool   InpEnableEqDdLotReduction          = true;   // Enable Per-Side (BUY / SELL Separate) DD% Tiered Lot Reduction
-bool   InpEqDdEnableTier1                 = true;   // Enable Tier 1 (10% DD): true = active 10% -> 20% -> ... 90%
+bool   InpEqDdEnableTier1                 = false;  // Disable Tier 1 (10% DD): start from Tier 2 (20% -> 30% -> ... 90%)
 double InpEqDdStepPct                     = 10.0;   // Drawdown % step size per tier (60%..90% continue 10% steps)
 int    InpEqDdMaxTier                     = 9;      // Highest tier (9 = 90% DD -> reduce 90% of order lots)
 double InpEqDdTier1Pct                    = 10.0;   // Tier 1 DD%: Side Loss >= 10% of Balance -> reduce 10% of lots
@@ -20673,7 +20673,7 @@ void UpdateDashboard(DailyProtectionState &state)
 
 // Header Bar
    CreateDashboardPanel(DASH_PREFIX+"HEADER", x, y, w, 36, C'20,55,90');
-   string eaTitle = StringFormat("%s | %s %s", "VMULTI-1131", Symbol(), TimeframeToString(Period()));
+   string eaTitle = StringFormat("%s | %s %s", "VMULTI-1132", Symbol(), TimeframeToString(Period()));
    CreateDashboardLabel(DASH_PREFIX+"TITLE", eaTitle, tx, y+4, 9, clrWhite);
    string priceStatus = StringFormat("BID: %." + IntegerToString(Digits) + "f | ASK: %." + IntegerToString(Digits) + "f | SPR: %d pts", Bid, Ask, (int)MarketInfo(Symbol(), MODE_SPREAD));
    CreateDashboardLabel(DASH_PREFIX+"PRICE", priceStatus, tx, y+19, 8, clrLightGray);
