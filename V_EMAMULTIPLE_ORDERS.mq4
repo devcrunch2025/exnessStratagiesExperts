@@ -43,7 +43,7 @@ CheckBasketProfitClose  Total open basket profit
 
 
 
-string glbVersion = "VMULTI-1136- Dubai Night Path-B 50% Lots/30m Cut + 11:45PM Final Close-All";
+string glbVersion = "VMULTI-1137- Left Dashboard Dubai Time Bar + 50%/30m Night Cut";
 
 
 
@@ -20921,7 +20921,7 @@ void UpdateDashboard(DailyProtectionState &state)
 
 // Header Bar
    CreateDashboardPanel(DASH_PREFIX+"HEADER", x, y, w, 36, C'20,55,90');
-   string eaTitle = StringFormat("%s | %s %s", "VMULTI-1136", Symbol(), TimeframeToString(Period()));
+   string eaTitle = StringFormat("%s | %s %s", "VMULTI-1137", Symbol(), TimeframeToString(Period()));
    CreateDashboardLabel(DASH_PREFIX+"TITLE", eaTitle, tx, y+4, 9, clrWhite);
    string priceStatus = StringFormat("BID: %." + IntegerToString(Digits) + "f | ASK: %." + IntegerToString(Digits) + "f | SPR: %d pts", Bid, Ask, (int)MarketInfo(Symbol(), MODE_SPREAD));
    CreateDashboardLabel(DASH_PREFIX+"PRICE", priceStatus, tx, y+19, 8, clrLightGray);
@@ -21639,7 +21639,7 @@ void UpdateLeftLiveOrdersDashboard()
       if(type==OP_BUY || type==OP_SELL)
          netPL+=orderPL;
      }
-   int x=LeftDashboardX, y=LeftDashboardY, tx=x+12, width=MathMax(LeftDashboardWidth+280, 620), panelHeight=rows*20+154;
+   int x=LeftDashboardX, y=LeftDashboardY, tx=x+12, width=MathMax(LeftDashboardWidth+280, 620), panelHeight=rows*20+176;
    color pnlColor=clrWhite;
    if(netPL>0)
       pnlColor=clrLime;
@@ -21791,25 +21791,148 @@ void UpdateLeftLiveOrdersDashboard()
    CreateLeftLivePanel(LEFT_LIVE_PREFIX+"EQDD_HITBAR", x, y+38, width, 22, C'18,24,34');
    CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"EQDD_HITTXT", ddBannerTxt, tx, y+43, 8, ddBannerClr);
 
-   CreateLeftLivePanel(LEFT_LIVE_PREFIX+"SUMMARYBAR", x, y+60, width, 42, C'25,31,42');
+   // Dubai Time & Night-Close Status Bar
+   datetime dNowServer = TimeCurrent();
+   datetime dDubaiTime = (dNowServer > 0) ? (dNowServer + (ServerToDubaiOffsetHours * 3600)) : 0;
+   string   dDubaiClk  = (dDubaiTime > 0) ? TimeToString(dDubaiTime, TIME_DATE|TIME_MINUTES|TIME_SECONDS) : "--:--:--";
+   string   dSrvClk    = (dNowServer > 0) ? TimeToString(dNowServer, TIME_MINUTES) : "--:--";
+   int      dDubaiHr   = (dDubaiTime > 0) ? TimeHour(dDubaiTime) : 0;
+   int      dDubaiMin  = (dDubaiTime > 0) ? TimeMinute(dDubaiTime) : 0;
+   int      dDubaiMod  = dDubaiHr * 60 + dDubaiMin;
+   int      dDubaiDay  = (dDubaiTime > 0) ? (TimeYear(dDubaiTime) * 1000 + TimeDayOfYear(dDubaiTime)) : -1;
+   int      dStartMod  = InpDubaiNightCloseStartHour * 60;
+   int      dEndMod    = InpDubaiNightCloseEndHour   * 60;
+   int      dForceMod  = InpDubaiNightForceCloseHour * 60 + InpDubaiNightForceCloseMinute;
+   bool     dInNight   = false;
+   if(dDubaiTime > 0)
+     {
+      if(InpDubaiNightCloseStartHour < InpDubaiNightCloseEndHour)
+         dInNight = (dDubaiHr >= InpDubaiNightCloseStartHour && dDubaiHr < InpDubaiNightCloseEndHour);
+      else if(InpDubaiNightCloseStartHour > InpDubaiNightCloseEndHour)
+         dInNight = (dDubaiHr >= InpDubaiNightCloseStartHour || dDubaiHr < InpDubaiNightCloseEndHour);
+      else
+         dInNight = (dDubaiHr == InpDubaiNightCloseStartHour);
+     }
+   bool dInForce = false;
+   if(dInNight && InpEnableDubaiNightForceCloseAll)
+     {
+      if(dStartMod <= dEndMod)
+         dInForce = (dDubaiMod >= dForceMod);
+      else if(dForceMod >= dStartMod)
+         dInForce = (dDubaiMod >= dForceMod || dDubaiMod < dEndMod);
+      else
+         dInForce = (dDubaiMod >= dForceMod && dDubaiMod < dEndMod);
+     }
+   double dAbsAng   = MathAbs((GlobalEmaAngle30 != 0.0) ? GlobalEmaAngle30 : GetEmaAngleDegrees(30));
+   bool   dAngOk    = (!InpEnableDubaiNightEmaAngleFilter ||
+                       (dAbsAng + 1e-9 >= InpDubaiNightMinEmaAngleDeg &&
+                        dAbsAng - 1e-9 <= InpDubaiNightMaxEmaAngleDeg));
+   double dOpenEq   = (g_dubaiDayOpeningEquity > 0.0 && g_dubaiNightCloseDayKey == dDubaiDay)
+                      ? g_dubaiDayOpeningEquity : liveEq;
+   double dDayEqPct = (dOpenEq > 0.0) ? (((liveEq - dOpenEq) / dOpenEq) * 100.0) : 0.0;
+   bool   dDayEqHit = (InpEnableDubaiNightDayProfitClose && dOpenEq > 0.0 && dDayEqPct > InpDubaiNightDayProfitPct);
+   string dSign     = (dDayEqPct >= 0.0) ? "+" : "";
+
+   string leftDubaiTimeTxt = StringFormat("DUBAI TIME : %s", dDubaiClk);
+   color  leftDubaiTimeClr = clrAqua;
+   string leftDubaiStatTxt = "";
+   color  leftDubaiStatClr = clrLightGray;
+   if(!InpEnableDubaiNightOneSideCloseAll)
+     {
+      leftDubaiStatTxt = StringFormat("Srv %s | Night Close: OFF", dSrvClk);
+      leftDubaiStatClr = clrSilver;
+     }
+   else if(g_dubaiNightCloseDoneToday && g_dubaiNightCloseDayKey == dDubaiDay)
+     {
+      string dHitClk = (g_dubaiNightCloseLastHitTime > 0)
+                       ? TimeToString(g_dubaiNightCloseLastHitTime + (ServerToDubaiOffsetHours * 3600), TIME_MINUTES)
+                       : "--:--";
+      leftDubaiTimeClr = clrGold;
+      leftDubaiStatTxt = StringFormat("Srv %s | DONE @ %s (Eq:%s%.1f%%)", dSrvClk, dHitClk, dSign, dDayEqPct);
+      leftDubaiStatClr = clrGold;
+     }
+   else if(dInNight && dDayEqHit)
+     {
+      leftDubaiTimeClr = clrLime;
+      leftDubaiStatTxt = StringFormat("Srv %s | DAY EQ %s%.1f%%>%.0f%% -> CLOSE ALL", dSrvClk, dSign, dDayEqPct, InpDubaiNightDayProfitPct);
+      leftDubaiStatClr = clrLime;
+     }
+   else if(dInForce)
+     {
+      if(dAngOk)
+        {
+         leftDubaiTimeClr = clrTomato;
+         leftDubaiStatTxt = StringFormat("Srv %s | FORCE ALL | Cuts:%d | |Ang|:%.2f", dSrvClk, g_dubaiNightCutCountToday, dAbsAng);
+         leftDubaiStatClr = clrTomato;
+        }
+      else
+        {
+         leftDubaiTimeClr = clrGold;
+         leftDubaiStatTxt = StringFormat("Srv %s | WAIT ANG |%.2f|>%.1f (%02d:%02d ALL)",
+                                         dSrvClk, dAbsAng, InpDubaiNightMaxEmaAngleDeg,
+                                         InpDubaiNightForceCloseHour, InpDubaiNightForceCloseMinute);
+         leftDubaiStatClr = clrSilver;
+        }
+     }
+   else if(dInNight)
+     {
+      int dCooldownSec = MathMax(60, InpDubaiNightCutIntervalMinutes * 60);
+      if(g_dubaiNightLastCutTime > 0 && (dNowServer - g_dubaiNightLastCutTime) < dCooldownSec)
+        {
+         int remMin = (int)MathCeil((double)(dCooldownSec - (int)(dNowServer - g_dubaiNightLastCutTime)) / 60.0);
+         leftDubaiTimeClr = clrDeepSkyBlue;
+         leftDubaiStatTxt = StringFormat("Srv %s | CUT#%d Next:%dm | %02d:%02d ALL",
+                                         dSrvClk, g_dubaiNightCutCountToday, remMin,
+                                         InpDubaiNightForceCloseHour, InpDubaiNightForceCloseMinute);
+         leftDubaiStatClr = clrDeepSkyBlue;
+        }
+      else if(!dAngOk)
+        {
+         leftDubaiTimeClr = clrGold;
+         leftDubaiStatTxt = StringFormat("Srv %s | HOLD |Ang|:%.2f | Eq:%s%.1f%%/%.0f%%",
+                                         dSrvClk, dAbsAng, dSign, dDayEqPct, InpDubaiNightDayProfitPct);
+         leftDubaiStatClr = clrSilver;
+        }
+      else
+        {
+         leftDubaiTimeClr = clrOrange;
+         leftDubaiStatTxt = StringFormat("Srv %s | ARMED -%.0f%%/%dm | %02d:%02d ALL",
+                                         dSrvClk, InpDubaiNightPartialCutPct, InpDubaiNightCutIntervalMinutes,
+                                         InpDubaiNightForceCloseHour, InpDubaiNightForceCloseMinute);
+         leftDubaiStatClr = clrOrange;
+        }
+     }
+   else
+     {
+      leftDubaiStatTxt = StringFormat("Srv %s | %02d-%02d READY | Eq:%s%.1f%%/%.0f%%",
+                                      dSrvClk, InpDubaiNightCloseStartHour, InpDubaiNightCloseEndHour,
+                                      dSign, dDayEqPct, InpDubaiNightDayProfitPct);
+      leftDubaiStatClr = clrLightGray;
+     }
+
+   CreateLeftLivePanel(LEFT_LIVE_PREFIX+"DUBAI_BAR", x, y+60, width, 22, C'16,28,44');
+   CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"DUBAI_TIME", leftDubaiTimeTxt, tx, y+65, 8, leftDubaiTimeClr);
+   CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"DUBAI_STAT", leftDubaiStatTxt, x+268, y+65, 8, leftDubaiStatClr);
+
+   CreateLeftLivePanel(LEFT_LIVE_PREFIX+"SUMMARYBAR", x, y+82, width, 42, C'25,31,42');
 
 // Top Row: Buy Lot and Buy P/L , sell LOT and sell P/l - Net P/L
    string topRowText = "BUY " + DoubleToString(buyLots,2) + " (P/L " + buyPLStr + ") , SELL " + DoubleToString(sellLots,2) + " (P/L " + sellPLStr + ") - NET " + netPLStr;
-   CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"TOTALS", topRowText, tx, y+67, 9, pnlColor);
+   CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"TOTALS", topRowText, tx, y+89, 9, pnlColor);
 
 // Second Row: Orders Count Summary
    string summaryText = "ORDERS " + IntegerToString(total) + "/" + IntegerToString(MaxOpenOrders) +
                         "   BUY " + IntegerToString(buyCount) +
                         "   SELL " + IntegerToString(sellCount) +
                         "   PEND " + IntegerToString(pendingCount);
-   CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"SUMMARY", summaryText, tx, y+84, 8, clrWhite);
+   CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"SUMMARY", summaryText, tx, y+106, 8, clrWhite);
 
-   CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"HEAD", "TYPE     LOT       OPEN            SL     GAP      P/L     VERIFIED", tx, y+110, 8, clrSilver);
+   CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"HEAD", "TYPE     LOT       OPEN            SL     GAP      P/L     VERIFIED", tx, y+132, 8, clrSilver);
 
    for(int r=0; r<24; r++)
      {
-      CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"ROW"+IntegerToString(r), "", tx, y+130+(r*20), 8, clrWhite);
-      CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"VERIFY"+IntegerToString(r), "", tx+350, y+130+(r*20), 8, clrSilver);
+      CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"ROW"+IntegerToString(r), "", tx, y+152+(r*20), 8, clrWhite);
+      CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"VERIFY"+IntegerToString(r), "", tx+350, y+152+(r*20), 8, clrSilver);
      }
 
    int row=0;
@@ -21953,14 +22076,14 @@ void UpdateLeftLiveOrdersDashboard()
          rowColor=clrLime;
       if((type==OP_BUY || type==OP_SELL) && pl<0)
          rowColor=clrOrangeRed;
-      CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"ROW"+IntegerToString(row), rowText, tx, y+130+(row*20), 8, rowColor);
-      CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"VERIFY"+IntegerToString(row), verifiedStatus, tx+350, y+130+(row*20), 8, verifiedColor);
+      CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"ROW"+IntegerToString(row), rowText, tx, y+152+(row*20), 8, rowColor);
+      CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"VERIFY"+IntegerToString(row), verifiedStatus, tx+350, y+152+(row*20), 8, verifiedColor);
       row++;
      }
    if(total==0)
-      CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"EMPTY", "NO ACTIVE EA ORDERS", tx, y+130, 9, clrSilver);
+      CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"EMPTY", "NO ACTIVE EA ORDERS", tx, y+152, 9, clrSilver);
    else
-      CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"EMPTY", "Showing "+IntegerToString(MathMin(total,rows))+" of "+IntegerToString(total)+" orders", tx, y+130+(rows*20)+4, 8, clrSilver);
+      CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"EMPTY", "Showing "+IntegerToString(MathMin(total,rows))+" of "+IntegerToString(total)+" orders", tx, y+152+(rows*20)+4, 8, clrSilver);
    ChartRedraw(0);
   }
 //+------------------------------------------------------------------+
