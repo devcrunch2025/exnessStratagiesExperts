@@ -43,7 +43,7 @@ CheckBasketProfitClose  Total open basket profit
 
 
 
-string glbVersion = "VMULTI-1128- EQ-DD Disable 10% Tier 1, Continue From 20% Tier 2";
+string glbVersion = "VMULTI-1129- EQ-DD Pure Per-Side (BUY / SELL Independent Floating Loss Tiers)";
 
 
 
@@ -290,8 +290,8 @@ double Inp90PctSLMinStopLossDistanceUSD     = 1000.0; // Minimum StopLoss distan
 double Inp90PctSLAdversePercent             = 0.90;   // Adverse distance percentage towards SL to trigger (90% = 0.90)
 double Inp90PctSLExpansionGapUSD            = 1000;//500.0;  // StopLoss expansion in raw USD ($500) instead of doubling (ONE TIME ONLY)
 
-// ===== EQUITY-BALANCE % DRAWDOWN TIERED LOT REDUCTION (20%..90% BY DEFAULT, 10% DISABLED) =====
-bool   InpEnableEqDdLotReduction          = true;   // Enable Equity-Balance % DD Tiered Lot Reduction
+// ===== EQUITY-BALANCE % DRAWDOWN TIERED LOT REDUCTION (PURE PER-SIDE BUY/SELL, 20%..90%) =====
+bool   InpEnableEqDdLotReduction          = true;   // Enable Per-Side (BUY / SELL Separate) DD% Tiered Lot Reduction
 bool   InpEqDdEnableTier1                 = false;  // Enable Tier 1 (10% DD): false = Disable 10% and start from Tier 2 (20%)
 double InpEqDdStepPct                     = 10.0;   // Drawdown % step size per tier (60%..90% continue 10% steps)
 int    InpEqDdMaxTier                     = 9;      // Highest tier (9 = 90% DD -> reduce 90% of order lots)
@@ -1962,40 +1962,85 @@ void Check90PctSLAdversePartialCutAndDoubleSL()
   }
 
 //+------------------------------------------------------------------+
-//| Equity-Balance % Drawdown Tiered Lot Reduction & 50% Close-All   |
-//| Example ($600 Balance):                                          |
-//|   (Tier 1 -10% disabled by default; InpEqDdEnableTier1 = false)  |
-//|   Equity <= $480 (-20%) -> Cut 20% lots on losing orders (min 0.01)
-//|   Equity <= $420 (-30%) -> Cut 30% lots on losing orders (min 0.01)
-//|   Equity <= $360 (-40%) -> Cut 40% lots on losing orders (min 0.01)
-//|   Equity <= $300 (-50%) -> Cut 50% lots on losing orders (min 0.01)
-//|   ... continues 10% steps (-60%, -70%, -80%, -90%, no Close-All) |
+//| Pure Per-Side BUY / SELL % Drawdown Tiered Lot Reduction         |
+//| Measures BUY basket floating loss vs Balance and SELL basket     |
+//| floating loss vs Balance INDEPENDENTLY (never combined).         |
+//| Example ($600 Balance, InpEqDdEnableTier1 = false):              |
+//|   BUY P/L = -$50 & SELL P/L = -$60 -> Neither hits 20% (No Cut)  |
+//|   SELL P/L <= -$120 (-20%) -> Cut 20% lots on losing SELLs ONLY  |
+//|   SELL P/L <= -$180 (-30%) -> Cut 30% lots on losing SELLs ONLY  |
+//|   ... continues 10% steps (-40%, -50% ... -90%; no Close-All)    |
 //+------------------------------------------------------------------+
 #define MAX_EQDD_TRACKED_ORDERS 4000
 int      g_eqDdTrackedTickets[MAX_EQDD_TRACKED_ORDERS];
 int      g_eqDdTrackedTiers[MAX_EQDD_TRACKED_ORDERS];
-int      g_eqDdTrackedCount         = 0;
-int      g_eqDdCurrentTier          = 0;     // 0=None, 1=10%, 2=20%, 3=30%, 4=40%, 5=50% ... 9=90%
-double   g_eqDdCurrentPct           = 0.0;   // Latest ((Balance - Equity) / Balance) * 100
-double   g_eqDdPeakPct              = 0.0;   // Peak DD% in active drawdown cycle
-double   g_eqDdSessionPeakPct       = 0.0;   // Highest DD% across entire session/backtest
-bool     g_eqDdCloseAllPending      = false; // Inactive unless InpEqDdEnableCloseAll=true
-int      g_eqDdTotalPartialCuts     = 0;     // Cumulative count of Tier 1..9 partial reductions
-int      g_eqDdTotalCloseAllOrders  = 0;     // Cumulative count of full losing closes (when CloseAll enabled)
-double   g_eqDdTotalLotsReduced     = 0.0;   // Cumulative lots closed by Tiers 1..9
-int      g_eqDdLastIconTier         = 0;     // Highest EQ-DD tier (1..9) drawn in active cycle (0=None)
-int      g_eqDdCycleHighestTier     = 0;     // Highest EQ-DD tier that executed lot cuts in active cycle (one-shot latch)
-int      g_eqDdLastLoggedTier       = 0;     // Highest EQ-DD tier logged as threshold-reached in active cycle
-datetime g_eqDdLastHitTime          = 0;     // Server timestamp of last confirmed EQ-DD hit (with lot cut)
-int      g_eqDdLastHitTier          = 0;     // Tier number (1..9+) of last confirmed EQ-DD hit
-double   g_eqDdLastHitPct           = 0.0;   // Drawdown % at last confirmed EQ-DD hit
-double   g_eqDdLastHitUSD           = 0.0;   // Drawdown -$USD at last confirmed EQ-DD hit
-double   g_eqDdLastHitCutPct        = 0.0;   // Lot cut % (-10..-90 / 100) at last confirmed EQ-DD hit
-int      g_eqDdLastHitOrders        = 0;     // Orders cut on last EQ-DD hit sweep
-double   g_eqDdLastHitLots          = 0.0;   // Lots closed on last EQ-DD hit sweep
-datetime g_eqDdLastReachTime        = 0;     // Server timestamp when latest DD tier threshold was reached
-int      g_eqDdLastReachTier        = 0;     // Latest DD tier threshold reached
-double   g_eqDdLastReachPct         = 0.0;   // Drawdown % when latest threshold was reached
+int      g_eqDdTrackedSides[MAX_EQDD_TRACKED_ORDERS];
+int      g_eqDdTrackedCount          = 0;
+
+// Aggregate / most-recent across sides (for dashboards & summary)
+int      g_eqDdCurrentTier           = 0;
+double   g_eqDdCurrentPct            = 0.0;
+double   g_eqDdPeakPct               = 0.0;
+double   g_eqDdSessionPeakPct        = 0.0;
+bool     g_eqDdCloseAllPending       = false;
+int      g_eqDdTotalPartialCuts      = 0;
+int      g_eqDdTotalCloseAllOrders   = 0;
+double   g_eqDdTotalLotsReduced      = 0.0;
+int      g_eqDdLastIconTier          = 0;
+int      g_eqDdCycleHighestTier      = 0;
+int      g_eqDdLastLoggedTier        = 0;
+datetime g_eqDdLastHitTime           = 0;
+string   g_eqDdLastHitSide           = "";
+int      g_eqDdLastHitTier           = 0;
+double   g_eqDdLastHitPct            = 0.0;
+double   g_eqDdLastHitUSD            = 0.0;
+double   g_eqDdLastHitCutPct         = 0.0;
+int      g_eqDdLastHitOrders         = 0;
+double   g_eqDdLastHitLots           = 0.0;
+datetime g_eqDdLastReachTime         = 0;
+string   g_eqDdLastReachSide         = "";
+int      g_eqDdLastReachTier         = 0;
+double   g_eqDdLastReachPct          = 0.0;
+
+// Independent BUY side state
+int      g_eqDdBuyCurrentTier        = 0;
+double   g_eqDdBuyCurrentPct         = 0.0;
+double   g_eqDdBuyCurrentUSD         = 0.0;
+double   g_eqDdBuyPeakPct            = 0.0;
+bool     g_eqDdBuyCloseAllPending    = false;
+int      g_eqDdBuyLastIconTier       = 0;
+int      g_eqDdBuyCycleHighestTier   = 0;
+int      g_eqDdBuyLastLoggedTier     = 0;
+datetime g_eqDdBuyLastReachTime      = 0;
+int      g_eqDdBuyLastReachTier      = 0;
+double   g_eqDdBuyLastReachPct       = 0.0;
+datetime g_eqDdBuyLastHitTime        = 0;
+int      g_eqDdBuyLastHitTier        = 0;
+double   g_eqDdBuyLastHitPct         = 0.0;
+double   g_eqDdBuyLastHitUSD         = 0.0;
+double   g_eqDdBuyLastHitCutPct      = 0.0;
+int      g_eqDdBuyLastHitOrders      = 0;
+double   g_eqDdBuyLastHitLots        = 0.0;
+
+// Independent SELL side state
+int      g_eqDdSellCurrentTier       = 0;
+double   g_eqDdSellCurrentPct        = 0.0;
+double   g_eqDdSellCurrentUSD        = 0.0;
+double   g_eqDdSellPeakPct           = 0.0;
+bool     g_eqDdSellCloseAllPending   = false;
+int      g_eqDdSellLastIconTier      = 0;
+int      g_eqDdSellCycleHighestTier  = 0;
+int      g_eqDdSellLastLoggedTier    = 0;
+datetime g_eqDdSellLastReachTime     = 0;
+int      g_eqDdSellLastReachTier     = 0;
+double   g_eqDdSellLastReachPct      = 0.0;
+datetime g_eqDdSellLastHitTime       = 0;
+int      g_eqDdSellLastHitTier       = 0;
+double   g_eqDdSellLastHitPct        = 0.0;
+double   g_eqDdSellLastHitUSD        = 0.0;
+double   g_eqDdSellLastHitCutPct     = 0.0;
+int      g_eqDdSellLastHitOrders     = 0;
+double   g_eqDdSellLastHitLots       = 0.0;
 
 void UpdateLeftLiveOrdersDashboard();
 
@@ -2088,10 +2133,24 @@ int GetEqDdOrderExecutedTier(int ticket, string comment = "")
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
-void SetEqDdOrderExecutedTier(int ticket, int tier)
+void SetEqDdOrderExecutedTier(int ticket, int tier, int sideType = -1)
   {
    if(ticket <= 0 || tier <= 0)
       return;
+
+   if(sideType != OP_BUY && sideType != OP_SELL)
+     {
+      int prevSel = OrderTicket();
+      if(OrderSelect(ticket, SELECT_BY_TICKET, MODE_TRADES) || OrderSelect(ticket, SELECT_BY_TICKET, MODE_HISTORY))
+         sideType = OrderType();
+      if(prevSel > 0)
+        {
+         if(!OrderSelect(prevSel, SELECT_BY_TICKET, MODE_TRADES))
+           {
+            bool hSel = OrderSelect(prevSel, SELECT_BY_TICKET, MODE_HISTORY);
+           }
+        }
+     }
 
    bool useGv = (!IsTesting() && !IsOptimization());
 
@@ -2101,6 +2160,8 @@ void SetEqDdOrderExecutedTier(int ticket, int tier)
         {
          if(tier > g_eqDdTrackedTiers[i])
             g_eqDdTrackedTiers[i] = tier;
+         if(sideType == OP_BUY || sideType == OP_SELL)
+            g_eqDdTrackedSides[i] = sideType;
          if(useGv)
             GlobalVariableSet(EqDdGvKey(ticket), (double)g_eqDdTrackedTiers[i]);
          return;
@@ -2111,6 +2172,7 @@ void SetEqDdOrderExecutedTier(int ticket, int tier)
      {
       g_eqDdTrackedTickets[g_eqDdTrackedCount] = ticket;
       g_eqDdTrackedTiers[g_eqDdTrackedCount]   = tier;
+      g_eqDdTrackedSides[g_eqDdTrackedCount]   = sideType;
       g_eqDdTrackedCount++;
      }
    if(useGv)
@@ -2120,29 +2182,148 @@ void SetEqDdOrderExecutedTier(int ticket, int tier)
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
-void ResetEqDdCycleState(string reason = "")
+bool HasEqDdTrackedSide(int sideType)
   {
-   if(!IsTesting() && !IsOptimization())
+   for(int i = 0; i < g_eqDdTrackedCount; i++)
      {
-      for(int i = 0; i < g_eqDdTrackedCount; i++)
+      if(g_eqDdTrackedSides[i] == sideType)
+         return true;
+     }
+   return false;
+  }
+
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
+void ResetEqDdSideCycleState(int sideType, string reason = "")
+  {
+   int kept = 0;
+   for(int i = 0; i < g_eqDdTrackedCount; i++)
+     {
+      bool matchesSide = (g_eqDdTrackedSides[i] == sideType);
+      if(matchesSide)
         {
-         if(g_eqDdTrackedTickets[i] > 0)
+         if(!IsTesting() && !IsOptimization() && g_eqDdTrackedTickets[i] > 0)
             GlobalVariableDel(EqDdGvKey(g_eqDdTrackedTickets[i]));
         }
+      else
+        {
+         g_eqDdTrackedTickets[kept] = g_eqDdTrackedTickets[i];
+         g_eqDdTrackedTiers[kept]   = g_eqDdTrackedTiers[i];
+         g_eqDdTrackedSides[kept]   = g_eqDdTrackedSides[i];
+         kept++;
+        }
      }
-   g_eqDdTrackedCount     = 0;
-   ArrayInitialize(g_eqDdTrackedTickets, 0);
-   ArrayInitialize(g_eqDdTrackedTiers, 0);
-   g_eqDdCurrentTier      = 0;
-   g_eqDdCurrentPct       = 0.0;
-   g_eqDdPeakPct          = 0.0;
-   g_eqDdCloseAllPending  = false;
-   g_eqDdLastIconTier     = 0;
-   g_eqDdCycleHighestTier = 0;
-   g_eqDdLastLoggedTier   = 0;
-   g_eqDdLastReachTime    = 0;
-   g_eqDdLastReachTier    = 0;
-   g_eqDdLastReachPct     = 0.0;
+   for(int j = kept; j < g_eqDdTrackedCount; j++)
+     {
+      g_eqDdTrackedTickets[j] = 0;
+      g_eqDdTrackedTiers[j]   = 0;
+      g_eqDdTrackedSides[j]   = 0;
+     }
+   g_eqDdTrackedCount = kept;
+
+   if(sideType == OP_BUY)
+     {
+      g_eqDdBuyCurrentTier      = 0;
+      g_eqDdBuyCurrentPct       = 0.0;
+      g_eqDdBuyCurrentUSD       = 0.0;
+      g_eqDdBuyPeakPct          = 0.0;
+      g_eqDdBuyCloseAllPending  = false;
+      g_eqDdBuyLastIconTier     = 0;
+      g_eqDdBuyCycleHighestTier = 0;
+      g_eqDdBuyLastLoggedTier   = 0;
+      g_eqDdBuyLastReachTime    = 0;
+      g_eqDdBuyLastReachTier    = 0;
+      g_eqDdBuyLastReachPct     = 0.0;
+     }
+   else if(sideType == OP_SELL)
+     {
+      g_eqDdSellCurrentTier      = 0;
+      g_eqDdSellCurrentPct       = 0.0;
+      g_eqDdSellCurrentUSD       = 0.0;
+      g_eqDdSellPeakPct          = 0.0;
+      g_eqDdSellCloseAllPending  = false;
+      g_eqDdSellLastIconTier     = 0;
+      g_eqDdSellCycleHighestTier = 0;
+      g_eqDdSellLastLoggedTier   = 0;
+      g_eqDdSellLastReachTime    = 0;
+      g_eqDdSellLastReachTier    = 0;
+      g_eqDdSellLastReachPct     = 0.0;
+     }
+
+   g_eqDdCurrentTier      = MathMax(g_eqDdBuyCurrentTier, g_eqDdSellCurrentTier);
+   g_eqDdCurrentPct       = MathMax(g_eqDdBuyCurrentPct, g_eqDdSellCurrentPct);
+   g_eqDdPeakPct          = MathMax(g_eqDdBuyPeakPct, g_eqDdSellPeakPct);
+   g_eqDdCloseAllPending  = (g_eqDdBuyCloseAllPending || g_eqDdSellCloseAllPending);
+   g_eqDdLastIconTier     = MathMax(g_eqDdBuyLastIconTier, g_eqDdSellLastIconTier);
+   g_eqDdCycleHighestTier = MathMax(g_eqDdBuyCycleHighestTier, g_eqDdSellCycleHighestTier);
+   g_eqDdLastLoggedTier   = MathMax(g_eqDdBuyLastLoggedTier, g_eqDdSellLastLoggedTier);
+
+   if(g_eqDdCycleHighestTier == 0 && g_eqDdCurrentTier == 0)
+     {
+      g_eqDdLastReachTime = 0;
+      g_eqDdLastReachSide = "";
+      g_eqDdLastReachTier = 0;
+      g_eqDdLastReachPct  = 0.0;
+     }
+  }
+
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
+void ResetEqDdCycleState(string reason = "")
+  {
+   ResetEqDdSideCycleState(OP_BUY, reason);
+   ResetEqDdSideCycleState(OP_SELL, reason);
+  }
+
+//+------------------------------------------------------------------+
+//| CalcEqDdSideDrawdowns                                            |
+//| Computes floating net P/L and DD% for BUY & SELL separately      |
+//+------------------------------------------------------------------+
+void CalcEqDdSideDrawdowns(double balance, double &buyNetPLOut, double &buyDdPctOut, double &sellNetPLOut, double &sellDdPctOut, int &buyCountOut, int &sellCountOut)
+  {
+   buyNetPLOut  = 0.0;
+   sellNetPLOut = 0.0;
+   buyDdPctOut  = 0.0;
+   sellDdPctOut = 0.0;
+   buyCountOut  = 0;
+   sellCountOut = 0;
+
+   int prevSel = OrderTicket();
+   for(int i = OrdersTotal() - 1; i >= 0; i--)
+     {
+      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
+         continue;
+      if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber)
+         continue;
+      int ot = OrderType();
+      if(ot == OP_BUY)
+        {
+         buyNetPLOut += (OrderProfit() + OrderSwap() + OrderCommission());
+         buyCountOut++;
+        }
+      else if(ot == OP_SELL)
+        {
+         sellNetPLOut += (OrderProfit() + OrderSwap() + OrderCommission());
+         sellCountOut++;
+        }
+     }
+   if(prevSel > 0)
+     {
+      if(!OrderSelect(prevSel, SELECT_BY_TICKET, MODE_TRADES))
+        {
+         bool hSel = OrderSelect(prevSel, SELECT_BY_TICKET, MODE_HISTORY);
+        }
+     }
+
+   if(balance > 0.0)
+     {
+      if(buyNetPLOut < 0.0)
+         buyDdPctOut = ((-buyNetPLOut) / balance) * 100.0;
+      if(sellNetPLOut < 0.0)
+         sellDdPctOut = ((-sellNetPLOut) / balance) * 100.0;
+     }
   }
 
 //------------------------------------------------------------------+
@@ -2194,7 +2375,7 @@ color GetEqDdTierColor(int tier)
 //| DrawEqDdHitIcon                                                  |
 //| Draws chart icon & bold DD% label when EQ-DD tier is hit         |
 //------------------------------------------------------------------+
-void DrawEqDdHitIcon(int tier, double ddPct, double ddUSD, double bal, double eq, double cutPct, int ordersHit, double lotsCut, datetime hitTime = 0, double hitPrice = 0.0)
+void DrawEqDdHitIcon(int tier, double ddPct, double ddUSD, double bal, double eq, double cutPct, int ordersHit, double lotsCut, datetime hitTime = 0, double hitPrice = 0.0, string sideTag = "")
   {
    if(!InpDrawEqDdHitIcon || ordersHit <= 0)
       return;
@@ -2204,7 +2385,8 @@ void DrawEqDdHitIcon(int tier, double ddPct, double ddUSD, double bal, double eq
 
    datetime barTime = ((Bars > 0 && Time[0] > 0) ? Time[0] : hitTime);
    int      safeTier = (tier >= 1 ? tier : 1);
-   string   baseName = PREFIX + "EQDD_T" + IntegerToString(safeTier) + "_" + IntegerToString((int)barTime);
+   string   objSide  = (sideTag != "" ? (sideTag + "_") : "");
+   string   baseName = PREFIX + "EQDD_" + objSide + "T" + IntegerToString(safeTier) + "_" + IntegerToString((int)barTime);
    string   txtName  = baseName + "_TXT";
 
    double atr = iATR(Symbol(), Period(), 14, 1);
@@ -2214,7 +2396,7 @@ void DrawEqDdHitIcon(int tier, double ddPct, double ddUSD, double bal, double eq
       atr = 1.0;
 
    double baseHigh    = ((Bars > 0 && High[0] > 0.0) ? High[0] : Bid);
-   double tierOffset  = 0.25 + ((safeTier - 1) % 6) * 0.80;
+   double tierOffset  = 0.25 + ((safeTier - 1) % 6) * 0.80 + (sideTag == "SELL" ? 0.35 : 0.0);
    double markerPrice = (hitPrice > 0.0 ? hitPrice : baseHigh) + (atr * tierOffset);
    double labelPrice  = markerPrice + (atr * 0.35);
 
@@ -2222,25 +2404,27 @@ void DrawEqDdHitIcon(int tier, double ddPct, double ddUSD, double bal, double eq
    int   iconCode  = (InpEqDdHitIconCode > 0 ? InpEqDdHitIconCode : 171);
    int   fontSize  = (InpEqDdHitFontSize > 0 ? InpEqDdHitFontSize : 10);
 
+   string sideBadge  = (sideTag != "" ? (sideTag + " ") : "");
+   string sideTitle  = (sideTag != "" ? ("[" + sideTag + "] ") : "");
    bool   isCloseAll = (InpEqDdEnableCloseAll && cutPct >= 99.9);
-   string tierTitle  = isCloseAll ? StringFormat("TIER %d CLOSE ALL", safeTier) : StringFormat("TIER %d (-%.0f%% Lots)", safeTier, cutPct);
+   string tierTitle  = isCloseAll ? StringFormat("%sTIER %d CLOSE ALL", sideTitle, safeTier) : StringFormat("%sTIER %d (-%.0f%% Lots)", sideTitle, safeTier, cutPct);
    string labelText  = "";
    if(isCloseAll)
      {
       if(ordersHit > 0)
-         labelText = StringFormat("DD %.1f%% CLOSE ALL (x%d)", ddPct, ordersHit);
+         labelText = StringFormat("%sDD %.1f%% CLOSE ALL (x%d)", sideBadge, ddPct, ordersHit);
       else
-         labelText = StringFormat("DD %.1f%% T%d CLOSE ALL", ddPct, safeTier);
+         labelText = StringFormat("%sDD %.1f%% T%d CLOSE ALL", sideBadge, ddPct, safeTier);
      }
    else
      {
       if(ordersHit > 0)
-         labelText = StringFormat("DD %.1f%% (-%.0f%%L | x%d)", ddPct, cutPct, ordersHit);
+         labelText = StringFormat("%sDD %.1f%% (-%.0f%%L | x%d)", sideBadge, ddPct, cutPct, ordersHit);
       else
-         labelText = StringFormat("DD %.1f%% (T%d -%.0f%%L)", ddPct, safeTier, cutPct);
+         labelText = StringFormat("%sDD %.1f%% (T%d -%.0f%%L)", sideBadge, ddPct, safeTier, cutPct);
      }
 
-   string tooltip = StringFormat("EQ-DD %s | Drawdown: %.2f%% (-$%.2f) | Bal: $%.2f -> Eq: $%.2f | Orders Hit: %d (-%.2fL) | Time: %s",
+   string tooltip = StringFormat("EQ-DD %s | Side DD: %.2f%% (-$%.2f) | Bal: $%.2f -> Eq: $%.2f | Orders Hit: %d (-%.2fL) | Time: %s",
                                  tierTitle, ddPct, ddUSD, bal, eq, ordersHit, lotsCut,
                                  TimeToString(hitTime, TIME_DATE|TIME_MINUTES|TIME_SECONDS));
 
@@ -2296,66 +2480,91 @@ void DrawEqDdHitIcon(int tier, double ddPct, double ddUSD, double bal, double eq
   }
 
 //+------------------------------------------------------------------+
-//| ManageEquityDrawdownTieredLotReduction                           |
-//| Reduces losing order lots by 10%..90% in 10% DD tiers (min 0.01, |
-//| continuing steps 40%, 50%, 60%..90%; no Close-All by default).   |
+//| ManageEquityDrawdownForSide                                      |
+//| Evaluates and reduces ONLY one side's (OP_BUY or OP_SELL) losing |
+//| orders based strictly on that side's own floating loss % vs Bal. |
 //+------------------------------------------------------------------+
-void ManageEquityDrawdownTieredLotReduction()
+void ManageEquityDrawdownForSide(int sideType)
   {
    if(!InpEnableEqDdLotReduction)
-     {
-      g_eqDdCurrentTier = 0;
-      g_eqDdCurrentPct  = 0.0;
       return;
-     }
 
    double balance = AccountBalance();
    double equity  = AccountEquity();
    if(balance <= 0.0)
       return;
 
-   double ddUSD = balance - equity;
-   double ddPct = (ddUSD > 0.0) ? ((ddUSD / balance) * 100.0) : 0.0;
-   g_eqDdCurrentPct = ddPct;
-   if(ddPct > g_eqDdPeakPct)
-      g_eqDdPeakPct = ddPct;
-   if(ddPct > g_eqDdSessionPeakPct)
-      g_eqDdSessionPeakPct = ddPct;
+   double buyNetPL = 0.0, buyDdPct = 0.0, sellNetPL = 0.0, sellDdPct = 0.0;
+   int    buyCount = 0, sellCount = 0;
+   CalcEqDdSideDrawdowns(balance, buyNetPL, buyDdPct, sellNetPL, sellDdPct, buyCount, sellCount);
 
-   // Drawdown cleared (Equity >= Balance) -> reset cycle tier locks
-   if(ddUSD <= 0.0)
+   bool   isBuy          = (sideType == OP_BUY);
+   string sideName       = isBuy ? "BUY" : "SELL";
+   double sideNetPL      = isBuy ? buyNetPL  : sellNetPL;
+   double sideDdPct      = isBuy ? buyDdPct  : sellDdPct;
+   double sideDdUSD      = (sideNetPL < 0.0) ? (-sideNetPL) : 0.0;
+   int    sideOrderCount = isBuy ? buyCount  : sellCount;
+
+   if(isBuy)
      {
-      if(g_eqDdCurrentTier > 0 || g_eqDdTrackedCount > 0 || g_eqDdCloseAllPending)
+      g_eqDdBuyCurrentPct = sideDdPct;
+      g_eqDdBuyCurrentUSD = sideDdUSD;
+      if(sideDdPct > g_eqDdBuyPeakPct)
+         g_eqDdBuyPeakPct = sideDdPct;
+     }
+   else
+     {
+      g_eqDdSellCurrentPct = sideDdPct;
+      g_eqDdSellCurrentUSD = sideDdUSD;
+      if(sideDdPct > g_eqDdSellPeakPct)
+         g_eqDdSellPeakPct = sideDdPct;
+     }
+
+   g_eqDdCurrentPct = MathMax(g_eqDdBuyCurrentPct, g_eqDdSellCurrentPct);
+   g_eqDdPeakPct    = MathMax(g_eqDdBuyPeakPct, g_eqDdSellPeakPct);
+   if(sideDdPct > g_eqDdSessionPeakPct)
+      g_eqDdSessionPeakPct = sideDdPct;
+
+   int  sideCurTier         = isBuy ? g_eqDdBuyCurrentTier       : g_eqDdSellCurrentTier;
+   int  sideCycleHighest    = isBuy ? g_eqDdBuyCycleHighestTier  : g_eqDdSellCycleHighestTier;
+   int  sideLastLogged      = isBuy ? g_eqDdBuyLastLoggedTier    : g_eqDdSellLastLoggedTier;
+   bool sideCloseAllPending = isBuy ? g_eqDdBuyCloseAllPending   : g_eqDdSellCloseAllPending;
+
+   // Side drawdown cleared (Side P/L >= 0 or 0 open orders on this side) -> reset ONLY this side
+   if(sideOrderCount == 0 || sideNetPL >= 0.0)
+     {
+      if(sideCurTier > 0 || sideCycleHighest > 0 || sideLastLogged > 0 || sideCloseAllPending || HasEqDdTrackedSide(sideType))
         {
-         PrintFormat(">>> [EQ-DD LOT SHIELD RESET] Equity ($%.2f) >= Balance ($%.2f). Drawdown cleared; tier locks reset.",
-                     equity, balance);
-         ResetEqDdCycleState("Equity >= Balance");
+         PrintFormat(">>> [EQ-DD %s SHIELD RESET] %s P/L ($%s%.2f, Open=%d) >= $0.00. %s drawdown cleared; %s tier locks reset.",
+                     sideName, sideName, (sideNetPL >= 0.0 ? "+" : "-"), MathAbs(sideNetPL), sideOrderCount, sideName, sideName);
+         ResetEqDdSideCycleState(sideType, "Side P/L >= 0");
         }
       return;
      }
 
    double activeCutPct = 0.0;
-   int    activeTier   = ResolveEqDdTierAndCut(ddPct, activeCutPct);
-   if(InpEqDdEnableCloseAll && (g_eqDdCloseAllPending || (ddPct + 1e-6) >= InpEqDdCloseAllPct))
+   int    activeTier   = ResolveEqDdTierAndCut(sideDdPct, activeCutPct);
+   if(InpEqDdEnableCloseAll && (sideCloseAllPending || (sideDdPct + 1e-6) >= InpEqDdCloseAllPct))
      {
       int maxT = (InpEqDdMaxTier >= 5 ? InpEqDdMaxTier : 5);
-      activeTier            = maxT + 1;
-      activeCutPct          = 100.0;
-      g_eqDdCloseAllPending = true;
+      activeTier          = maxT + 1;
+      activeCutPct        = 100.0;
+      sideCloseAllPending = true;
+      if(isBuy) g_eqDdBuyCloseAllPending = true;
+      else      g_eqDdSellCloseAllPending = true;
      }
 
-   g_eqDdCurrentTier = activeTier;
+   if(isBuy) g_eqDdBuyCurrentTier = activeTier;
+   else      g_eqDdSellCurrentTier = activeTier;
+
+   g_eqDdCurrentTier     = MathMax(g_eqDdBuyCurrentTier, g_eqDdSellCurrentTier);
+   g_eqDdCloseAllPending = (g_eqDdBuyCloseAllPending || g_eqDdSellCloseAllPending);
+
    if(activeTier <= 0)
       return;
 
-   if(InpEqDdOneShotPerTier && activeTier <= g_eqDdCycleHighestTier)
+   if(InpEqDdOneShotPerTier && activeTier <= sideCycleHighest)
       return;
-
-   if(OrdersTotal() <= 0)
-     {
-      g_eqDdCloseAllPending = false;
-      return;
-     }
 
    RefreshRates();
    double minLot  = MarketInfo(Symbol(), MODE_MINLOT);
@@ -2370,7 +2579,7 @@ void ManageEquityDrawdownTieredLotReduction()
    double eqDdMult        = (balancelomultipler > 0) ? balancelomultipler : 1.0;
    double minOrderLossUSD = InpEqDdMinOrderLossUSD * eqDdMult;
 
-   // Phase 1: Snapshot all losing open market orders to eliminate index-shift & Balance-change distortion
+   // Phase 1: Snapshot losing open market orders STRICTLY on sideType (OP_BUY or OP_SELL)
    int    candTickets[500];
    ArrayInitialize(candTickets, 0);
    int    candCount         = 0;
@@ -2387,8 +2596,7 @@ void ManageEquityDrawdownTieredLotReduction()
       if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber)
          continue;
 
-      int oType = OrderType();
-      if(oType != OP_BUY && oType != OP_SELL)
+      if(OrderType() != sideType)
          continue;
 
       double netPL = OrderProfit() + OrderSwap() + OrderCommission();
@@ -2414,8 +2622,8 @@ void ManageEquityDrawdownTieredLotReduction()
            }
         }
 
-      int tkt     = OrderTicket();
-      string comm = OrderComment();
+      int tkt      = OrderTicket();
+      string comm  = OrderComment();
       int prevTier = GetEqDdOrderExecutedTier(tkt, comm);
       if(prevTier >= activeTier)
         {
@@ -2430,24 +2638,43 @@ void ManageEquityDrawdownTieredLotReduction()
         }
      }
 
-   // If no losing orders remain, clear 50% close-all latch
    if(losingCount == 0)
      {
-      if(g_eqDdCloseAllPending)
-         Print(">>> [EQ-DD 50% CLOSE-ALL COMPLETE] All losing orders have been closed.");
-      g_eqDdCloseAllPending = false;
+      if(sideCloseAllPending)
+         PrintFormat(">>> [EQ-DD %s CLOSE-ALL COMPLETE] All losing %s orders have been closed.", sideName, sideName);
+      if(isBuy) g_eqDdBuyCloseAllPending = false;
+      else      g_eqDdSellCloseAllPending = false;
+      g_eqDdCloseAllPending = (g_eqDdBuyCloseAllPending || g_eqDdSellCloseAllPending);
       return;
      }
 
-   if(activeTier > g_eqDdLastLoggedTier)
+   if(activeTier > sideLastLogged)
      {
-      g_eqDdLastLoggedTier = activeTier;
-      g_eqDdLastReachTime  = TimeCurrent();
+      datetime nowTime = TimeCurrent();
+      if(isBuy)
+        {
+         g_eqDdBuyLastLoggedTier = activeTier;
+         g_eqDdBuyLastReachTime  = nowTime;
+         g_eqDdBuyLastReachTier  = activeTier;
+         g_eqDdBuyLastReachPct   = sideDdPct;
+        }
+      else
+        {
+         g_eqDdSellLastLoggedTier = activeTier;
+         g_eqDdSellLastReachTime  = nowTime;
+         g_eqDdSellLastReachTier  = activeTier;
+         g_eqDdSellLastReachPct   = sideDdPct;
+        }
+
+      g_eqDdLastLoggedTier = MathMax(g_eqDdBuyLastLoggedTier, g_eqDdSellLastLoggedTier);
+      g_eqDdLastReachTime  = nowTime;
+      g_eqDdLastReachSide  = sideName;
       g_eqDdLastReachTier  = activeTier;
-      g_eqDdLastReachPct   = ddPct;
-      PrintFormat(">>> [EQ-DD TIER %d TRIGGERED (-%.0f%% Lots)] Time=%s | Bal=$%.2f Eq=$%.2f DD=%.2f%% (-$%.2f) | Losing=%d Eligible=%d (Skip <$%.2f:%d, MinLot:%d, TierDone:%d)",
-                  activeTier, activeCutPct, TimeToString(g_eqDdLastReachTime, TIME_DATE|TIME_MINUTES|TIME_SECONDS),
-                  balance, equity, ddPct, ddUSD, losingCount, candCount,
+      g_eqDdLastReachPct   = sideDdPct;
+
+      PrintFormat(">>> [EQ-DD %s TIER %d TRIGGERED (-%.0f%% Lots)] Time=%s | Bal=$%.2f Eq=$%.2f | %s DD=%.2f%% (-$%.2f) | Losing=%d Eligible=%d (Skip <$%.2f:%d, MinLot:%d, TierDone:%d)",
+                  sideName, activeTier, activeCutPct, TimeToString(nowTime, TIME_DATE|TIME_MINUTES|TIME_SECONDS),
+                  balance, equity, sideName, sideDdPct, sideDdUSD, losingCount, candCount,
                   minOrderLossUSD, skippedSmallLoss, skippedMinLot, skippedAlreadyCut);
       if(candCount == 0)
         {
@@ -2460,7 +2687,7 @@ void ManageEquityDrawdownTieredLotReduction()
    if(candCount == 0)
       return;
 
-   // Phase 2: Execute tier action on each snapshot candidate
+   // Phase 2: Execute tier action ONLY on snapshot candidates of sideType
    int    remainingClosedFail = 0;
    int    sweepHits           = 0;
    double sweepLotsCut        = 0.0;
@@ -2469,7 +2696,7 @@ void ManageEquityDrawdownTieredLotReduction()
       int tkt = candTickets[k];
       if(!OrderSelect(tkt, SELECT_BY_TICKET, MODE_TRADES))
          continue;
-      if(OrderCloseTime() != 0)
+      if(OrderCloseTime() != 0 || OrderType() != sideType)
          continue;
 
       double oLots = OrderLots();
@@ -2480,24 +2707,19 @@ void ManageEquityDrawdownTieredLotReduction()
       if(minOrderLossUSD > 0.0 && ((-netPL) + 1e-6) < minOrderLossUSD)
          continue;
 
-      double closeLots = 0.0;
+      double closeLots   = 0.0;
       bool   isFullClose = false;
 
       if(InpEqDdEnableCloseAll && activeCutPct >= 99.9)
         {
-         // Optional full Close-All only when explicitly enabled
          closeLots   = oLots;
          isFullClose = true;
         }
       else
         {
-         // Tiers 1..9 (10%/20%/30%/40%/50%..90% DD): Reduce losing lots by cut%, minimum 0.01, keep >= minLot open
          double maxPartial = NormalizeDouble(oLots - minLot, lotDigits);
          if(maxPartial < (lotStep - 1e-8))
-           {
-            // Order is already at broker minimum lot (0.01); keep open until recovery
             continue;
-           }
 
          double cutFrac = activeCutPct / 100.0;
          closeLots = NormalizeDouble(MathRound((oLots * cutFrac) / lotStep + 1e-9) * lotStep, lotDigits);
@@ -2518,7 +2740,7 @@ void ManageEquityDrawdownTieredLotReduction()
 
       if(closed)
         {
-         SetEqDdOrderExecutedTier(tkt, activeTier);
+         SetEqDdOrderExecutedTier(tkt, activeTier, sideType);
          g_eqDdTotalLotsReduced += closeLots;
          sweepHits++;
          sweepLotsCut += closeLots;
@@ -2526,16 +2748,15 @@ void ManageEquityDrawdownTieredLotReduction()
          if(isFullClose)
            {
             g_eqDdTotalCloseAllOrders++;
-            PrintFormat(">>> [EQ-DD TIER %d CLOSE ALL >=%.0f%%] Bal=$%.2f Eq=$%.2f DD=%.2f%% (-$%.2f) | Closed ALL #%d (%s %.2fL, Loss=$%.2f)",
-                        activeTier, InpEqDdCloseAllPct, balance, equity, ddPct, ddUSD, tkt,
-                        (oType == OP_BUY ? "BUY" : "SELL"), closeLots, netPL);
+            PrintFormat(">>> [EQ-DD %s TIER %d CLOSE ALL >=%.0f%%] Bal=$%.2f Eq=$%.2f | %s DD=%.2f%% (-$%.2f) | Closed ALL #%d (%s %.2fL, Loss=$%.2f)",
+                        sideName, activeTier, InpEqDdCloseAllPct, balance, equity, sideName, sideDdPct, sideDdUSD, tkt,
+                        sideName, closeLots, netPL);
            }
          else
            {
             g_eqDdTotalPartialCuts++;
             double remLots = NormalizeDouble(oLots - closeLots, lotDigits);
 
-            // Immediately propagate activeTier to MT4 split child ("from #<tkt>")
             int childTkt = 0;
             string fromTag = "from #" + IntegerToString(tkt);
             for(int r = OrdersTotal() - 1; r >= 0; r--)
@@ -2547,51 +2768,80 @@ void ManageEquityDrawdownTieredLotReduction()
                int rTkt = OrderTicket();
                if(rTkt == tkt || StringFind(OrderComment(), fromTag) >= 0)
                  {
-                  SetEqDdOrderExecutedTier(rTkt, activeTier);
+                  SetEqDdOrderExecutedTier(rTkt, activeTier, sideType);
                   childTkt = rTkt;
                   break;
                  }
               }
 
-            PrintFormat(">>> [EQ-DD TIER %d LOT CUT %.0f%%] Bal=$%.2f Eq=$%.2f DD=%.2f%% (-$%.2f) | Order #%d (%s %.2fL -> Cut %.2fL, Rem %.2fL, Child #%d, P/L=$%.2f)",
-                        activeTier, activeCutPct, balance, equity, ddPct, ddUSD, tkt,
-                        (oType == OP_BUY ? "BUY" : "SELL"), oLots, closeLots, remLots, childTkt, netPL);
+            PrintFormat(">>> [EQ-DD %s TIER %d LOT CUT %.0f%%] Bal=$%.2f Eq=$%.2f | %s DD=%.2f%% (-$%.2f) | Order #%d (%s %.2fL -> Cut %.2fL, Rem %.2fL, Child #%d, P/L=$%.2f)",
+                        sideName, activeTier, activeCutPct, balance, equity, sideName, sideDdPct, sideDdUSD, tkt,
+                        sideName, oLots, closeLots, remLots, childTkt, netPL);
            }
         }
       else
         {
          remainingClosedFail++;
-         PrintFormat(">>> [EQ-DD TIER %d CLOSE FAILED] Ticket #%d (%.2fL of %.2fL) Err=%d | DD=%.2f%%",
-                     activeTier, tkt, closeLots, oLots, GetLastError(), ddPct);
+         PrintFormat(">>> [EQ-DD %s TIER %d CLOSE FAILED] Ticket #%d (%.2fL of %.2fL) Err=%d | %s DD=%.2f%%",
+                     sideName, activeTier, tkt, closeLots, oLots, GetLastError(), sideName, sideDdPct);
         }
      }
 
    if(sweepHits > 0)
      {
-      if(remainingClosedFail == 0 && activeTier > g_eqDdCycleHighestTier)
-         g_eqDdCycleHighestTier = activeTier;
-      if(activeTier > g_eqDdLastIconTier)
-         g_eqDdLastIconTier = activeTier;
+      datetime hitTime = TimeCurrent();
+      if(isBuy)
+        {
+         if(remainingClosedFail == 0 && activeTier > g_eqDdBuyCycleHighestTier)
+            g_eqDdBuyCycleHighestTier = activeTier;
+         if(activeTier > g_eqDdBuyLastIconTier)
+            g_eqDdBuyLastIconTier = activeTier;
+         g_eqDdBuyLastHitTime   = hitTime;
+         g_eqDdBuyLastHitTier   = activeTier;
+         g_eqDdBuyLastHitPct    = sideDdPct;
+         g_eqDdBuyLastHitUSD    = sideDdUSD;
+         g_eqDdBuyLastHitCutPct = activeCutPct;
+         g_eqDdBuyLastHitOrders = sweepHits;
+         g_eqDdBuyLastHitLots   = sweepLotsCut;
+        }
+      else
+        {
+         if(remainingClosedFail == 0 && activeTier > g_eqDdSellCycleHighestTier)
+            g_eqDdSellCycleHighestTier = activeTier;
+         if(activeTier > g_eqDdSellLastIconTier)
+            g_eqDdSellLastIconTier = activeTier;
+         g_eqDdSellLastHitTime   = hitTime;
+         g_eqDdSellLastHitTier   = activeTier;
+         g_eqDdSellLastHitPct    = sideDdPct;
+         g_eqDdSellLastHitUSD    = sideDdUSD;
+         g_eqDdSellLastHitCutPct = activeCutPct;
+         g_eqDdSellLastHitOrders = sweepHits;
+         g_eqDdSellLastHitLots   = sweepLotsCut;
+        }
 
-      g_eqDdLastHitTime   = TimeCurrent();
+      g_eqDdCycleHighestTier = MathMax(g_eqDdBuyCycleHighestTier, g_eqDdSellCycleHighestTier);
+      g_eqDdLastIconTier     = MathMax(g_eqDdBuyLastIconTier, g_eqDdSellLastIconTier);
+
+      g_eqDdLastHitTime   = hitTime;
+      g_eqDdLastHitSide   = sideName;
       g_eqDdLastHitTier   = activeTier;
-      g_eqDdLastHitPct    = ddPct;
-      g_eqDdLastHitUSD    = ddUSD;
+      g_eqDdLastHitPct    = sideDdPct;
+      g_eqDdLastHitUSD    = sideDdUSD;
       g_eqDdLastHitCutPct = activeCutPct;
       g_eqDdLastHitOrders = sweepHits;
       g_eqDdLastHitLots   = sweepLotsCut;
 
-      PrintFormat(">>> [EQ-DD TIER %d HIT CONFIRMED] Time=%s | Bal=$%.2f Eq=$%.2f DD=%.2f%% (-$%.2f) | Action=-%.0f%% Lots | Orders Cut=%d (-%.2fL) | Cycle Peak=%.2f%%",
-                  activeTier, TimeToString(g_eqDdLastHitTime, TIME_DATE|TIME_MINUTES|TIME_SECONDS),
-                  balance, equity, ddPct, ddUSD, activeCutPct, sweepHits, sweepLotsCut, g_eqDdPeakPct);
+      double sidePeak = isBuy ? g_eqDdBuyPeakPct : g_eqDdSellPeakPct;
+      PrintFormat(">>> [EQ-DD %s TIER %d HIT CONFIRMED] Time=%s | Bal=$%.2f Eq=$%.2f | %s DD=%.2f%% (-$%.2f) | Action=-%.0f%% Lots | Orders Cut=%d (-%.2fL) | Side Peak=%.2f%%",
+                  sideName, activeTier, TimeToString(hitTime, TIME_DATE|TIME_MINUTES|TIME_SECONDS),
+                  balance, equity, sideName, sideDdPct, sideDdUSD, activeCutPct, sweepHits, sweepLotsCut, sidePeak);
 
-      DrawEqDdHitIcon(activeTier, ddPct, ddUSD, balance, equity, activeCutPct, sweepHits, sweepLotsCut, g_eqDdLastHitTime);
+      DrawEqDdHitIcon(activeTier, sideDdPct, sideDdUSD, balance, equity, activeCutPct, sweepHits, sweepLotsCut, hitTime, 0.0, sideName);
       LastDashboardUpdateMs = 0;
       if(ShowLeftLiveOrdersDashboard)
          UpdateLeftLiveOrdersDashboard();
      }
 
-   // If optional Close-All mode is enabled, clear latch once no losing orders remain
    if(InpEqDdEnableCloseAll && activeCutPct >= 99.9 && remainingClosedFail == 0)
      {
       int stillLosing = 0;
@@ -2601,18 +2851,43 @@ void ManageEquityDrawdownTieredLotReduction()
             continue;
          if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber)
             continue;
-         int ot = OrderType();
-         if(ot != OP_BUY && ot != OP_SELL)
+         if(OrderType() != sideType)
             continue;
          if((OrderProfit() + OrderSwap() + OrderCommission()) < 0.0)
             stillLosing++;
         }
       if(stillLosing == 0)
         {
-         g_eqDdCloseAllPending = false;
-         Print(">>> [EQ-DD 50% CLOSE-ALL COMPLETE] All losing orders closed; latch cleared.");
+         if(isBuy) g_eqDdBuyCloseAllPending = false;
+         else      g_eqDdSellCloseAllPending = false;
+         g_eqDdCloseAllPending = (g_eqDdBuyCloseAllPending || g_eqDdSellCloseAllPending);
+         PrintFormat(">>> [EQ-DD %s CLOSE-ALL COMPLETE] All losing %s orders closed; latch cleared.", sideName, sideName);
         }
      }
+  }
+
+//+------------------------------------------------------------------+
+//| ManageEquityDrawdownTieredLotReduction                           |
+//| Pure Per-Side mode: checks BUY floating loss and SELL floating   |
+//| loss independently (never combines BUY + SELL losses).           |
+//+------------------------------------------------------------------+
+void ManageEquityDrawdownTieredLotReduction()
+  {
+   if(!InpEnableEqDdLotReduction)
+     {
+      g_eqDdBuyCurrentTier  = 0;
+      g_eqDdBuyCurrentPct   = 0.0;
+      g_eqDdBuyCurrentUSD   = 0.0;
+      g_eqDdSellCurrentTier = 0;
+      g_eqDdSellCurrentPct  = 0.0;
+      g_eqDdSellCurrentUSD  = 0.0;
+      g_eqDdCurrentTier     = 0;
+      g_eqDdCurrentPct      = 0.0;
+      return;
+     }
+
+   ManageEquityDrawdownForSide(OP_BUY);
+   ManageEquityDrawdownForSide(OP_SELL);
   }
 
 //+------------------------------------------------------------------+
@@ -4298,14 +4573,18 @@ void   Check90PctSLAdversePartialCutAndDoubleSL();
 bool   HasOrderReceived90PctCut(int ticket, string comment = "");
 void   RegisterOrder90PctCut(int ticket);
 void   ManageEquityDrawdownTieredLotReduction();
+void   ManageEquityDrawdownForSide(int sideType);
 string EqDdGvKey(int ticket);
 int    GetEqDdSingleTicketTier(int ticket);
 int    GetEqDdOrderExecutedTier(int ticket, string comment = "");
-void   SetEqDdOrderExecutedTier(int ticket, int tier);
+void   SetEqDdOrderExecutedTier(int ticket, int tier, int sideType = -1);
+bool   HasEqDdTrackedSide(int sideType);
+void   ResetEqDdSideCycleState(int sideType, string reason = "");
 void   ResetEqDdCycleState(string reason = "");
 int    ResolveEqDdTierAndCut(double ddPct, double &cutPctOut);
 color  GetEqDdTierColor(int tier);
-void   DrawEqDdHitIcon(int tier, double ddPct, double ddUSD, double bal, double eq, double cutPct, int ordersHit, double lotsCut, datetime hitTime = 0, double hitPrice = 0.0);
+void   CalcEqDdSideDrawdowns(double balance, double &buyNetPLOut, double &buyDdPctOut, double &sellNetPLOut, double &sellDdPctOut, int &buyCountOut, int &sellCountOut);
+void   DrawEqDdHitIcon(int tier, double ddPct, double ddUSD, double bal, double eq, double cutPct, int ordersHit, double lotsCut, datetime hitTime = 0, double hitPrice = 0.0, string sideTag = "");
 void   ManageHeavyExposurePartialLossClose();
 bool   CanExecutePartialLossClose(int orderType);
 bool     IsFLIPBasketSupportOrder(int ticket, string comment = "");
@@ -8169,15 +8448,24 @@ int OnInit()
    OriginalStopLossUSD = StopLossUSD;
 
    DeleteOurObjects();
-   g_eqDdLastIconTier     = 0;
-   g_eqDdCycleHighestTier = 0;
-   g_eqDdLastLoggedTier   = 0;
-   g_eqDdForceCloseBudget = false;
+   g_eqDdLastIconTier          = 0;
+   g_eqDdCycleHighestTier      = 0;
+   g_eqDdLastLoggedTier        = 0;
+   g_eqDdBuyCurrentTier        = 0;
+   g_eqDdBuyCycleHighestTier   = 0;
+   g_eqDdBuyLastLoggedTier     = 0;
+   g_eqDdBuyLastIconTier       = 0;
+   g_eqDdSellCurrentTier       = 0;
+   g_eqDdSellCycleHighestTier  = 0;
+   g_eqDdSellLastLoggedTier    = 0;
+   g_eqDdSellLastIconTier      = 0;
+   g_eqDdForceCloseBudget      = false;
    if(IsTesting() || IsOptimization())
      {
       g_eqDdTrackedCount        = 0;
       ArrayInitialize(g_eqDdTrackedTickets, 0);
       ArrayInitialize(g_eqDdTrackedTiers, 0);
+      ArrayInitialize(g_eqDdTrackedSides, 0);
       g_eqDdCurrentTier         = 0;
       g_eqDdCurrentPct          = 0.0;
       g_eqDdPeakPct             = 0.0;
@@ -8187,6 +8475,7 @@ int OnInit()
       g_eqDdTotalCloseAllOrders = 0;
       g_eqDdTotalLotsReduced    = 0.0;
       g_eqDdLastHitTime         = 0;
+      g_eqDdLastHitSide         = "";
       g_eqDdLastHitTier         = 0;
       g_eqDdLastHitPct          = 0.0;
       g_eqDdLastHitUSD          = 0.0;
@@ -8194,8 +8483,37 @@ int OnInit()
       g_eqDdLastHitOrders       = 0;
       g_eqDdLastHitLots         = 0.0;
       g_eqDdLastReachTime       = 0;
+      g_eqDdLastReachSide       = "";
       g_eqDdLastReachTier       = 0;
       g_eqDdLastReachPct        = 0.0;
+      g_eqDdBuyCurrentPct       = 0.0;
+      g_eqDdBuyCurrentUSD       = 0.0;
+      g_eqDdBuyPeakPct          = 0.0;
+      g_eqDdBuyCloseAllPending  = false;
+      g_eqDdBuyLastReachTime    = 0;
+      g_eqDdBuyLastReachTier    = 0;
+      g_eqDdBuyLastReachPct     = 0.0;
+      g_eqDdBuyLastHitTime      = 0;
+      g_eqDdBuyLastHitTier      = 0;
+      g_eqDdBuyLastHitPct       = 0.0;
+      g_eqDdBuyLastHitUSD       = 0.0;
+      g_eqDdBuyLastHitCutPct    = 0.0;
+      g_eqDdBuyLastHitOrders    = 0;
+      g_eqDdBuyLastHitLots      = 0.0;
+      g_eqDdSellCurrentPct      = 0.0;
+      g_eqDdSellCurrentUSD      = 0.0;
+      g_eqDdSellPeakPct         = 0.0;
+      g_eqDdSellCloseAllPending = false;
+      g_eqDdSellLastReachTime   = 0;
+      g_eqDdSellLastReachTier   = 0;
+      g_eqDdSellLastReachPct    = 0.0;
+      g_eqDdSellLastHitTime     = 0;
+      g_eqDdSellLastHitTier     = 0;
+      g_eqDdSellLastHitPct      = 0.0;
+      g_eqDdSellLastHitUSD      = 0.0;
+      g_eqDdSellLastHitCutPct   = 0.0;
+      g_eqDdSellLastHitOrders   = 0;
+      g_eqDdSellLastHitLots     = 0.0;
      }
    DeleteDashboardObjects();
    DeleteLeftLiveOrdersDashboardObjects();
@@ -14398,7 +14716,7 @@ void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep,s
    int currentHour = TimeHour(dubaiTime);
 
    
-   if(MathAbs(GlobalEmaAngle30)>4 && MathAbs(GlobalEmaAngle30)<8)
+   //if(MathAbs(GlobalEmaAngle30)>4 && MathAbs(GlobalEmaAngle30)<8)
    {
    
    Lots=0.04;
@@ -20119,7 +20437,7 @@ void UpdateDashboard(DailyProtectionState &state)
 
 // Header Bar
    CreateDashboardPanel(DASH_PREFIX+"HEADER", x, y, w, 36, C'20,55,90');
-   string eaTitle = StringFormat("%s | %s %s", "VMULTI-1128", Symbol(), TimeframeToString(Period()));
+   string eaTitle = StringFormat("%s | %s %s", "VMULTI-1129", Symbol(), TimeframeToString(Period()));
    CreateDashboardLabel(DASH_PREFIX+"TITLE", eaTitle, tx, y+4, 9, clrWhite);
    string priceStatus = StringFormat("BID: %." + IntegerToString(Digits) + "f | ASK: %." + IntegerToString(Digits) + "f | SPR: %d pts", Bid, Ask, (int)MarketInfo(Symbol(), MODE_SPREAD));
    CreateDashboardLabel(DASH_PREFIX+"PRICE", priceStatus, tx, y+19, 8, clrLightGray);
@@ -20412,30 +20730,35 @@ void UpdateDashboard(DailyProtectionState &state)
                                   LowestEquity, eqlStep, eqlGate2h, eqlEmaStr);
    CreateDashboardLabel(DASH_PREFIX+"EQL_LINE2", eqlLine2, tx, y+414, 8, clrWhite);
 
-   // --- EQ-DD Tiered Lot Reduction Status Line ---
+   // --- EQ-DD Pure Per-Side (BUY / SELL) Tiered Lot Reduction Status Line ---
    double dashBal = AccountBalance();
-   double dashEq  = AccountEquity();
-   double dashDdPct = (dashBal > 0.0 && dashEq < dashBal) ? (((dashBal - dashEq) / dashBal) * 100.0) : 0.0;
-   double dashCutPct = 0.0;
-   int    dashTier = ResolveEqDdTierAndCut(dashDdPct, dashCutPct);
+   double dashBuyPL = 0.0, dashBuyDdPct = 0.0, dashSellPL = 0.0, dashSellDdPct = 0.0;
+   int    dashBuyCnt = 0, dashSellCnt = 0;
+   CalcEqDdSideDrawdowns(dashBal, dashBuyPL, dashBuyDdPct, dashSellPL, dashSellDdPct, dashBuyCnt, dashSellCnt);
+   double dashCutB = 0.0, dashCutS = 0.0;
+   int    dashTierB = ResolveEqDdTierAndCut(dashBuyDdPct, dashCutB);
+   int    dashTierS = ResolveEqDdTierAndCut(dashSellDdPct, dashCutS);
+   int    dashMaxTier = MathMax(dashTierB, dashTierS);
+   int    dashMaxDone = MathMax(g_eqDdBuyCycleHighestTier, g_eqDdSellCycleHighestTier);
    string eqDdState = "";
-   color eqDdClr = clrSilver;
+   color  eqDdClr   = clrSilver;
    if(!InpEnableEqDdLotReduction)
      {
       eqDdState = "DISABLED";
       eqDdClr = clrSilver;
      }
-   else if(dashTier >= 1 || (InpEqDdOneShotPerTier && g_eqDdCycleHighestTier >= 1))
+   else if(dashMaxTier >= 1 || (InpEqDdOneShotPerTier && dashMaxDone >= 1))
      {
-      int    effTier  = (dashTier > g_eqDdCycleHighestTier) ? dashTier : g_eqDdCycleHighestTier;
-      int    maxT     = (InpEqDdMaxTier >= 5 ? InpEqDdMaxTier : 5);
+      bool   pickBuy  = (MathMax(dashTierB, g_eqDdBuyCycleHighestTier) > MathMax(dashTierS, g_eqDdSellCycleHighestTier)) ||
+                        (MathMax(dashTierB, g_eqDdBuyCycleHighestTier) == MathMax(dashTierS, g_eqDdSellCycleHighestTier) && dashBuyDdPct >= dashSellDdPct);
+      string sideCh   = pickBuy ? "B" : "S";
+      int    curSideT = pickBuy ? dashTierB : dashTierS;
+      int    doneSide = pickBuy ? g_eqDdBuyCycleHighestTier : g_eqDdSellCycleHighestTier;
+      int    effTier  = (curSideT > doneSide) ? curSideT : doneSide;
       double stepSize = (InpEqDdStepPct > 0.0 ? InpEqDdStepPct : 10.0);
       double effCut   = (effTier == 1 ? InpEqDdTier1CutPct : (effTier == 2 ? InpEqDdTier2CutPct : (effTier == 3 ? InpEqDdTier3CutPct : (effTier == 4 ? InpEqDdTier4CutPct : (effTier == 5 ? InpEqDdTier5CutPct : MathMin(95.0, effTier * stepSize))))));
-      double curThresh = (effTier == 1 ? InpEqDdTier1Pct : (effTier == 2 ? InpEqDdTier2Pct : (effTier == 3 ? InpEqDdTier3Pct : (effTier == 4 ? InpEqDdTier4Pct : (effTier == 5 ? InpEqDdTier5Pct : effTier * stepSize)))));
-      double nxtThresh = (effTier == 1 ? InpEqDdTier2Pct : (effTier == 2 ? InpEqDdTier3Pct : (effTier == 3 ? InpEqDdTier4Pct : (effTier == 4 ? InpEqDdTier5Pct : (effTier + 1) * stepSize))));
-      string nextStr   = (effTier < maxT) ? StringFormat("Next:%.0f%%", nxtThresh) : "MAX";
-      string doneTag   = (InpEqDdOneShotPerTier && g_eqDdCycleHighestTier >= effTier) ? " DONE" : StringFormat(" %.0f%%", curThresh);
-      eqDdState = StringFormat("T%d%s (-%.0f%%L) | %s | Cuts:%d", effTier, doneTag, effCut, nextStr, g_eqDdTotalPartialCuts);
+      string doneTag  = (InpEqDdOneShotPerTier && doneSide >= effTier) ? " DONE" : "";
+      eqDdState = StringFormat("%s-T%d%s (-%.0f%%L) | Cuts:%d", sideCh, effTier, doneTag, effCut, g_eqDdTotalPartialCuts);
       eqDdClr   = GetEqDdTierColor(effTier);
      }
    else
@@ -20444,7 +20767,7 @@ void UpdateDashboard(DailyProtectionState &state)
       eqDdState = StringFormat("OK [Next:%.0f%%] | Cuts:%d (-%.2fL)", firstThresh, g_eqDdTotalPartialCuts, g_eqDdTotalLotsReduced);
       eqDdClr = clrLightGray;
      }
-   string eqDdLine = StringFormat("EQ-DD CUT   : %.1f%% | %s", dashDdPct, eqDdState);
+   string eqDdLine = StringFormat("EQ-DD SIDE  : B:%.1f%% S:%.1f%% | %s", dashBuyDdPct, dashSellDdPct, eqDdState);
    CreateDashboardLabel(DASH_PREFIX+"EQDD_LINE", eqDdLine, tx, y+430, 8, eqDdClr);
 
    string eqDdHitLine = "DD LAST HIT : NONE YET";
@@ -20456,17 +20779,19 @@ void UpdateDashboard(DailyProtectionState &state)
      }
    else if(g_eqDdLastHitTime > 0)
      {
-      string hitOkTag = (g_eqDdCycleHighestTier == 0 && g_eqDdCurrentTier == 0) ? " [OK]" : "";
-      eqDdHitLine = StringFormat("DD LAST HIT : T%d (-%.0f%%L) @ %s | x%d (-%.2fL)%s",
-                                 g_eqDdLastHitTier, g_eqDdLastHitCutPct,
+      string hitSideStr = (g_eqDdLastHitSide != "" ? (g_eqDdLastHitSide + " ") : "");
+      string hitOkTag   = (dashMaxDone == 0 && dashMaxTier == 0) ? " [OK]" : "";
+      eqDdHitLine = StringFormat("DD LAST HIT : %sT%d (-%.0f%%L) @ %s | x%d (-%.2fL)%s",
+                                 hitSideStr, g_eqDdLastHitTier, g_eqDdLastHitCutPct,
                                  TimeToString(g_eqDdLastHitTime, TIME_DATE|TIME_MINUTES),
                                  g_eqDdLastHitOrders, g_eqDdLastHitLots, hitOkTag);
       eqDdHitClr  = GetEqDdTierColor(g_eqDdLastHitTier);
      }
    else if(g_eqDdLastReachTime > 0)
      {
-      eqDdHitLine = StringFormat("DD LAST HIT : T%d REACHED @ %s (Wait Elig)",
-                                 g_eqDdLastReachTier,
+      string reachSideStr = (g_eqDdLastReachSide != "" ? (g_eqDdLastReachSide + " ") : "");
+      eqDdHitLine = StringFormat("DD LAST HIT : %sT%d REACHED @ %s (Wait Elig)",
+                                 reachSideStr, g_eqDdLastReachTier,
                                  TimeToString(g_eqDdLastReachTime, TIME_DATE|TIME_MINUTES));
       eqDdHitClr  = GetEqDdTierColor(g_eqDdLastReachTier);
      }
@@ -20707,7 +21032,7 @@ void UpdateLeftLiveOrdersDashboard()
       if(type==OP_BUY || type==OP_SELL)
          netPL+=orderPL;
      }
-   int x=LeftDashboardX, y=LeftDashboardY, tx=x+12, width=MathMax(LeftDashboardWidth+270, 610), panelHeight=rows*20+154;
+   int x=LeftDashboardX, y=LeftDashboardY, tx=x+12, width=MathMax(LeftDashboardWidth+280, 620), panelHeight=rows*20+154;
    color pnlColor=clrWhite;
    if(netPL>0)
       pnlColor=clrLime;
@@ -20726,44 +21051,79 @@ void UpdateLeftLiveOrdersDashboard()
    double liveBal = AccountBalance();
    double liveEq  = AccountEquity();
    double eqDiffUSD = liveEq - liveBal;
-   double eqLossPct = (liveBal > 0.0 && liveEq < liveBal) ? (((liveBal - liveEq) / liveBal) * 100.0) : 0.0;
-   double leftCutPct = 0.0;
-   int    leftTier   = (eqDiffUSD < 0.0) ? ResolveEqDdTierAndCut(eqLossPct, leftCutPct) : 0;
+   double liveBuyDdUSD  = (buyPL  < 0.0) ? (-buyPL)  : 0.0;
+   double liveSellDdUSD = (sellPL < 0.0) ? (-sellPL) : 0.0;
+   double liveBuyDdPct  = (liveBal > 0.0 && liveBuyDdUSD  > 0.0) ? ((liveBuyDdUSD  / liveBal) * 100.0) : 0.0;
+   double liveSellDdPct = (liveBal > 0.0 && liveSellDdUSD > 0.0) ? ((liveSellDdUSD / liveBal) * 100.0) : 0.0;
+   double tmpCutB = 0.0, tmpCutS = 0.0;
+   int    buyTier  = ResolveEqDdTierAndCut(liveBuyDdPct,  tmpCutB);
+   int    sellTier = ResolveEqDdTierAndCut(liveSellDdPct, tmpCutS);
+   int    leftTier = MathMax(buyTier, sellTier);
+   bool   buyDom   = (liveBuyDdPct >= liveSellDdPct);
+   double maxSideDdPct = buyDom ? liveBuyDdPct : liveSellDdPct;
+   double maxSideDdUSD = buyDom ? liveBuyDdUSD : liveSellDdUSD;
+   string maxSideName  = buyDom ? "BUY" : "SELL";
+
    color  eqBadgeClr = clrSilver;
    string eqBadgeTxt = "";
-   if(eqDiffUSD < 0.0)
+   if(liveBuyDdPct > 0.0 && liveSellDdPct > 0.0)
      {
-      double absLoss = liveBal - liveEq;
-      string absLossStr = (absLoss >= 1000.0) ? DoubleToString(absLoss, 0) : DoubleToString(absLoss, 2);
+      string hitTag = "";
+      if(leftTier >= 1)
+        {
+         string domCh = buyDom ? "B" : "S";
+         datetime domHitT = buyDom ? g_eqDdBuyLastHitTime : g_eqDdSellLastHitTime;
+         int      domHitR = buyDom ? g_eqDdBuyLastHitTier : g_eqDdSellLastHitTier;
+         if(domHitT > 0 && domHitR == leftTier)
+            hitTag = StringFormat(" [%s:T%d %s]", domCh, leftTier, TimeToString(domHitT, TIME_MINUTES));
+         else
+            hitTag = StringFormat(" [%s:T%d]", domCh, leftTier);
+        }
+      else if(g_eqDdLastHitTime > 0)
+        {
+         string lCh = (g_eqDdLastHitSide != "" ? StringSubstr(g_eqDdLastHitSide, 0, 1) : "?");
+         hitTag = StringFormat(" [%s:T%d]", lCh, g_eqDdLastHitTier);
+        }
+      eqBadgeClr = (leftTier >= 1) ? GetEqDdTierColor(leftTier) : clrTomato;
+      eqBadgeTxt = StringFormat("DD B:%.1f%% S:%.1f%%%s", liveBuyDdPct, liveSellDdPct, hitTag);
+     }
+   else if(maxSideDdPct > 0.0)
+     {
+      string absLossStr = (maxSideDdUSD >= 1000.0) ? DoubleToString(maxSideDdUSD, 0) : DoubleToString(maxSideDdUSD, 2);
       string tierTag = "";
       if(leftTier >= 1)
         {
-         if(g_eqDdLastHitTime > 0 && g_eqDdLastHitTier == leftTier)
-            tierTag = StringFormat(" [T%d %s]", leftTier, TimeToString(g_eqDdLastHitTime, TIME_MINUTES));
+         datetime sHitT = buyDom ? g_eqDdBuyLastHitTime : g_eqDdSellLastHitTime;
+         int      sHitR = buyDom ? g_eqDdBuyLastHitTier : g_eqDdSellLastHitTier;
+         if(sHitT > 0 && sHitR == leftTier)
+            tierTag = StringFormat(" [T%d %s]", leftTier, TimeToString(sHitT, TIME_MINUTES));
          else
             tierTag = StringFormat(" [T%d]", leftTier);
         }
       else if(g_eqDdLastHitTime > 0)
         {
-         tierTag = StringFormat(" [L:T%d %s]", g_eqDdLastHitTier, TimeToString(g_eqDdLastHitTime, TIME_MINUTES));
+         string lCh = (g_eqDdLastHitSide != "" ? StringSubstr(g_eqDdLastHitSide, 0, 1) : "?");
+         tierTag = StringFormat(" [%s:T%d %s]", lCh, g_eqDdLastHitTier, TimeToString(g_eqDdLastHitTime, TIME_MINUTES));
         }
       eqBadgeClr = (leftTier >= 1) ? GetEqDdTierColor(leftTier) : clrTomato;
-      eqBadgeTxt = StringFormat("EQ LOSS: %.1f%% (-$%s)%s", eqLossPct, absLossStr, tierTag);
+      eqBadgeTxt = StringFormat("%s DD: %.1f%% (-$%s)%s", maxSideName, maxSideDdPct, absLossStr, tierTag);
      }
    else
      {
       string gainStr = (eqDiffUSD >= 1000.0) ? DoubleToString(eqDiffUSD, 0) : DoubleToString(eqDiffUSD, 2);
-      string lastTag = (g_eqDdLastHitTime > 0) ? StringFormat(" [T%d %s]", g_eqDdLastHitTier, TimeToString(g_eqDdLastHitTime, TIME_MINUTES)) : "";
+      string lCh     = (g_eqDdLastHitSide != "" ? (StringSubstr(g_eqDdLastHitSide, 0, 1) + ":") : "");
+      string lastTag = (g_eqDdLastHitTime > 0) ? StringFormat(" [%sT%d %s]", lCh, g_eqDdLastHitTier, TimeToString(g_eqDdLastHitTime, TIME_MINUTES)) : "";
       eqBadgeClr = (eqDiffUSD > 0.0) ? clrLime : clrSilver;
-      eqBadgeTxt = StringFormat("EQ LOSS: 0.0%% (+$%s)%s", gainStr, lastTag);
+      eqBadgeTxt = StringFormat("SIDE DD: 0.0%% (+$%s)%s", gainStr, lastTag);
      }
-   CreateLeftLivePanel(LEFT_LIVE_PREFIX+"EQDD_BG", x+206, y+6, width-318, 26, C'14,18,26');
+   CreateLeftLivePanel(LEFT_LIVE_PREFIX+"EQDD_BG", x+206, y+6, width-314, 26, C'14,18,26');
    CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"EQDD_TXT", eqBadgeTxt, x+214, y+11, 9, eqBadgeClr);
-   CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"SYMBOL", Symbol()+"  |  "+TimeframeToString(Period()), x+width-104, y+10, 8, clrLightGray);
+   CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"SYMBOL", Symbol()+"  |  "+TimeframeToString(Period()), x+width-102, y+10, 8, clrLightGray);
 
-   // Top Special EQ-DD Hit Time & Tier Banner
+   // Top Special EQ-DD Hit Time & Tier Banner (Pure Per-Side)
    string ddBannerTxt = "DD HIT : NONE YET";
    color  ddBannerClr = clrSilver;
+   bool   anySideActive = (g_eqDdBuyCycleHighestTier >= 1 || g_eqDdSellCycleHighestTier >= 1 || leftTier >= 1);
    if(!InpEnableEqDdLotReduction)
      {
       ddBannerTxt = "DD HIT : DISABLED";
@@ -20771,25 +21131,30 @@ void UpdateLeftLiveOrdersDashboard()
      }
    else if(g_eqDdLastHitTime > 0)
      {
-      if(leftTier > g_eqDdLastHitTier && g_eqDdLastReachTier > g_eqDdLastHitTier && g_eqDdLastReachTime > 0)
+      string hitSideLbl   = (g_eqDdLastHitSide   != "" ? (g_eqDdLastHitSide   + " ") : "");
+      string reachSideLbl = (g_eqDdLastReachSide != "" ? (g_eqDdLastReachSide + " ") : "");
+      bool   reachStillPending = (g_eqDdLastReachTime > g_eqDdLastHitTime &&
+                                  ((g_eqDdLastReachSide == "BUY"  && buyTier  >= g_eqDdLastReachTier) ||
+                                   (g_eqDdLastReachSide == "SELL" && sellTier >= g_eqDdLastReachTier)));
+      if(reachStillPending)
         {
-         ddBannerTxt = StringFormat("DD HIT : T%d @ %s (-%.2fL) | NOW T%d @ %s (%.1f%% Wait Elig)",
-                                    g_eqDdLastHitTier, TimeToString(g_eqDdLastHitTime, TIME_MINUTES|TIME_SECONDS), g_eqDdLastHitLots,
-                                    g_eqDdLastReachTier, TimeToString(g_eqDdLastReachTime, TIME_MINUTES|TIME_SECONDS), g_eqDdLastReachPct);
-         ddBannerClr = GetEqDdTierColor(leftTier);
+         ddBannerTxt = StringFormat("DD HIT : %sT%d @ %s (-%.2fL) | NOW %sT%d @ %s (%.1f%% Wait Elig)",
+                                    hitSideLbl, g_eqDdLastHitTier, TimeToString(g_eqDdLastHitTime, TIME_MINUTES|TIME_SECONDS), g_eqDdLastHitLots,
+                                    reachSideLbl, g_eqDdLastReachTier, TimeToString(g_eqDdLastReachTime, TIME_MINUTES|TIME_SECONDS), g_eqDdLastReachPct);
+         ddBannerClr = GetEqDdTierColor(g_eqDdLastReachTier);
         }
-      else if(g_eqDdCycleHighestTier >= 1 || leftTier >= 1)
+      else if(anySideActive)
         {
-         ddBannerTxt = StringFormat("DD HIT : T%d (-%.0f%%L) @ %s | %.1f%% (-$%.2f) | Cut x%d (-%.2fL)",
-                                    g_eqDdLastHitTier, g_eqDdLastHitCutPct,
+         ddBannerTxt = StringFormat("DD HIT : %sT%d (-%.0f%%L) @ %s | %.1f%% (-$%.2f) | Cut x%d (-%.2fL)",
+                                    hitSideLbl, g_eqDdLastHitTier, g_eqDdLastHitCutPct,
                                     TimeToString(g_eqDdLastHitTime, TIME_DATE|TIME_MINUTES|TIME_SECONDS),
                                     g_eqDdLastHitPct, g_eqDdLastHitUSD, g_eqDdLastHitOrders, g_eqDdLastHitLots);
          ddBannerClr = GetEqDdTierColor(g_eqDdLastHitTier);
         }
       else
         {
-         ddBannerTxt = StringFormat("LAST DD: T%d (-%.0f%%L) @ %s | %.1f%% (-$%.2f) | x%d (-%.2fL) [OK]",
-                                    g_eqDdLastHitTier, g_eqDdLastHitCutPct,
+         ddBannerTxt = StringFormat("LAST DD: %sT%d (-%.0f%%L) @ %s | %.1f%% (-$%.2f) | x%d (-%.2fL) [OK]",
+                                    hitSideLbl, g_eqDdLastHitTier, g_eqDdLastHitCutPct,
                                     TimeToString(g_eqDdLastHitTime, TIME_DATE|TIME_MINUTES|TIME_SECONDS),
                                     g_eqDdLastHitPct, g_eqDdLastHitUSD, g_eqDdLastHitOrders, g_eqDdLastHitLots);
          ddBannerClr = GetEqDdTierColor(g_eqDdLastHitTier);
@@ -20801,8 +21166,9 @@ void UpdateLeftLiveOrdersDashboard()
       double minLossReq = InpEqDdMinOrderLossUSD * leftMult;
       double minLotReq  = MarketInfo(Symbol(), MODE_MINLOT);
       if(minLotReq <= 0.0) minLotReq = 0.01;
-      ddBannerTxt = StringFormat("DD WAIT: T%d @ %s | %.1f%% (Need Loss>=$%.0f & Lot>%.2f)",
-                                 g_eqDdLastReachTier,
+      string reachSideLbl = (g_eqDdLastReachSide != "" ? (g_eqDdLastReachSide + " ") : "");
+      ddBannerTxt = StringFormat("DD WAIT: %sT%d @ %s | %.1f%% (Need Loss>=$%.0f & Lot>%.2f)",
+                                 reachSideLbl, g_eqDdLastReachTier,
                                  TimeToString(g_eqDdLastReachTime, TIME_DATE|TIME_MINUTES|TIME_SECONDS),
                                  g_eqDdLastReachPct, minLossReq, minLotReq);
       ddBannerClr = GetEqDdTierColor(g_eqDdLastReachTier);
@@ -20812,7 +21178,7 @@ void UpdateLeftLiveOrdersDashboard()
       int    firstTier   = InpEqDdEnableTier1 ? 1 : 2;
       double firstThresh = InpEqDdEnableTier1 ? InpEqDdTier1Pct : InpEqDdTier2Pct;
       double firstCut    = InpEqDdEnableTier1 ? InpEqDdTier1CutPct : InpEqDdTier2CutPct;
-      ddBannerTxt = StringFormat("DD HIT : NONE YET  (Next: T%d @ %.0f%% DD -> -%.0f%% Lots)", firstTier, firstThresh, firstCut);
+      ddBannerTxt = StringFormat("DD HIT : NONE YET  (Per-Side Next: T%d @ %.0f%% BUY/SELL -> -%.0f%% Lots)", firstTier, firstThresh, firstCut);
       ddBannerClr = clrSilver;
      }
    CreateLeftLivePanel(LEFT_LIVE_PREFIX+"EQDD_HITBAR", x, y+38, width, 22, C'18,24,34');
