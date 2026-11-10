@@ -43,7 +43,7 @@ CheckBasketProfitClose  Total open basket profit
 
 
 
-string glbVersion = "VMULTI-1140- Dubai Night Close Chart Icons & Left Dashboard Status";
+string glbVersion = "VMULTI-1141- Fresh Day Start Full EQ-DD Reset (00:00 GST)";
 
 
 
@@ -310,6 +310,7 @@ double InpEqDdCloseAllPct                 = 100.0;  // Close-All threshold (inac
 double InpEqDdMinCutLots                  = 0.01;   // Minimum partial close lot size (0.01)
 double InpEqDdMinOrderLossUSD             = 5.0;    // Min per-order net loss ($5 * mult) required before EQ-DD cuts an order (ignores entry spread)
 bool   InpEqDdOneShotPerTier              = true;   // Latch each DD tier once per drawdown cycle (wait for next 10% step or Equity >= Balance reset)
+bool   InpEqDdResetAllOnNewDay            = true;   // Reset ALL EQ-DD status, tier locks, cuts, peaks & history on fresh Dubai day (00:00 GST)
 bool   InpDrawEqDdHitIcon                 = true;   // Draw chart icon with DD% when Drawdown % tier hits
 int    InpEqDdHitIconCode                 = 171;    // Chart icon Wingdings code (171=star, 238=shield, 159=dot, 251=check)
 int    InpEqDdHitFontSize                 = 10;     // Chart icon text font size
@@ -2039,6 +2040,11 @@ string   g_eqDdLastReachReason       = "";
 datetime g_eqDdLastResetTime         = 0;
 string   g_eqDdLastResetSide         = "";
 int      g_eqDdLastResetTier         = 0;
+int      g_eqDdDayKey                = -1;
+datetime g_eqDdDailyResetTime        = 0;
+int      g_eqDdPriorDayCuts          = 0;
+double   g_eqDdPriorDayPeakPct       = 0.0;
+double   g_eqDdPriorDayLotsCut       = 0.0;
 
 // Independent BUY side state
 int      g_eqDdBuyCurrentTier        = 0;
@@ -2090,6 +2096,11 @@ void UpdateLeftLiveOrdersDashboard();
 string EqDdGvKey(int ticket)
   {
    return "EA_EQDD_T_" + IntegerToString(MagicNumber) + "_" + IntegerToString(ticket);
+  }
+
+string EqDdDailyGvKey(string suffix)
+  {
+   return "EA_EQDD_" + suffix + "_" + IntegerToString(MagicNumber) + "_" + Symbol();
   }
 
 //+------------------------------------------------------------------+
@@ -3034,12 +3045,202 @@ void ManageEquityDrawdownForSide(int sideType)
   }
 
 //+------------------------------------------------------------------+
+//| ExecuteEqDdFreshDayReset                                         |
+//| Wipes all EQ-DD state, per-ticket/ancestor locks, session peaks, |
+//| cut counters & chronological history for a fresh Dubai day start.|
+//+------------------------------------------------------------------+
+void ExecuteEqDdFreshDayReset(datetime nowServer, datetime dubaiTime, int dubaiDayKey, bool isTestRun, string triggerReason = "Dubai 00:00 Rollover")
+  {
+   g_eqDdPriorDayCuts    = g_eqDdTotalPartialCuts + g_eqDdTotalCloseAllOrders;
+   g_eqDdPriorDayPeakPct = g_eqDdSessionPeakPct;
+   g_eqDdPriorDayLotsCut = g_eqDdTotalLotsReduced;
+
+   // 1. Wipe open-order and "from #parent" ancestor GVs persisted across restarts
+   if(!isTestRun)
+     {
+      int prevSel = OrderTicket();
+      for(int i = OrdersTotal() - 1; i >= 0; i--)
+        {
+         if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
+            continue;
+         if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber)
+            continue;
+
+         int    curTicket = OrderTicket();
+         string curComm   = OrderComment();
+         for(int hop = 0; hop < 16; hop++)
+           {
+            if(curTicket <= 0)
+               break;
+            string tkGv = EqDdGvKey(curTicket);
+            if(GlobalVariableCheck(tkGv))
+               GlobalVariableDel(tkGv);
+
+            if(curComm == "")
+              {
+               if(OrderSelect(curTicket, SELECT_BY_TICKET, MODE_TRADES))
+                  curComm = OrderComment();
+               else if(OrderSelect(curTicket, SELECT_BY_TICKET, MODE_HISTORY))
+                  curComm = OrderComment();
+              }
+
+            int pos = StringFind(curComm, "from #");
+            if(pos < 0)
+               break;
+            int parentTkt = (int)StringToInteger(StringSubstr(curComm, pos + 6));
+            if(parentTkt <= 0 || parentTkt == curTicket)
+               break;
+            curTicket = parentTkt;
+            curComm   = "";
+           }
+        }
+      if(prevSel > 0)
+        {
+         if(!OrderSelect(prevSel, SELECT_BY_TICKET, MODE_TRADES))
+           {
+            bool hSel = OrderSelect(prevSel, SELECT_BY_TICKET, MODE_HISTORY);
+           }
+        }
+     }
+
+   // 2. Reset tracked ticket array and BUY/SELL/aggregate cycle state
+   ResetEqDdCycleState(triggerReason);
+
+   // 3. Reset all daily/session stats, counters, hit/reset history to fresh start
+   g_eqDdForceCloseBudget    = false;
+   g_eqDdSessionPeakPct      = 0.0;
+   g_eqDdTotalPartialCuts    = 0;
+   g_eqDdTotalCloseAllOrders = 0;
+   g_eqDdTotalLotsReduced    = 0.0;
+
+   g_eqDdLastHitTime         = 0;
+   g_eqDdLastHitSide         = "";
+   g_eqDdLastHitTier         = 0;
+   g_eqDdLastHitPct          = 0.0;
+   g_eqDdLastHitUSD          = 0.0;
+   g_eqDdLastHitCutPct       = 0.0;
+   g_eqDdLastHitOrders       = 0;
+   g_eqDdLastHitLots         = 0.0;
+
+   g_eqDdLastResetTime       = 0;
+   g_eqDdLastResetSide       = "";
+   g_eqDdLastResetTier       = 0;
+
+   g_eqDdBuyLastHitTime      = 0;
+   g_eqDdBuyLastHitTier      = 0;
+   g_eqDdBuyLastHitPct       = 0.0;
+   g_eqDdBuyLastHitUSD       = 0.0;
+   g_eqDdBuyLastHitCutPct    = 0.0;
+   g_eqDdBuyLastHitOrders    = 0;
+   g_eqDdBuyLastHitLots      = 0.0;
+
+   g_eqDdSellLastHitTime     = 0;
+   g_eqDdSellLastHitTier     = 0;
+   g_eqDdSellLastHitPct      = 0.0;
+   g_eqDdSellLastHitUSD      = 0.0;
+   g_eqDdSellLastHitCutPct   = 0.0;
+   g_eqDdSellLastHitOrders   = 0;
+   g_eqDdSellLastHitLots     = 0.0;
+
+   // Reset idle RLF peak tracker if no active relief SLs are protecting open tickets
+   if(!g_drawdownReliefExecuted && g_drawdownReliefTicketCount == 0 && (g_drawdownReliefPeakUSD > 0.0 || g_drawdownReliefArmed))
+      ResetDrawdownReliefCycle("Fresh Dubai Day Start");
+
+   g_eqDdDayKey         = dubaiDayKey;
+   g_eqDdDailyResetTime = nowServer;
+
+   if(!isTestRun)
+     {
+      GlobalVariableSet(EqDdDailyGvKey("DAYKEY"), (double)dubaiDayKey);
+      GlobalVariableSet(EqDdDailyGvKey("RSTT"),   (double)nowServer);
+     }
+
+   LastDashboardUpdateMs = 0;
+
+   PrintFormat(">>> [EQ-DD DAILY RESET] %s | DubaiTime=%s (DayKey=%d) | PriorDay Peak=%.2f%% Cuts=%d (-%.2fL) | All tier locks, peaks & counters RESET to Fresh Start.",
+               triggerReason, TimeToString(dubaiTime, TIME_DATE|TIME_MINUTES|TIME_SECONDS),
+               dubaiDayKey, g_eqDdPriorDayPeakPct, g_eqDdPriorDayCuts, g_eqDdPriorDayLotsCut);
+  }
+
+//+------------------------------------------------------------------+
+//| CheckEqDdDailyReset                                              |
+//| Detects fresh Dubai day start (00:00 GST) or overnight live      |
+//| terminal restart and resets all EQ-DD state to Fresh Start.      |
+//+------------------------------------------------------------------+
+void CheckEqDdDailyReset()
+  {
+   datetime nowServer = TimeCurrent();
+   if(nowServer <= 0)
+      return;
+
+   datetime dubaiTime   = nowServer + (ServerToDubaiOffsetHours * 3600);
+   int      dubaiDayKey = TimeYear(dubaiTime) * 1000 + TimeDayOfYear(dubaiTime);
+   bool     isTestRun   = (IsTesting() || IsOptimization());
+   string   gvDayK      = EqDdDailyGvKey("DAYKEY");
+   string   gvRstK      = EqDdDailyGvKey("RSTT");
+
+   if(!InpEqDdResetAllOnNewDay)
+     {
+      if(g_eqDdDayKey != dubaiDayKey)
+        {
+         g_eqDdDayKey = dubaiDayKey;
+         if(!isTestRun)
+            GlobalVariableSet(gvDayK, (double)dubaiDayKey);
+        }
+      return;
+     }
+
+   if(g_eqDdDayKey == -1)
+     {
+      if(!isTestRun && GlobalVariableCheck(gvDayK))
+        {
+         int savedDay = (int)MathRound(GlobalVariableGet(gvDayK));
+         if(savedDay != dubaiDayKey)
+           {
+            ExecuteEqDdFreshDayReset(nowServer, dubaiTime, dubaiDayKey, isTestRun, "Overnight Restart Fresh Dubai Day");
+            return;
+           }
+         g_eqDdDayKey = dubaiDayKey;
+         if(g_eqDdDailyResetTime == 0 && GlobalVariableCheck(gvRstK))
+           {
+            datetime savedRst = (datetime)MathRound(GlobalVariableGet(gvRstK));
+            if(savedRst > 0)
+              {
+               datetime savedRstDubai = savedRst + (ServerToDubaiOffsetHours * 3600);
+               int      savedRstDay   = TimeYear(savedRstDubai) * 1000 + TimeDayOfYear(savedRstDubai);
+               if(savedRstDay == dubaiDayKey)
+                  g_eqDdDailyResetTime = savedRst;
+              }
+           }
+        }
+      else
+        {
+         g_eqDdDayKey = dubaiDayKey;
+         if(!isTestRun)
+           {
+            GlobalVariableSet(gvDayK, (double)dubaiDayKey);
+            if(GlobalVariableCheck(gvRstK))
+               GlobalVariableDel(gvRstK);
+           }
+        }
+      return;
+     }
+
+   if(dubaiDayKey != g_eqDdDayKey)
+     {
+      ExecuteEqDdFreshDayReset(nowServer, dubaiTime, dubaiDayKey, isTestRun, "Dubai 00:00 Rollover");
+     }
+  }
+
+//+------------------------------------------------------------------+
 //| ManageEquityDrawdownTieredLotReduction                           |
 //| Pure Per-Side mode: checks BUY floating loss and SELL floating   |
 //| loss independently (never combines BUY + SELL losses).           |
 //+------------------------------------------------------------------+
 void ManageEquityDrawdownTieredLotReduction()
   {
+   CheckEqDdDailyReset();
+
    if(!InpEnableEqDdLotReduction)
      {
       g_eqDdBuyCurrentTier  = 0;
@@ -4742,12 +4943,15 @@ void   RegisterOrder90PctCut(int ticket);
 void   ManageEquityDrawdownTieredLotReduction();
 void   ManageEquityDrawdownForSide(int sideType);
 string EqDdGvKey(int ticket);
+string EqDdDailyGvKey(string suffix);
 int    GetEqDdSingleTicketTier(int ticket);
 int    GetEqDdOrderExecutedTier(int ticket, string comment = "");
 void   SetEqDdOrderExecutedTier(int ticket, int tier, int sideType = -1);
 bool   HasEqDdTrackedSide(int sideType);
 void   ResetEqDdSideCycleState(int sideType, string reason = "");
 void   ResetEqDdCycleState(string reason = "");
+void   ExecuteEqDdFreshDayReset(datetime nowServer, datetime dubaiTime, int dubaiDayKey, bool isTestRun, string triggerReason = "Dubai 00:00 Rollover");
+void   CheckEqDdDailyReset();
 int    ResolveEqDdTierAndCut(double ddPct, double &cutPctOut);
 color  GetEqDdTierColor(int tier);
 double GetEqDdTierThresholdPct(int tier);
@@ -8635,6 +8839,10 @@ int OnInit()
    g_eqDdSellLastIconTier      = 0;
    g_eqDdSellLastReachReason   = "";
    g_eqDdForceCloseBudget      = false;
+   g_eqDdDayKey                = -1;
+   g_eqDdPriorDayCuts          = 0;
+   g_eqDdPriorDayPeakPct       = 0.0;
+   g_eqDdPriorDayLotsCut       = 0.0;
    g_dubaiNightCloseDayKey       = -1;
    g_dubaiDayOpeningEquity       = 0.0;
    g_dubaiNightLastCutTime       = 0;
@@ -8652,6 +8860,7 @@ int OnInit()
    g_dubaiNightLastCutSkippedMin = 0;
    if(IsTesting() || IsOptimization())
      {
+      g_eqDdDailyResetTime         = 0;
       g_dubaiNightCloseLastHitTime = 0;
       g_dubaiNightLastResetTime    = 0;
       g_eqDdTrackedCount        = 0;
@@ -21229,7 +21438,7 @@ void UpdateDashboard(DailyProtectionState &state)
 
 // Header Bar
    CreateDashboardPanel(DASH_PREFIX+"HEADER", x, y, w, 36, C'20,55,90');
-   string eaTitle = StringFormat("%s | %s %s", "VMULTI-1140", Symbol(), TimeframeToString(Period()));
+   string eaTitle = StringFormat("%s | %s %s", "VMULTI-1141", Symbol(), TimeframeToString(Period()));
    CreateDashboardLabel(DASH_PREFIX+"TITLE", eaTitle, tx, y+4, 9, clrWhite);
    string priceStatus = StringFormat("BID: %." + IntegerToString(Digits) + "f | ASK: %." + IntegerToString(Digits) + "f | SPR: %d pts", Bid, Ask, (int)MarketInfo(Symbol(), MODE_SPREAD));
    CreateDashboardLabel(DASH_PREFIX+"PRICE", priceStatus, tx, y+19, 8, clrLightGray);
@@ -21637,10 +21846,21 @@ void UpdateDashboard(DailyProtectionState &state)
                                  FormatDubaiShortDT(g_eqDdLastReachTime, false));
       eqDdHitClr  = GetEqDdTierColor(g_eqDdLastReachTier);
      }
+   else if(g_drawdownReliefExecuted || g_drawdownReliefArmed)
+     {
+      eqDdHitLine = StringFormat("DD LATEST   : NONE YET | RLF Pk:$%.0f DD:$%.0f", g_drawdownReliefPeakUSD, curDD);
+      eqDdHitClr  = g_drawdownReliefExecuted ? clrLime : clrGold;
+     }
+   else if(g_eqDdDailyResetTime > 0)
+     {
+      eqDdHitLine = StringFormat("DD LATEST   : DAY RESET @ %s GST [OK]",
+                                 FormatDubaiShortDT(g_eqDdDailyResetTime, false));
+      eqDdHitClr  = clrLime;
+     }
    else if(g_drawdownReliefPeakUSD > 0.0)
      {
       eqDdHitLine = StringFormat("DD LATEST   : NONE YET | RLF Pk:$%.0f DD:$%.0f", g_drawdownReliefPeakUSD, curDD);
-      eqDdHitClr  = g_drawdownReliefExecuted ? clrLime : (g_drawdownReliefArmed ? clrGold : clrDeepSkyBlue);
+      eqDdHitClr  = clrDeepSkyBlue;
      }
    CreateDashboardLabel(DASH_PREFIX+"EQDD_HIT", eqDdHitLine, tx, y+446, 8, eqDdHitClr);
 
@@ -22235,15 +22455,35 @@ void UpdateLeftLiveOrdersDashboard()
                                  g_eqDdLastReachPct, rsnTag);
       ddBannerClr = GetEqDdTierColor(g_eqDdLastReachTier);
      }
-   else if(g_drawdownReliefExecuted || g_drawdownReliefArmed || g_drawdownReliefPeakUSD > 0.0)
+   else if(g_drawdownReliefExecuted || g_drawdownReliefArmed)
+     {
+      string rTag = g_drawdownReliefExecuted ? StringFormat("SL SET (Hits:%d)", g_drawdownReliefHitSuccessCount)
+                                             : StringFormat("ARMED (Tgt <=$%.0f)", g_drawdownReliefPeakUSD * (1.0 - InpDrawdownReliefPercent));
+      if(g_eqDdDailyResetTime > 0)
+         ddBannerTxt = StringFormat("DD LATEST  : DAY RESET @ %s GST | RLF %s | AcctDD:$%.1f",
+                                    FormatDubaiShortDT(g_eqDdDailyResetTime, false), rTag, curAcctDdUSD);
+      else
+         ddBannerTxt = StringFormat("DD LATEST  : EQ-DD NONE YET | RLF %s | AcctDD:$%.1f", rTag, curAcctDdUSD);
+      ddBannerClr = g_drawdownReliefExecuted ? clrLime : clrGold;
+     }
+   else if(g_eqDdDailyResetTime > 0)
+     {
+      if(g_eqDdPriorDayCuts > 0)
+         ddBannerTxt = StringFormat("DD LATEST  : DAY RESET @ %s GST | Fresh Start (Yday:%d -%.2fL) [OK]",
+                                    FormatDubaiShortDT(g_eqDdDailyResetTime, false),
+                                    g_eqDdPriorDayCuts, g_eqDdPriorDayLotsCut);
+      else
+         ddBannerTxt = StringFormat("DD LATEST  : DAY RESET @ %s GST | Fresh Start [OK]",
+                                    FormatDubaiShortDT(g_eqDdDailyResetTime, false));
+      ddBannerClr = clrLime;
+     }
+   else if(g_drawdownReliefPeakUSD > 0.0)
      {
       double rMult = (balancelomultipler > 0) ? balancelomultipler : 1.0;
       double rReq  = (InpDrawdownReliefMinPeakUSD > 0.0 ? InpDrawdownReliefMinPeakUSD * rMult : 100.0 * rMult);
-      string rTag  = g_drawdownReliefExecuted ? StringFormat("SL SET (Hits:%d)", g_drawdownReliefHitSuccessCount)
-                                              : (g_drawdownReliefArmed ? StringFormat("ARMED (Tgt <=$%.0f)", g_drawdownReliefPeakUSD * (1.0 - InpDrawdownReliefPercent))
-                                                                       : StringFormat("TRACK $%.0f/$%.0f", g_drawdownReliefPeakUSD, rReq));
+      string rTag  = StringFormat("TRACK $%.0f/$%.0f", g_drawdownReliefPeakUSD, rReq);
       ddBannerTxt = StringFormat("DD LATEST  : EQ-DD NONE YET | RLF %s | AcctDD:$%.1f", rTag, curAcctDdUSD);
-      ddBannerClr = g_drawdownReliefExecuted ? clrLime : (g_drawdownReliefArmed ? clrGold : clrDeepSkyBlue);
+      ddBannerClr = clrDeepSkyBlue;
      }
    else
      {
