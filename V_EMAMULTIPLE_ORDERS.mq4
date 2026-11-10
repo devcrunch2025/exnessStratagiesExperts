@@ -1,4 +1,4 @@
-//+------------------------------------------------------------------+
+﻿//+------------------------------------------------------------------+
 //|                  SSL CHANNEL CROSS EA - CONTINUOUS EQUITY LADDER |
 //|                  TWO-STAGE PROFIT LADDER | CONTINUOUS RESET      |
 //+------------------------------------------------------------------+
@@ -43,7 +43,7 @@ CheckBasketProfitClose  Total open basket profit
 
 
 
-string glbVersion = "VMULTI-1135- Dubai 10PM-12AM Close-All (Angle 0..1 / 11:45PM / DayEq +5%)";
+string glbVersion = "VMULTI-1135- FINAL - Dubai 10PM-12AM Close-All (Angle 0..1 / 11:45PM / DayEq +5%)";
 
 
 
@@ -454,7 +454,7 @@ bool     EnableDubaiTradingPause             = true;
 string   DubaiTradingPauseHours              = "";// "19,20";
 int      ServerToDubaiOffsetHours            = 4;
 bool     InpEnableDubaiNightOneSideCloseAll  = true;  // Close all open orders 1x/day when Dubai time is 10PM-12AM and Buy==0 or Sell==0
-int      InpDubaiNightCloseStartHour         = 22;    // Window start hour in Dubai time (22 = 10:00 PM inclusive)
+int      InpDubaiNightCloseStartHour         = 20;    // Window start hour in Dubai time (22 = 10:00 PM inclusive)
 int      InpDubaiNightCloseEndHour           = 24;    // Window end hour in Dubai time (24 = 12:00 AM exclusive; covers 22:00..23:59:59)
 bool     InpEnableDubaiNightForceCloseAll    = true;  // If not triggered before 11:45 PM Dubai, force close ALL open orders at/after 11:45 PM
 int      InpDubaiNightForceCloseHour         = 23;    // Fallback force close-all hour in Dubai time (23 = 11 PM)
