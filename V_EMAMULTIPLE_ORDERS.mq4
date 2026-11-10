@@ -43,7 +43,7 @@ CheckBasketProfitClose  Total open basket profit
 
 
 
-string glbVersion = "VMULTI-1132- EQ-DD Disable 10% Tier 1 (Continue From 20%..90%)";
+string glbVersion = "VMULTI-1133- Dubai 10PM-12AM One-Side Close + 11:45PM Force Close-All";
 
 
 
@@ -456,6 +456,9 @@ int      ServerToDubaiOffsetHours            = 4;
 bool     InpEnableDubaiNightOneSideCloseAll  = true;  // Close all open orders 1x/day when Dubai time is 10PM-12AM and Buy==0 or Sell==0
 int      InpDubaiNightCloseStartHour         = 22;    // Window start hour in Dubai time (22 = 10:00 PM inclusive)
 int      InpDubaiNightCloseEndHour           = 24;    // Window end hour in Dubai time (24 = 12:00 AM exclusive; covers 22:00..23:59:59)
+bool     InpEnableDubaiNightForceCloseAll    = true;  // If not triggered before 11:45 PM Dubai, force close ALL open orders at/after 11:45 PM
+int      InpDubaiNightForceCloseHour         = 23;    // Fallback force close-all hour in Dubai time (23 = 11 PM)
+int      InpDubaiNightForceCloseMinute       = 45;    // Fallback force close-all minute in Dubai time (45 = 11:45 PM)
 int      g_dubaiNightCloseDayKey             = -1;    // Active Dubai calendar day key (Year*1000 + DayOfYear)
 bool     g_dubaiNightCloseDoneToday          = false; // Daily one-time execution latch (resets on next day start)
 bool     g_dubaiNightCloseRetryPending       = false; // True if partial close had transient failure needing completion
@@ -10953,9 +10956,12 @@ string DubaiNightCloseGvKey()
 //+------------------------------------------------------------------+
 //| ManageDubaiNightOneSideCloseAll                                  |
 //| Closes ALL open market orders ONCE per day when Dubai time is    |
-//| between 10:00 PM (22:00) and 12:00 AM (24:00, i.e. 22:00..23:59) |
-//| and one side (either BUY or SELL open count) is 0 while the      |
-//| opposite side has open orders. Resets status on next day start.  |
+//| between 10:00 PM (22:00) and 12:00 AM (24:00, i.e. 22:00..23:59):|
+//| 1) Before 11:45 PM: closes all open orders if either BUY == 0    |
+//|    or SELL == 0 (while opposite side has open orders).           |
+//| 2) At/after 11:45 PM (23:45): if not triggered earlier today,    |
+//|    force-closes ALL open orders regardless of BUY/SELL counts.   |
+//| Resets status cleanly on next Dubai day start (00:00).           |
 //+------------------------------------------------------------------+
 void ManageDubaiNightOneSideCloseAll()
   {
@@ -10965,6 +10971,8 @@ void ManageDubaiNightOneSideCloseAll()
 
    datetime dubaiTime   = nowServer + (ServerToDubaiOffsetHours * 3600);
    int      dubaiHour   = TimeHour(dubaiTime);
+   int      dubaiMinute = TimeMinute(dubaiTime);
+   int      dubaiMod    = dubaiHour * 60 + dubaiMinute;
    int      dubaiDayKey = TimeYear(dubaiTime) * 1000 + TimeDayOfYear(dubaiTime);
    bool     isTestRun   = (IsTesting() || IsOptimization());
    string   gvKey       = DubaiNightCloseGvKey();
@@ -10999,10 +11007,11 @@ void ManageDubaiNightOneSideCloseAll()
       if(!isTestRun && GlobalVariableCheck(gvKey))
          GlobalVariableDel(gvKey);
 
-      PrintFormat(">>> [DUBAI NIGHT CLOSE RESET] Next Day Start | DubaiTime=%s (DayKey=%d) | PrevTriggeredToday=%s -> Status RESET (1x/day Ready for %02d:00-%02d:00)",
+      PrintFormat(">>> [DUBAI NIGHT CLOSE RESET] Next Day Start | DubaiTime=%s (DayKey=%d) | PrevTriggeredToday=%s -> Status RESET (1x/day Ready for %02d:00-%02d:00, Force %02d:%02d)",
                   TimeToString(dubaiTime, TIME_DATE|TIME_MINUTES|TIME_SECONDS),
                   dubaiDayKey, (wasDoneYesterday ? "YES" : "NO"),
-                  InpDubaiNightCloseStartHour, InpDubaiNightCloseEndHour);
+                  InpDubaiNightCloseStartHour, InpDubaiNightCloseEndHour,
+                  InpDubaiNightForceCloseHour, InpDubaiNightForceCloseMinute);
      }
 
    if(!InpEnableDubaiNightOneSideCloseAll)
@@ -11012,6 +11021,9 @@ void ManageDubaiNightOneSideCloseAll()
       return;
 
    // Check Dubai window: default 22..23 (10:00 PM inclusive through 11:59:59 PM up to 12:00 AM)
+   int  startMod      = InpDubaiNightCloseStartHour * 60;
+   int  endMod        = InpDubaiNightCloseEndHour   * 60;
+   int  forceMod      = InpDubaiNightForceCloseHour * 60 + InpDubaiNightForceCloseMinute;
    bool inDubaiWindow = false;
    if(InpDubaiNightCloseStartHour < InpDubaiNightCloseEndHour)
       inDubaiWindow = (dubaiHour >= InpDubaiNightCloseStartHour && dubaiHour < InpDubaiNightCloseEndHour);
@@ -11024,6 +11036,17 @@ void ManageDubaiNightOneSideCloseAll()
      {
       g_dubaiNightCloseRetryPending = false;
       return;
+     }
+
+   bool isForceCloseTime = false;
+   if(InpEnableDubaiNightForceCloseAll)
+     {
+      if(startMod <= endMod)
+         isForceCloseTime = (dubaiMod >= forceMod);
+      else if(forceMod >= startMod)
+         isForceCloseTime = (dubaiMod >= forceMod || dubaiMod < endMod);
+      else
+         isForceCloseTime = (dubaiMod >= forceMod && dubaiMod < endMod);
      }
 
    // Snapshot live open market orders for this Symbol & MagicNumber
@@ -11055,7 +11078,7 @@ void ManageDubaiNightOneSideCloseAll()
         }
      }
 
-   // Must have at least 1 open order, and either Buy==0 or Sell==0 (not both == 0 and not both > 0)
+   // Must have at least 1 open order; before 11:45 PM requires Buy==0 or Sell==0, at/after 11:45 PM closes ALL open orders
    if(openCount == 0)
      {
       if(g_dubaiNightCloseRetryPending)
@@ -11070,12 +11093,18 @@ void ManageDubaiNightOneSideCloseAll()
      }
 
    bool oneSideZero = (buyCount == 0 && sellCount > 0) || (sellCount == 0 && buyCount > 0);
-   if(!oneSideZero && !g_dubaiNightCloseRetryPending)
+   if(!oneSideZero && !isForceCloseTime && !g_dubaiNightCloseRetryPending)
       return;
 
    RefreshRates();
    string zeroSideName   = (buyCount == 0) ? "BUY" : "SELL";
    string activeSideName = (buyCount > 0) ? ((sellCount > 0) ? "BUY+SELL" : "BUY") : "SELL";
+   string triggerTag     = oneSideZero ? "ONE-SIDE CLOSE ALL"
+                                       : StringFormat("%02d:%02d FORCE CLOSE ALL", InpDubaiNightForceCloseHour, InpDubaiNightForceCloseMinute);
+   string triggerReason  = oneSideZero
+                           ? StringFormat("%s Open=0", zeroSideName)
+                           : StringFormat("Not Triggered Before %02d:%02d Dubai (BUY=%d, SELL=%d)",
+                                          InpDubaiNightForceCloseHour, InpDubaiNightForceCloseMinute, buyCount, sellCount);
 
    int    closedCount = 0;
    int    failCount   = 0;
@@ -11144,10 +11173,11 @@ void ManageDubaiNightOneSideCloseAll()
       if(!isTestRun)
          GlobalVariableSet(gvKey, (double)dubaiDayKey);
 
-      PrintFormat(">>> [DUBAI 10PM-12AM ONE-SIDE CLOSE ALL] DubaiTime=%s (Broker=%s) | %s Open=0 -> Closed ALL %d %s Open Order(s) (%.2fL, NetPL=%s$%.2f) | Locked 1x Today Until Next Day",
+      PrintFormat(">>> [DUBAI 10PM-12AM %s] DubaiTime=%s (Broker=%s) | %s -> Closed ALL %d %s Open Order(s) (%.2fL, NetPL=%s$%.2f) | Locked 1x Today Until Next Day",
+                  triggerTag,
                   TimeToString(dubaiTime, TIME_DATE|TIME_MINUTES|TIME_SECONDS),
                   TimeToString(nowServer, TIME_DATE|TIME_MINUTES|TIME_SECONDS),
-                  zeroSideName, closedCount, activeSideName, closedLots,
+                  triggerReason, closedCount, activeSideName, closedLots,
                   (closedPL >= 0.0 ? "+" : "-"), MathAbs(closedPL));
 
       LastDashboardUpdateMs = 0;
@@ -20673,7 +20703,7 @@ void UpdateDashboard(DailyProtectionState &state)
 
 // Header Bar
    CreateDashboardPanel(DASH_PREFIX+"HEADER", x, y, w, 36, C'20,55,90');
-   string eaTitle = StringFormat("%s | %s %s", "VMULTI-1132", Symbol(), TimeframeToString(Period()));
+   string eaTitle = StringFormat("%s | %s %s", "VMULTI-1133", Symbol(), TimeframeToString(Period()));
    CreateDashboardLabel(DASH_PREFIX+"TITLE", eaTitle, tx, y+4, 9, clrWhite);
    string priceStatus = StringFormat("BID: %." + IntegerToString(Digits) + "f | ASK: %." + IntegerToString(Digits) + "f | SPR: %d pts", Bid, Ask, (int)MarketInfo(Symbol(), MODE_SPREAD));
    CreateDashboardLabel(DASH_PREFIX+"PRICE", priceStatus, tx, y+19, 8, clrLightGray);
@@ -21036,7 +21066,12 @@ void UpdateDashboard(DailyProtectionState &state)
    datetime dashNowServer = TimeCurrent();
    datetime dashDubaiTime = dashNowServer + (ServerToDubaiOffsetHours * 3600);
    int      dashDubaiHour = TimeHour(dashDubaiTime);
+   int      dashDubaiMin  = TimeMinute(dashDubaiTime);
+   int      dashDubaiMod  = dashDubaiHour * 60 + dashDubaiMin;
    int      dashDubaiDay  = TimeYear(dashDubaiTime) * 1000 + TimeDayOfYear(dashDubaiTime);
+   int      dashStartMod  = InpDubaiNightCloseStartHour * 60;
+   int      dashEndMod    = InpDubaiNightCloseEndHour   * 60;
+   int      dashForceMod  = InpDubaiNightForceCloseHour * 60 + InpDubaiNightForceCloseMinute;
    bool     dashInNightWin = false;
    if(InpDubaiNightCloseStartHour < InpDubaiNightCloseEndHour)
       dashInNightWin = (dashDubaiHour >= InpDubaiNightCloseStartHour && dashDubaiHour < InpDubaiNightCloseEndHour);
@@ -21044,6 +21079,17 @@ void UpdateDashboard(DailyProtectionState &state)
       dashInNightWin = (dashDubaiHour >= InpDubaiNightCloseStartHour || dashDubaiHour < InpDubaiNightCloseEndHour);
    else
       dashInNightWin = (dashDubaiHour == InpDubaiNightCloseStartHour);
+
+   bool dashInForceWin = false;
+   if(dashInNightWin && InpEnableDubaiNightForceCloseAll)
+     {
+      if(dashStartMod <= dashEndMod)
+         dashInForceWin = (dashDubaiMod >= dashForceMod);
+      else if(dashForceMod >= dashStartMod)
+         dashInForceWin = (dashDubaiMod >= dashForceMod || dashDubaiMod < dashEndMod);
+      else
+         dashInForceWin = (dashDubaiMod >= dashForceMod && dashDubaiMod < dashEndMod);
+     }
 
    string dubaiCloseTxt = "";
    color  dubaiCloseClr = clrLightGray;
@@ -21064,18 +21110,37 @@ void UpdateDashboard(DailyProtectionState &state)
                                    hitClock, TimeToString(dashDubaiTime, TIME_MINUTES));
       dubaiCloseClr = clrGold;
      }
-   else if(dashInNightWin)
+   else if(dashInForceWin)
      {
-      dubaiCloseTxt = StringFormat("DUBAI %02d-%02d : ARMED (Now %s | Close If 1-Side=0)",
+      dubaiCloseTxt = StringFormat("DUBAI %02d-%02d : FORCE %s (Close ALL Open Orders)",
                                    InpDubaiNightCloseStartHour, InpDubaiNightCloseEndHour,
                                    TimeToString(dashDubaiTime, TIME_MINUTES));
+      dubaiCloseClr = clrTomato;
+     }
+   else if(dashInNightWin)
+     {
+      if(InpEnableDubaiNightForceCloseAll)
+         dubaiCloseTxt = StringFormat("DUBAI %02d-%02d : ARMED %s (1-Side=0 / %02d:%02d All)",
+                                      InpDubaiNightCloseStartHour, InpDubaiNightCloseEndHour,
+                                      TimeToString(dashDubaiTime, TIME_MINUTES),
+                                      InpDubaiNightForceCloseHour, InpDubaiNightForceCloseMinute);
+      else
+         dubaiCloseTxt = StringFormat("DUBAI %02d-%02d : ARMED %s (Close If 1-Side=0)",
+                                      InpDubaiNightCloseStartHour, InpDubaiNightCloseEndHour,
+                                      TimeToString(dashDubaiTime, TIME_MINUTES));
       dubaiCloseClr = clrOrange;
      }
    else
      {
-      dubaiCloseTxt = StringFormat("DUBAI %02d-%02d : READY (Dubai %s | Reset Daily)",
-                                   InpDubaiNightCloseStartHour, InpDubaiNightCloseEndHour,
-                                   TimeToString(dashDubaiTime, TIME_MINUTES));
+      if(InpEnableDubaiNightForceCloseAll)
+         dubaiCloseTxt = StringFormat("DUBAI %02d-%02d : READY (Dubai %s | Force %02d:%02d)",
+                                      InpDubaiNightCloseStartHour, InpDubaiNightCloseEndHour,
+                                      TimeToString(dashDubaiTime, TIME_MINUTES),
+                                      InpDubaiNightForceCloseHour, InpDubaiNightForceCloseMinute);
+      else
+         dubaiCloseTxt = StringFormat("DUBAI %02d-%02d : READY (Dubai %s | Reset Daily)",
+                                      InpDubaiNightCloseStartHour, InpDubaiNightCloseEndHour,
+                                      TimeToString(dashDubaiTime, TIME_MINUTES));
       dubaiCloseClr = clrLightGray;
      }
    CreateDashboardLabel(DASH_PREFIX+"DUBAI_CLOSE", dubaiCloseTxt, tx, y+462, 8, dubaiCloseClr);
