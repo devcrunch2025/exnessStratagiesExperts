@@ -43,7 +43,7 @@ CheckBasketProfitClose  Total open basket profit
 
 
 
-string glbVersion = "VMULTI-1119- Equity-Balance % Drawdown Lot Reduction";
+string glbVersion = "VMULTI-1120- Disable RLF and EQL";
 
 
 
@@ -94,7 +94,7 @@ double closeAllOrdersLowestEquityIncreasePercentage =20*10;//100//50;// 50.0;
 double   g_stepSize            =1000;// 50.0; // The step increment ($50)
 
 // ===== EQUITY PROFIT LADDER $5 SETTINGS =====
-bool   InpEnableEquityProfitLadder5        = true;   // Enabled: Lowest Equity Recovery Profit Ladder ($10 * multiplier step)
+bool   InpEnableEquityProfitLadder5        = false;  // Disabled: Lowest Equity Recovery Profit Ladder (EQL)
 double InpEquityProfitLadderStepUSD        = 20;//10;//20;//50;//100;//5.0;    // Step size in USD ($5.00)
 bool   InpEquityLadderUseMultiplier        = true;   // Multiply step size by balancelomultipler ($5 * multiplier)
 double InpEquityLadderSLDistanceRaw        = 50;//100;//50;//100.0;  // StopLoss gap from live price in raw points (-$100 gap)
@@ -3959,7 +3959,7 @@ double InpEmaAngleBreakevenBreathingAngle  = 4.0;    // Minimum MathAbs(EMAangle
 double InpEmaAngleBreakevenBreathingGapRaw = 50.0;   // Extra raw price gap based on order price (-50.0 raw gap)
 
 // USER RULE (VMULTI-1097): 50% Drawdown Relief StopLoss Tightening (Peak Drawdown >= $100)
-bool   InpEnableDrawdownReliefTightenSL   = true;   // Enable Tighten Losing Order SL on 50% Drawdown Relief
+bool   InpEnableDrawdownReliefTightenSL   = false;  // Disabled: Tighten Losing Order SL on 50% Drawdown Relief (RLF)
 double InpDrawdownReliefMinPeakUSD        = 50;//100.0;  // Minimum peak drawdown in USD ($100 * mult) to qualify
 double InpDrawdownReliefPercent           = 0.50;   // Drawdown reduction percentage from peak (50% = 0.50)
 double InpDrawdownReliefSLGapUSD          = 50.0;   // SL cushion in USD ($50) behind relief market price for losing orders (Bid - 50 / Ask + 50)
@@ -19811,7 +19811,7 @@ void UpdateDashboard(DailyProtectionState &state)
 
 // Header Bar
    CreateDashboardPanel(DASH_PREFIX+"HEADER", x, y, w, 36, C'20,55,90');
-   string eaTitle = StringFormat("%s | %s %s", "VMULTI-1119", Symbol(), TimeframeToString(Period()));
+   string eaTitle = StringFormat("%s | %s %s", "VMULTI-1120", Symbol(), TimeframeToString(Period()));
    CreateDashboardLabel(DASH_PREFIX+"TITLE", eaTitle, tx, y+4, 9, clrWhite);
    string priceStatus = StringFormat("BID: %." + IntegerToString(Digits) + "f | ASK: %." + IntegerToString(Digits) + "f | SPR: %d pts", Bid, Ask, (int)MarketInfo(Symbol(), MODE_SPREAD));
    CreateDashboardLabel(DASH_PREFIX+"PRICE", priceStatus, tx, y+19, 8, clrLightGray);
