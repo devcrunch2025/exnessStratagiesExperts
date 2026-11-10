@@ -43,7 +43,7 @@ CheckBasketProfitClose  Total open basket profit
 
 
 
-string glbVersion = "VMULTI-1139- Left Dashboard Live ManageDubaiNightOneSideCloseAll Status";
+string glbVersion = "VMULTI-1140- Dubai Night Close Chart Icons & Left Dashboard Status";
 
 
 
@@ -483,6 +483,9 @@ double   g_dubaiNightLastCutLots             = 0.0;   // Total lots partial-clos
 double   g_dubaiNightLastCutPL               = 0.0;   // Estimated P/L of latest Path B pass
 int      g_dubaiNightLastCutSkippedMin       = 0;     // Number of <=minLot orders preserved in latest Path B pass
 datetime g_dubaiNightLastResetTime           = 0;     // Broker TimeCurrent() of latest 00:00 Dubai rollover reset
+bool     InpDrawDubaiNightCloseIcon          = true;  // Draw chart icon & label when Dubai Night Close cuts or closes orders
+int      InpDubaiNightIconCode               = 117;   // Chart icon Wingdings code (117=diamond, 171=star, 159=dot, 251=cross)
+int      InpDubaiNightIconFontSize           = 10;    // Chart icon text font size
 
 
 
@@ -4753,6 +4756,7 @@ string FormatDubaiShortDT(datetime serverTime, bool withSeconds = false);
 void   CalcEqDdSideDrawdowns(double balance, double &buyNetPLOut, double &buyDdPctOut, double &sellNetPLOut, double &sellDdPctOut, int &buyCountOut, int &sellCountOut);
 void   DrawEqDdHitIcon(int tier, double ddPct, double ddUSD, double bal, double eq, double cutPct, int ordersHit, double lotsCut, datetime hitTime = 0, double hitPrice = 0.0, string sideTag = "");
 string DubaiNightCloseGvKey();
+void   DrawDubaiNightCloseIcon(string eventKind, int cutSeq, string zeroSide, int ordersHit, double lotsCut, double estPL, double dayEqPct, double emaAngle, datetime hitTime = 0, double hitPrice = 0.0);
 void   ManageDubaiNightOneSideCloseAll();
 void   ManageHeavyExposurePartialLossClose();
 bool   CanExecutePartialLossClose(int orderType);
@@ -11129,6 +11133,117 @@ string DubaiNightCloseGvKey()
   }
 
 //+------------------------------------------------------------------+
+//| DrawDubaiNightCloseIcon                                          |
+//| Draws chart icon & bold label on candle when ManageDubaiNight    |
+//| executes Path-B (-50%/30m) cut, Path-A (>5%) close, or 23:45 All |
+//+------------------------------------------------------------------+
+void DrawDubaiNightCloseIcon(string eventKind, int cutSeq, string zeroSide, int ordersHit, double lotsCut, double estPL, double dayEqPct, double emaAngle, datetime hitTime = 0, double hitPrice = 0.0)
+  {
+   if(!InpDrawDubaiNightCloseIcon || ordersHit <= 0)
+      return;
+
+   if(hitTime <= 0)
+      hitTime = TimeCurrent();
+
+   datetime barTime = ((Bars > 0 && Time[0] > 0) ? Time[0] : hitTime);
+   string   keyTag  = (eventKind == "CUT") ? ("CUT" + IntegerToString(MathMax(1, cutSeq))) : eventKind;
+   string   baseName = PREFIX + "DNIGHT_" + keyTag + "_" + IntegerToString((int)barTime);
+   string   txtName  = baseName + "_TXT";
+
+   double atr = iATR(Symbol(), Period(), 14, 1);
+   if(atr <= 0.0)
+      atr = 30 * Point;
+   if(atr <= 0.0)
+      atr = 1.0;
+
+   double baseLow    = ((Bars > 0 && Low[0] > 0.0) ? Low[0] : Bid);
+   double offsetMult = 0.70;
+   if(eventKind == "CUT")
+      offsetMult = 0.70 + ((MathMax(1, cutSeq) - 1) % 3) * 0.55;
+   else if(eventKind == "FINAL")
+      offsetMult = 1.30;
+
+   double markerPrice = (hitPrice > 0.0 ? hitPrice : baseLow) - (atr * offsetMult);
+   double labelPrice  = markerPrice - (atr * 0.45);
+
+   color  iconColor = clrMagenta;
+   string labelText = "";
+   string titleTag  = "";
+   if(eventKind == "PATH_A")
+     {
+      iconColor = clrLime;
+      labelText = StringFormat("NIGHT DAY>%.0f%% ALL (x%d -%.2fL)", InpDubaiNightDayProfitPct, ordersHit, lotsCut);
+      titleTag  = StringFormat("PATH-A DAY EQUITY >%.0f%% CLOSE ALL", InpDubaiNightDayProfitPct);
+     }
+   else if(eventKind == "FINAL")
+     {
+      iconColor = clrTomato;
+      labelText = StringFormat("NIGHT %02d:%02d ALL (x%d -%.2fL)", InpDubaiNightForceCloseHour, InpDubaiNightForceCloseMinute, ordersHit, lotsCut);
+      titleTag  = StringFormat("%02d:%02d FINAL FORCE CLOSE ALL", InpDubaiNightForceCloseHour, InpDubaiNightForceCloseMinute);
+     }
+   else
+     {
+      iconColor = clrMagenta;
+      string zeroTag = (zeroSide != "" ? (zeroSide + "=0 | ") : "");
+      labelText = StringFormat("N-CUT#%d %s-%.2fL (x%d)", MathMax(1, cutSeq), zeroTag, lotsCut, ordersHit);
+      titleTag  = StringFormat("PATH-B -%.0f%%/%dm PARTIAL CUT #%d (%s=0)",
+                               InpDubaiNightPartialCutPct, InpDubaiNightCutIntervalMinutes,
+                               MathMax(1, cutSeq), (zeroSide != "" ? zeroSide : "1-SIDE"));
+     }
+
+   datetime dubaiDT = hitTime + (ServerToDubaiOffsetHours * 3600);
+   string   plSign  = (estPL >= 0.0) ? "+" : "-";
+   string   eqSign  = (dayEqPct >= 0.0) ? "+" : "";
+   string   tooltip = StringFormat("%s | Orders: %d (-%.2fL) | P/L: %s$%.2f | DayEq: %s%.2f%% | |Ang|: %.2f | Dubai: %s | Broker: %s",
+                                   titleTag, ordersHit, lotsCut, plSign, MathAbs(estPL),
+                                   eqSign, dayEqPct, MathAbs(emaAngle),
+                                   TimeToString(dubaiDT, TIME_DATE|TIME_MINUTES|TIME_SECONDS),
+                                   TimeToString(hitTime, TIME_DATE|TIME_MINUTES|TIME_SECONDS));
+
+   if(ObjectFind(0, baseName) >= 0 || ObjectFind(0, txtName) >= 0)
+     {
+      if(ObjectFind(0, txtName) >= 0)
+        {
+         ObjectSetString(0, txtName, OBJPROP_TEXT, labelText);
+         ObjectSetString(0, txtName, OBJPROP_TOOLTIP, tooltip);
+        }
+      if(ObjectFind(0, baseName) >= 0)
+         ObjectSetString(0, baseName, OBJPROP_TOOLTIP, tooltip);
+      ChartRedraw(0);
+      return;
+     }
+
+   int iconCode = (InpDubaiNightIconCode > 0 ? InpDubaiNightIconCode : 117);
+   int fontSize = (InpDubaiNightIconFontSize > 0 ? InpDubaiNightIconFontSize : 10);
+
+   ObjectCreate(0, baseName, OBJ_ARROW, 0, barTime, markerPrice);
+   ObjectSetInteger(0, baseName, OBJPROP_ARROWCODE, iconCode);
+   ObjectSetInteger(0, baseName, OBJPROP_COLOR, iconColor);
+   ObjectSetInteger(0, baseName, OBJPROP_WIDTH, 4);
+   ObjectSetInteger(0, baseName, OBJPROP_BACK, false);
+   ObjectSetInteger(0, baseName, OBJPROP_SELECTABLE, false);
+   ObjectSetInteger(0, baseName, OBJPROP_HIDDEN, false);
+   ObjectSetString(0, baseName, OBJPROP_TOOLTIP, tooltip);
+
+   ObjectCreate(0, txtName, OBJ_TEXT, 0, barTime, labelPrice);
+   ObjectSetString(0, txtName, OBJPROP_TEXT, labelText);
+   ObjectSetString(0, txtName, OBJPROP_FONT, "Arial Black");
+   ObjectSetInteger(0, txtName, OBJPROP_FONTSIZE, fontSize);
+   ObjectSetInteger(0, txtName, OBJPROP_COLOR, iconColor);
+   ObjectSetInteger(0, txtName, OBJPROP_ANCHOR, ANCHOR_UPPER);
+   ObjectSetInteger(0, txtName, OBJPROP_BACK, false);
+   ObjectSetInteger(0, txtName, OBJPROP_SELECTABLE, false);
+   ObjectSetInteger(0, txtName, OBJPROP_HIDDEN, false);
+   ObjectSetString(0, txtName, OBJPROP_TOOLTIP, tooltip);
+
+   ChartRedraw(0);
+
+   PrintFormat(">>> [DUBAI NIGHT CHART ICON] Placed '%s' on bar %s (Dubai %s)",
+               labelText, TimeToString(barTime, TIME_DATE|TIME_MINUTES),
+               TimeToString(dubaiDT, TIME_MINUTES|TIME_SECONDS));
+  }
+
+//+------------------------------------------------------------------+
 //| ManageDubaiNightOneSideCloseAll                                  |
 //| Runs inside configured Dubai night window (default Start..End):  |
 //| A) Day Equity Profit > 5% vs Dubai opening day equity -> closes  |
@@ -11462,6 +11577,10 @@ void ManageDubaiNightOneSideCloseAll()
                      triggerReason, closedCount, activeSideName, closedLots,
                      (closedPL >= 0.0 ? "+" : "-"), MathAbs(closedPL));
 
+         if(closedCount > 0)
+            DrawDubaiNightCloseIcon((isDayProfitTriggered ? "PATH_A" : "FINAL"), g_dubaiNightCutCountToday, activeSideName,
+                                    closedCount, closedLots, closedPL, dayProfitPct, curEmaAngle, nowServer, 0.0);
+
          LastDashboardUpdateMs = 0;
          if(ShowLeftLiveOrdersDashboard)
             UpdateLeftLiveOrdersDashboard();
@@ -11471,6 +11590,8 @@ void ManageDubaiNightOneSideCloseAll()
          g_dubaiNightCloseRetryPending = true;
          PrintFormat(">>> [DUBAI NIGHT PARTIAL PASS] Closed=%d Fail=%d RemainingOpen=%d | Retry armed",
                      closedCount, failCount, remainingOpen);
+         DrawDubaiNightCloseIcon((isDayProfitTriggered ? "PATH_A" : "FINAL"), g_dubaiNightCutCountToday, activeSideName,
+                                 closedCount, closedLots, closedPL, dayProfitPct, curEmaAngle, nowServer, 0.0);
         }
       return;
      }
@@ -11587,6 +11708,9 @@ void ManageDubaiNightOneSideCloseAll()
                   (cutPLTotal >= 0.0 ? "+" : "-"), MathAbs(cutPLTotal),
                   skippedMinLot, cutFail, InpDubaiNightCutIntervalMinutes,
                   InpDubaiNightForceCloseHour, InpDubaiNightForceCloseMinute);
+
+      DrawDubaiNightCloseIcon("CUT", g_dubaiNightCutCountToday, zeroSideName,
+                              cutHits, cutLotsTotal, cutPLTotal, dayProfitPct, curEmaAngle, nowServer, 0.0);
 
       LastDashboardUpdateMs = 0;
       if(ShowLeftLiveOrdersDashboard)
@@ -21105,7 +21229,7 @@ void UpdateDashboard(DailyProtectionState &state)
 
 // Header Bar
    CreateDashboardPanel(DASH_PREFIX+"HEADER", x, y, w, 36, C'20,55,90');
-   string eaTitle = StringFormat("%s | %s %s", "VMULTI-1139", Symbol(), TimeframeToString(Period()));
+   string eaTitle = StringFormat("%s | %s %s", "VMULTI-1140", Symbol(), TimeframeToString(Period()));
    CreateDashboardLabel(DASH_PREFIX+"TITLE", eaTitle, tx, y+4, 9, clrWhite);
    string priceStatus = StringFormat("BID: %." + IntegerToString(Digits) + "f | ASK: %." + IntegerToString(Digits) + "f | SPR: %d pts", Bid, Ask, (int)MarketInfo(Symbol(), MODE_SPREAD));
    CreateDashboardLabel(DASH_PREFIX+"PRICE", priceStatus, tx, y+19, 8, clrLightGray);
