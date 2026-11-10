@@ -43,7 +43,7 @@ CheckBasketProfitClose  Total open basket profit
 
 
 
-string glbVersion = "VMULTI-1121- EQ-DD Chart Icons with DD%";
+string glbVersion = "VMULTI-1122- Left Dashboard Top Equity Loss %";
 
 
 
@@ -19952,7 +19952,7 @@ void UpdateDashboard(DailyProtectionState &state)
 
 // Header Bar
    CreateDashboardPanel(DASH_PREFIX+"HEADER", x, y, w, 36, C'20,55,90');
-   string eaTitle = StringFormat("%s | %s %s", "VMULTI-1121", Symbol(), TimeframeToString(Period()));
+   string eaTitle = StringFormat("%s | %s %s", "VMULTI-1122", Symbol(), TimeframeToString(Period()));
    CreateDashboardLabel(DASH_PREFIX+"TITLE", eaTitle, tx, y+4, 9, clrWhite);
    string priceStatus = StringFormat("BID: %." + IntegerToString(Digits) + "f | ASK: %." + IntegerToString(Digits) + "f | SPR: %d pts", Bid, Ask, (int)MarketInfo(Symbol(), MODE_SPREAD));
    CreateDashboardLabel(DASH_PREFIX+"PRICE", priceStatus, tx, y+19, 8, clrLightGray);
@@ -20534,6 +20534,52 @@ void UpdateLeftLiveOrdersDashboard()
    CreateLeftLivePanel(LEFT_LIVE_PREFIX+"PANEL", x, y, width, panelHeight, C'12,16,22');
    CreateLeftLivePanel(LEFT_LIVE_PREFIX+"HEADER", x, y, width, 38, C'25,70,115');
    CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"TITLE", "LIVE POSITION MONITOR", tx, y+8, 11, clrWhite);
+
+   double liveBal = AccountBalance();
+   double liveEq  = AccountEquity();
+   double eqDiffUSD = liveEq - liveBal;
+   double eqLossPct = (liveBal > 0.0 && liveEq < liveBal) ? (((liveBal - liveEq) / liveBal) * 100.0) : 0.0;
+   color  eqBadgeClr = clrSilver;
+   string eqBadgeTxt = "";
+   if(eqDiffUSD < 0.0)
+     {
+      double absLoss = liveBal - liveEq;
+      string absLossStr = (absLoss >= 1000.0) ? DoubleToString(absLoss, 0) : DoubleToString(absLoss, 2);
+      string tierTag = "";
+      if((eqLossPct + 1e-6) >= InpEqDdCloseAllPct)
+        {
+         tierTag = " [T4]";
+         eqBadgeClr = clrRed;
+        }
+      else if((eqLossPct + 1e-6) >= InpEqDdTier3Pct)
+        {
+         tierTag = " [T3]";
+         eqBadgeClr = clrOrangeRed;
+        }
+      else if((eqLossPct + 1e-6) >= InpEqDdTier2Pct)
+        {
+         tierTag = " [T2]";
+         eqBadgeClr = clrOrange;
+        }
+      else if((eqLossPct + 1e-6) >= InpEqDdTier1Pct)
+        {
+         tierTag = " [T1]";
+         eqBadgeClr = clrGold;
+        }
+      else
+        {
+         eqBadgeClr = clrTomato;
+        }
+      eqBadgeTxt = StringFormat("EQ LOSS: %.1f%% (-$%s)%s", eqLossPct, absLossStr, tierTag);
+     }
+   else
+     {
+      string gainStr = (eqDiffUSD >= 1000.0) ? DoubleToString(eqDiffUSD, 0) : DoubleToString(eqDiffUSD, 2);
+      eqBadgeClr = (eqDiffUSD > 0.0) ? clrLime : clrSilver;
+      eqBadgeTxt = StringFormat("EQ LOSS: 0.0%% (+$%s)", gainStr);
+     }
+   CreateLeftLivePanel(LEFT_LIVE_PREFIX+"EQDD_BG", x+210, y+6, 248, 26, C'14,18,26');
+   CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"EQDD_TXT", eqBadgeTxt, x+218, y+11, 9, eqBadgeClr);
    CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"SYMBOL", Symbol()+"  |  "+TimeframeToString(Period()), x+width-112, y+10, 8, clrLightGray);
    CreateLeftLivePanel(LEFT_LIVE_PREFIX+"SUMMARYBAR", x, y+38, width, 42, C'25,31,42');
 
