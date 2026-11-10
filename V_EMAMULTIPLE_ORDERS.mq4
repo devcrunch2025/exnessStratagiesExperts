@@ -43,7 +43,7 @@ CheckBasketProfitClose  Total open basket profit
 
 
 
-string glbVersion = "VMULTI-1134- Dubai 10PM-12AM + 11:45PM Close-All With EMA Angle 0..1 Filter";
+string glbVersion = "VMULTI-1135- Dubai 10PM-12AM Close-All (Angle 0..1 / 11:45PM / DayEq +5%)";
 
 
 
@@ -459,10 +459,13 @@ int      InpDubaiNightCloseEndHour           = 24;    // Window end hour in Duba
 bool     InpEnableDubaiNightForceCloseAll    = true;  // If not triggered before 11:45 PM Dubai, force close ALL open orders at/after 11:45 PM
 int      InpDubaiNightForceCloseHour         = 23;    // Fallback force close-all hour in Dubai time (23 = 11 PM)
 int      InpDubaiNightForceCloseMinute       = 45;    // Fallback force close-all minute in Dubai time (45 = 11:45 PM)
-bool     InpEnableDubaiNightEmaAngleFilter   = true;  // Require MathAbs(EMAangle) between Min & Max (0 to 1 deg) for ALL night close triggers
+bool     InpEnableDubaiNightEmaAngleFilter   = true;  // Require MathAbs(EMAangle) between Min & Max (0 to 1 deg) for one-side / 11:45PM triggers
 double   InpDubaiNightMinEmaAngleDeg         = 0.0;   // Minimum allowed MathAbs(EMAangle30) inclusive (0.0 deg)
 double   InpDubaiNightMaxEmaAngleDeg         = 1.0;   // Maximum allowed MathAbs(EMAangle30) inclusive (1.0 deg)
+bool     InpEnableDubaiNightDayProfitClose   = true;  // OR after 10PM Dubai: close ALL open orders once/day if equity profit > 5% vs Dubai opening day equity
+double   InpDubaiNightDayProfitPct           = 5.0;   // Required day profit % on opening day equity (> 5.0%, e.g. $500 -> >$525)
 int      g_dubaiNightCloseDayKey             = -1;    // Active Dubai calendar day key (Year*1000 + DayOfYear)
+double   g_dubaiDayOpeningEquity             = 0.0;   // AccountEquity() captured at Dubai day start (00:00)
 bool     g_dubaiNightCloseDoneToday          = false; // Daily one-time execution latch (resets on next day start)
 bool     g_dubaiNightCloseRetryPending       = false; // True if partial close had transient failure needing completion
 datetime g_dubaiNightCloseLastHitTime        = 0;     // Broker TimeCurrent() when daily close-all completed
@@ -8477,6 +8480,7 @@ int OnInit()
    g_eqDdSellLastIconTier      = 0;
    g_eqDdForceCloseBudget      = false;
    g_dubaiNightCloseDayKey     = -1;
+   g_dubaiDayOpeningEquity     = 0.0;
    g_dubaiNightCloseDoneToday  = false;
    g_dubaiNightCloseRetryPending = false;
    if(IsTesting() || IsOptimization())
@@ -10959,14 +10963,15 @@ string DubaiNightCloseGvKey()
 //+------------------------------------------------------------------+
 //| ManageDubaiNightOneSideCloseAll                                  |
 //| Closes ALL open market orders ONCE per day when Dubai time is    |
-//| between 10:00 PM (22:00) and 12:00 AM (24:00, i.e. 22:00..23:59) |
-//| AND MathAbs(GlobalEmaAngle30) is between 0.0 and 1.0 degrees:    |
-//| 1) Before 11:45 PM: closes all open orders if either BUY == 0    |
-//|    or SELL == 0 (while opposite side has open orders).           |
-//| 2) At/after 11:45 PM (23:45): if not triggered earlier today,    |
-//|    force-closes ALL open orders regardless of BUY/SELL counts    |
-//|    (still requiring MathAbs(EMAangle) between 0 and 1).          |
-//| Resets status cleanly on next Dubai day start (00:00).           |
+//| between 10:00 PM (22:00) and 12:00 AM (24:00, i.e. 22:00..23:59):|
+//| A) Day Equity Profit > 5% vs Dubai opening day equity -> close   |
+//|    ALL open orders immediately (any angle / side count).         |
+//| B) OR when MathAbs(GlobalEmaAngle30) is between 0.0 and 1.0 deg: |
+//|    1) Before 11:45 PM: if either BUY == 0 or SELL == 0           |
+//|       (while opposite side has open orders).                     |
+//|    2) At/after 11:45 PM (23:45): if not triggered earlier today, |
+//|       force-closes ALL open orders regardless of side counts.    |
+//| Resets status & captures new opening equity on next Dubai day.   |
 //+------------------------------------------------------------------+
 void ManageDubaiNightOneSideCloseAll()
   {
@@ -10981,6 +10986,10 @@ void ManageDubaiNightOneSideCloseAll()
    int      dubaiDayKey = TimeYear(dubaiTime) * 1000 + TimeDayOfYear(dubaiTime);
    bool     isTestRun   = (IsTesting() || IsOptimization());
    string   gvKey       = DubaiNightCloseGvKey();
+   string   gvOpenDayK  = "EA_DUBAI_OPEN_DAY_" + IntegerToString(MagicNumber) + "_" + Symbol();
+   string   gvOpenEqK   = "EA_DUBAI_OPEN_EQ_"  + IntegerToString(MagicNumber) + "_" + Symbol();
+   double   curEquity   = AccountEquity();
+   double   seedEquity  = (curEquity > 0.0) ? curEquity : AccountBalance();
 
    // Initial state resolution / live restart sync vs next-day start reset
    if(g_dubaiNightCloseDayKey == -1)
@@ -11002,6 +11011,22 @@ void ManageDubaiNightOneSideCloseAll()
         {
          g_dubaiNightCloseDoneToday = false;
         }
+
+      if(!isTestRun && GlobalVariableCheck(gvOpenDayK) && GlobalVariableCheck(gvOpenEqK) &&
+         (int)MathRound(GlobalVariableGet(gvOpenDayK)) == dubaiDayKey &&
+         GlobalVariableGet(gvOpenEqK) > 0.0)
+        {
+         g_dubaiDayOpeningEquity = GlobalVariableGet(gvOpenEqK);
+        }
+      else
+        {
+         g_dubaiDayOpeningEquity = seedEquity;
+         if(!isTestRun && seedEquity > 0.0)
+           {
+            GlobalVariableSet(gvOpenDayK, (double)dubaiDayKey);
+            GlobalVariableSet(gvOpenEqK, g_dubaiDayOpeningEquity);
+           }
+        }
      }
    else if(dubaiDayKey != g_dubaiNightCloseDayKey)
      {
@@ -11009,15 +11034,33 @@ void ManageDubaiNightOneSideCloseAll()
       g_dubaiNightCloseDayKey       = dubaiDayKey;
       g_dubaiNightCloseDoneToday    = false;
       g_dubaiNightCloseRetryPending = false;
-      if(!isTestRun && GlobalVariableCheck(gvKey))
-         GlobalVariableDel(gvKey);
+      g_dubaiDayOpeningEquity       = seedEquity;
+      if(!isTestRun)
+        {
+         if(GlobalVariableCheck(gvKey))
+            GlobalVariableDel(gvKey);
+         if(seedEquity > 0.0)
+           {
+            GlobalVariableSet(gvOpenDayK, (double)dubaiDayKey);
+            GlobalVariableSet(gvOpenEqK, g_dubaiDayOpeningEquity);
+           }
+        }
 
-      PrintFormat(">>> [DUBAI NIGHT CLOSE RESET] Next Day Start | DubaiTime=%s (DayKey=%d) | PrevTriggeredToday=%s -> Status RESET (1x/day Ready for %02d:00-%02d:00, Force %02d:%02d, |Ang| %.1f-%.1f)",
+      PrintFormat(">>> [DUBAI NIGHT CLOSE RESET] Next Day Start | DubaiTime=%s (DayKey=%d) | NewOpeningEq=$%.2f | PrevTriggeredToday=%s -> Status RESET (1x/day Ready for %02d:00-%02d:00, Force %02d:%02d, |Ang| %.1f-%.1f OR EqDay >+%.1f%%)",
                   TimeToString(dubaiTime, TIME_DATE|TIME_MINUTES|TIME_SECONDS),
-                  dubaiDayKey, (wasDoneYesterday ? "YES" : "NO"),
+                  dubaiDayKey, g_dubaiDayOpeningEquity, (wasDoneYesterday ? "YES" : "NO"),
                   InpDubaiNightCloseStartHour, InpDubaiNightCloseEndHour,
                   InpDubaiNightForceCloseHour, InpDubaiNightForceCloseMinute,
-                  InpDubaiNightMinEmaAngleDeg, InpDubaiNightMaxEmaAngleDeg);
+                  InpDubaiNightMinEmaAngleDeg, InpDubaiNightMaxEmaAngleDeg, InpDubaiNightDayProfitPct);
+     }
+   else if(g_dubaiDayOpeningEquity <= 0.0 && seedEquity > 0.0)
+     {
+      g_dubaiDayOpeningEquity = seedEquity;
+      if(!isTestRun)
+        {
+         GlobalVariableSet(gvOpenDayK, (double)dubaiDayKey);
+         GlobalVariableSet(gvOpenEqK, g_dubaiDayOpeningEquity);
+        }
      }
 
    if(!InpEnableDubaiNightOneSideCloseAll)
@@ -11044,14 +11087,21 @@ void ManageDubaiNightOneSideCloseAll()
       return;
      }
 
-   // Fresh live EMA30 angle gate: MathAbs(EMAangle) must be in [0.0, 1.0] for ALL triggers
-   double curEmaAngle = GetEmaAngleDegrees(30);
-   GlobalEmaAngle30   = curEmaAngle;
-   double absEmaAngle = MathAbs(curEmaAngle);
+   // Path A (OR): Day Equity Profit > 5% vs Dubai Opening Day Equity (e.g. $500 -> > $525 after 10PM Dubai)
+   double dayProfitUSD = (g_dubaiDayOpeningEquity > 0.0) ? (curEquity - g_dubaiDayOpeningEquity) : 0.0;
+   double dayProfitPct = (g_dubaiDayOpeningEquity > 0.0) ? ((dayProfitUSD / g_dubaiDayOpeningEquity) * 100.0) : 0.0;
+   bool   isDayProfitTriggered = (InpEnableDubaiNightDayProfitClose &&
+                                  g_dubaiDayOpeningEquity > 0.0 &&
+                                  dayProfitPct > InpDubaiNightDayProfitPct);
+
+   // Path B: Fresh live EMA30 angle gate (MathAbs(EMAangle) in [0.0, 1.0])
+   double curEmaAngle  = GetEmaAngleDegrees(30);
+   GlobalEmaAngle30    = curEmaAngle;
+   double absEmaAngle  = MathAbs(curEmaAngle);
    bool   angleInRange = (!InpEnableDubaiNightEmaAngleFilter ||
                           (absEmaAngle + 1e-9 >= InpDubaiNightMinEmaAngleDeg &&
                            absEmaAngle - 1e-9 <= InpDubaiNightMaxEmaAngleDeg));
-   if(!angleInRange && !g_dubaiNightCloseRetryPending)
+   if(!isDayProfitTriggered && !angleInRange && !g_dubaiNightCloseRetryPending)
       return;
 
    bool isForceCloseTime = false;
@@ -11094,7 +11144,7 @@ void ManageDubaiNightOneSideCloseAll()
         }
      }
 
-   // Must have at least 1 open order; before 11:45 PM requires Buy==0 or Sell==0, at/after 11:45 PM closes ALL open orders
+   // Must have at least 1 open order to close
    if(openCount == 0)
      {
       if(g_dubaiNightCloseRetryPending)
@@ -11108,19 +11158,36 @@ void ManageDubaiNightOneSideCloseAll()
       return;
      }
 
-   bool oneSideZero = (buyCount == 0 && sellCount > 0) || (sellCount == 0 && buyCount > 0);
-   if(!oneSideZero && !isForceCloseTime && !g_dubaiNightCloseRetryPending)
+   bool oneSideZero      = (buyCount == 0 && sellCount > 0) || (sellCount == 0 && buyCount > 0);
+   bool anglePathTrigger = (angleInRange && (oneSideZero || isForceCloseTime));
+   if(!isDayProfitTriggered && !anglePathTrigger && !g_dubaiNightCloseRetryPending)
       return;
 
    RefreshRates();
    string zeroSideName   = (buyCount == 0) ? "BUY" : "SELL";
    string activeSideName = (buyCount > 0) ? ((sellCount > 0) ? "BUY+SELL" : "BUY") : "SELL";
-   string triggerTag     = oneSideZero ? "ONE-SIDE CLOSE ALL"
-                                       : StringFormat("%02d:%02d FORCE CLOSE ALL", InpDubaiNightForceCloseHour, InpDubaiNightForceCloseMinute);
-   string triggerReason  = oneSideZero
-                           ? StringFormat("%s Open=0", zeroSideName)
-                           : StringFormat("Not Triggered Before %02d:%02d Dubai (BUY=%d, SELL=%d)",
-                                          InpDubaiNightForceCloseHour, InpDubaiNightForceCloseMinute, buyCount, sellCount);
+   string triggerTag     = "";
+   string triggerReason  = "";
+   if(isDayProfitTriggered)
+     {
+      triggerTag    = StringFormat("DAY PROFIT >%.0f%%", InpDubaiNightDayProfitPct);
+      triggerReason = StringFormat("Eq=$%.2f vs OpenEq=$%.2f (+$%.2f / +%.2f%% > %.1f%%) | BUY=%d SELL=%d | EMAang=%.2f",
+                                   curEquity, g_dubaiDayOpeningEquity, dayProfitUSD, dayProfitPct,
+                                   InpDubaiNightDayProfitPct, buyCount, sellCount, curEmaAngle);
+     }
+   else if(oneSideZero)
+     {
+      triggerTag    = "ONE-SIDE CLOSE ALL";
+      triggerReason = StringFormat("%s Open=0 | EMAang=%.2f (|%.2f|<=%.1f)",
+                                   zeroSideName, curEmaAngle, absEmaAngle, InpDubaiNightMaxEmaAngleDeg);
+     }
+   else
+     {
+      triggerTag    = StringFormat("%02d:%02d FORCE CLOSE ALL", InpDubaiNightForceCloseHour, InpDubaiNightForceCloseMinute);
+      triggerReason = StringFormat("Not Triggered Before %02d:%02d Dubai (BUY=%d, SELL=%d) | EMAang=%.2f (|%.2f|<=%.1f)",
+                                   InpDubaiNightForceCloseHour, InpDubaiNightForceCloseMinute,
+                                   buyCount, sellCount, curEmaAngle, absEmaAngle, InpDubaiNightMaxEmaAngleDeg);
+     }
 
    int    closedCount = 0;
    int    failCount   = 0;
@@ -11189,12 +11256,11 @@ void ManageDubaiNightOneSideCloseAll()
       if(!isTestRun)
          GlobalVariableSet(gvKey, (double)dubaiDayKey);
 
-      PrintFormat(">>> [DUBAI 10PM-12AM %s] DubaiTime=%s (Broker=%s) | %s | EMAang=%.2f (|%.2f|<=%.1f) -> Closed ALL %d %s Open Order(s) (%.2fL, NetPL=%s$%.2f) | Locked 1x Today Until Next Day",
+      PrintFormat(">>> [DUBAI 10PM-12AM %s] DubaiTime=%s (Broker=%s) | %s -> Closed ALL %d %s Open Order(s) (%.2fL, NetPL=%s$%.2f) | Locked 1x Today Until Next Day",
                   triggerTag,
                   TimeToString(dubaiTime, TIME_DATE|TIME_MINUTES|TIME_SECONDS),
                   TimeToString(nowServer, TIME_DATE|TIME_MINUTES|TIME_SECONDS),
-                  triggerReason, curEmaAngle, absEmaAngle, InpDubaiNightMaxEmaAngleDeg,
-                  closedCount, activeSideName, closedLots,
+                  triggerReason, closedCount, activeSideName, closedLots,
                   (closedPL >= 0.0 ? "+" : "-"), MathAbs(closedPL));
 
       LastDashboardUpdateMs = 0;
@@ -20720,7 +20786,7 @@ void UpdateDashboard(DailyProtectionState &state)
 
 // Header Bar
    CreateDashboardPanel(DASH_PREFIX+"HEADER", x, y, w, 36, C'20,55,90');
-   string eaTitle = StringFormat("%s | %s %s", "VMULTI-1134", Symbol(), TimeframeToString(Period()));
+   string eaTitle = StringFormat("%s | %s %s", "VMULTI-1135", Symbol(), TimeframeToString(Period()));
    CreateDashboardLabel(DASH_PREFIX+"TITLE", eaTitle, tx, y+4, 9, clrWhite);
    string priceStatus = StringFormat("BID: %." + IntegerToString(Digits) + "f | ASK: %." + IntegerToString(Digits) + "f | SPR: %d pts", Bid, Ask, (int)MarketInfo(Symbol(), MODE_SPREAD));
    CreateDashboardLabel(DASH_PREFIX+"PRICE", priceStatus, tx, y+19, 8, clrLightGray);
@@ -21112,6 +21178,11 @@ void UpdateDashboard(DailyProtectionState &state)
    bool     dashAngOk     = (!InpEnableDubaiNightEmaAngleFilter ||
                              (dashAbsAng + 1e-9 >= InpDubaiNightMinEmaAngleDeg &&
                               dashAbsAng - 1e-9 <= InpDubaiNightMaxEmaAngleDeg));
+   double   dashDayOpenEq = (g_dubaiDayOpeningEquity > 0.0 && g_dubaiNightCloseDayKey == dashDubaiDay)
+                            ? g_dubaiDayOpeningEquity : AccountEquity();
+   double   dashDayEqPct  = (dashDayOpenEq > 0.0) ? (((AccountEquity() - dashDayOpenEq) / dashDayOpenEq) * 100.0) : 0.0;
+   bool     dashDayEqHit  = (InpEnableDubaiNightDayProfitClose && dashDayOpenEq > 0.0 && dashDayEqPct > InpDubaiNightDayProfitPct);
+   string   dashDayEqSign = (dashDayEqPct >= 0.0) ? "+" : "";
 
    string dubaiCloseTxt = "";
    color  dubaiCloseClr = clrLightGray;
@@ -21127,25 +21198,33 @@ void UpdateDashboard(DailyProtectionState &state)
       string hitClock = (g_dubaiNightCloseLastHitTime > 0)
                         ? TimeToString(g_dubaiNightCloseLastHitTime + (ServerToDubaiOffsetHours * 3600), TIME_MINUTES)
                         : "--:--";
-      dubaiCloseTxt = StringFormat("DUBAI %02d-%02d : DONE @ %s (Reset Next Day | Now %s)",
+      dubaiCloseTxt = StringFormat("DUBAI %02d-%02d : DONE @ %s (EqDay:%s%.1f%% | Reset 00:00)",
                                    InpDubaiNightCloseStartHour, InpDubaiNightCloseEndHour,
-                                   hitClock, TimeToString(dashDubaiTime, TIME_MINUTES));
+                                   hitClock, dashDayEqSign, dashDayEqPct);
       dubaiCloseClr = clrGold;
+     }
+   else if(dashInNightWin && dashDayEqHit)
+     {
+      dubaiCloseTxt = StringFormat("DUBAI %02d-%02d : EQ DAY %s%.2f%%>%.0f%% -> CLOSE ALL",
+                                   InpDubaiNightCloseStartHour, InpDubaiNightCloseEndHour,
+                                   dashDayEqSign, dashDayEqPct, InpDubaiNightDayProfitPct);
+      dubaiCloseClr = clrLime;
      }
    else if(dashInForceWin)
      {
       if(dashAngOk)
         {
-         dubaiCloseTxt = StringFormat("DUBAI %02d-%02d : FORCE %s (Close ALL | |Ang|%.2f OK)",
+         dubaiCloseTxt = StringFormat("DUBAI %02d-%02d : FORCE %s (|Ang|%.2f OK | Eq:%s%.1f%%)",
                                       InpDubaiNightCloseStartHour, InpDubaiNightCloseEndHour,
-                                      TimeToString(dashDubaiTime, TIME_MINUTES), dashAbsAng);
+                                      TimeToString(dashDubaiTime, TIME_MINUTES), dashAbsAng, dashDayEqSign, dashDayEqPct);
          dubaiCloseClr = clrTomato;
         }
       else
         {
-         dubaiCloseTxt = StringFormat("DUBAI %02d-%02d : WAIT ANG %s (|%.2f|>%.1f Force Hold)",
+         dubaiCloseTxt = StringFormat("DUBAI %02d-%02d : WAIT ANG %s (|%.2f|>%.1f | Eq:%s%.1f%%/%.0f%%)",
                                       InpDubaiNightCloseStartHour, InpDubaiNightCloseEndHour,
-                                      TimeToString(dashDubaiTime, TIME_MINUTES), dashAbsAng, InpDubaiNightMaxEmaAngleDeg);
+                                      TimeToString(dashDubaiTime, TIME_MINUTES), dashAbsAng,
+                                      InpDubaiNightMaxEmaAngleDeg, dashDayEqSign, dashDayEqPct, InpDubaiNightDayProfitPct);
          dubaiCloseClr = clrSilver;
         }
      }
@@ -21153,40 +21232,35 @@ void UpdateDashboard(DailyProtectionState &state)
      {
       if(!dashAngOk)
         {
-         dubaiCloseTxt = StringFormat("DUBAI %02d-%02d : HOLD ANG %s (|%.2f|>%.1f Need %.0f..%.0f)",
+         dubaiCloseTxt = StringFormat("DUBAI %02d-%02d : HOLD %s (|%.2f|>%.1f | Eq:%s%.1f%%/%.0f%%)",
                                       InpDubaiNightCloseStartHour, InpDubaiNightCloseEndHour,
                                       TimeToString(dashDubaiTime, TIME_MINUTES), dashAbsAng,
-                                      InpDubaiNightMaxEmaAngleDeg, InpDubaiNightMinEmaAngleDeg, InpDubaiNightMaxEmaAngleDeg);
+                                      InpDubaiNightMaxEmaAngleDeg, dashDayEqSign, dashDayEqPct, InpDubaiNightDayProfitPct);
          dubaiCloseClr = clrSilver;
         }
       else if(InpEnableDubaiNightForceCloseAll)
         {
-         dubaiCloseTxt = StringFormat("DUBAI %02d-%02d : ARMED %s (|Ang|%.2f OK | 1S=0/%02d:%02d)",
+         dubaiCloseTxt = StringFormat("DUBAI %02d-%02d : ARMED %s (|Ang|%.2f OK | Eq:%s%.1f%%/%.0f%%)",
                                       InpDubaiNightCloseStartHour, InpDubaiNightCloseEndHour,
                                       TimeToString(dashDubaiTime, TIME_MINUTES), dashAbsAng,
-                                      InpDubaiNightForceCloseHour, InpDubaiNightForceCloseMinute);
+                                      dashDayEqSign, dashDayEqPct, InpDubaiNightDayProfitPct);
          dubaiCloseClr = clrOrange;
         }
       else
         {
-         dubaiCloseTxt = StringFormat("DUBAI %02d-%02d : ARMED %s (|Ang|%.2f OK | 1S=0)",
+         dubaiCloseTxt = StringFormat("DUBAI %02d-%02d : ARMED %s (1S=0 | Eq:%s%.1f%%/%.0f%%)",
                                       InpDubaiNightCloseStartHour, InpDubaiNightCloseEndHour,
-                                      TimeToString(dashDubaiTime, TIME_MINUTES), dashAbsAng);
+                                      TimeToString(dashDubaiTime, TIME_MINUTES), dashDayEqSign,
+                                      dashDayEqPct, InpDubaiNightDayProfitPct);
          dubaiCloseClr = clrOrange;
         }
      }
    else
      {
-      if(InpEnableDubaiNightForceCloseAll)
-         dubaiCloseTxt = StringFormat("DUBAI %02d-%02d : READY (Dubai %s | Force %02d:%02d | Ang<=%.0f)",
-                                      InpDubaiNightCloseStartHour, InpDubaiNightCloseEndHour,
-                                      TimeToString(dashDubaiTime, TIME_MINUTES),
-                                      InpDubaiNightForceCloseHour, InpDubaiNightForceCloseMinute,
-                                      InpDubaiNightMaxEmaAngleDeg);
-      else
-         dubaiCloseTxt = StringFormat("DUBAI %02d-%02d : READY (Dubai %s | Ang<=%.0f)",
-                                      InpDubaiNightCloseStartHour, InpDubaiNightCloseEndHour,
-                                      TimeToString(dashDubaiTime, TIME_MINUTES), InpDubaiNightMaxEmaAngleDeg);
+      dubaiCloseTxt = StringFormat("DUBAI %02d-%02d : READY (%s | EqDay:%s%.1f%%/%.0f%% | Ang<=%.0f)",
+                                   InpDubaiNightCloseStartHour, InpDubaiNightCloseEndHour,
+                                   TimeToString(dashDubaiTime, TIME_MINUTES), dashDayEqSign,
+                                   dashDayEqPct, InpDubaiNightDayProfitPct, InpDubaiNightMaxEmaAngleDeg);
       dubaiCloseClr = clrLightGray;
      }
    CreateDashboardLabel(DASH_PREFIX+"DUBAI_CLOSE", dubaiCloseTxt, tx, y+462, 8, dubaiCloseClr);
