@@ -43,7 +43,7 @@ CheckBasketProfitClose  Total open basket profit
 
 
 
-string glbVersion = "VMULTI-1120- Disable RLF and EQL";
+string glbVersion = "VMULTI-1121- EQ-DD Chart Icons with DD%";
 
 
 
@@ -300,6 +300,9 @@ double InpEqDdTier3Pct                    = 30.0;   // Tier 3 DD%: Equity >= 30%
 double InpEqDdTier3CutPct                 = 30.0;   // Tier 3 Lot Reduction % of order lots (min 0.01)
 double InpEqDdCloseAllPct                 = 50.0;   // Tier 4 DD%: Equity >= 50% below Balance -> Close ALL losing orders
 double InpEqDdMinCutLots                  = 0.01;   // Minimum partial close lot size (0.01)
+bool   InpDrawEqDdHitIcon                 = true;   // Draw chart icon with DD% when Drawdown % tier hits
+int    InpEqDdHitIconCode                 = 171;    // Chart icon Wingdings code (171=star, 238=shield, 159=dot, 251=check)
+int    InpEqDdHitFontSize                 = 10;     // Chart icon text font size
 
 // ===== EQL / EQH STRUCTURAL RECOVERY (TYPE 2) SETTINGS =====
 bool   InpEnableLsdStructuralRecovery       = true;  // Enable EQL/EQH Structural Recovery (Type 2)
@@ -1966,6 +1969,7 @@ bool     g_eqDdCloseAllPending      = false; // Latch at >= 50% DD until all los
 int      g_eqDdTotalPartialCuts     = 0;     // Cumulative count of Tier 1/2/3 partial reductions
 int      g_eqDdTotalCloseAllOrders  = 0;     // Cumulative count of Tier 4 (50%) full losing closes
 double   g_eqDdTotalLotsReduced     = 0.0;   // Cumulative lots closed by Tiers 1-4
+int      g_eqDdLastIconTier         = 0;     // Highest EQ-DD tier (1..4) drawn in active cycle (0=None)
 
 //+------------------------------------------------------------------+
 //|                                                                  |
@@ -2092,6 +2096,118 @@ void ResetEqDdCycleState(string reason = "")
    g_eqDdCurrentPct      = 0.0;
    g_eqDdPeakPct         = 0.0;
    g_eqDdCloseAllPending = false;
+   g_eqDdLastIconTier    = 0;
+  }
+
+//------------------------------------------------------------------+
+//| DrawEqDdHitIcon                                                  |
+//| Draws chart icon & bold DD% label when EQ-DD tier is hit         |
+//------------------------------------------------------------------+
+void DrawEqDdHitIcon(int tier, double ddPct, double ddUSD, double bal, double eq, double cutPct, int ordersHit, double lotsCut, datetime hitTime = 0, double hitPrice = 0.0)
+  {
+   if(!InpDrawEqDdHitIcon)
+      return;
+
+   if(hitTime <= 0)
+      hitTime = TimeCurrent();
+
+   datetime barTime = ((Bars > 0 && Time[0] > 0) ? Time[0] : hitTime);
+   int      safeTier = (tier >= 1 ? tier : 1);
+   string   baseName = PREFIX + "EQDD_T" + IntegerToString(safeTier) + "_" + IntegerToString((int)barTime);
+   string   txtName  = baseName + "_TXT";
+
+   double atr = iATR(Symbol(), Period(), 14, 1);
+   if(atr <= 0.0)
+      atr = 30 * Point;
+   if(atr <= 0.0)
+      atr = 1.0;
+
+   double baseHigh    = ((Bars > 0 && High[0] > 0.0) ? High[0] : Bid);
+   double tierOffset  = 0.25 + (safeTier - 1) * 0.85;
+   double markerPrice = (hitPrice > 0.0 ? hitPrice : baseHigh) + (atr * tierOffset);
+   double labelPrice  = markerPrice + (atr * 0.35);
+
+   color iconColor = clrGold;
+   if(safeTier >= 4)
+      iconColor = clrRed;
+   else if(safeTier == 3)
+      iconColor = clrOrangeRed;
+   else if(safeTier == 2)
+      iconColor = clrOrange;
+
+   int iconCode = (InpEqDdHitIconCode > 0 ? InpEqDdHitIconCode : 171);
+   int fontSize = (InpEqDdHitFontSize > 0 ? InpEqDdHitFontSize : 10);
+
+   string tierTitle = (safeTier >= 4) ? "TIER 4 CLOSE ALL" : StringFormat("TIER %d (-%.0f%% Lots)", safeTier, cutPct);
+   string labelText = "";
+   if(safeTier >= 4)
+     {
+      if(ordersHit > 0)
+         labelText = StringFormat("DD %.1f%% CLOSE ALL (x%d)", ddPct, ordersHit);
+      else
+         labelText = StringFormat("DD %.1f%% T4 CLOSE ALL", ddPct);
+     }
+   else
+     {
+      if(ordersHit > 0)
+         labelText = StringFormat("DD %.1f%% (-%.0f%%L | x%d)", ddPct, cutPct, ordersHit);
+      else
+         labelText = StringFormat("DD %.1f%% (T%d Hit)", ddPct, safeTier);
+     }
+
+   string tooltip = StringFormat("EQ-DD %s | Drawdown: %.2f%% (-$%.2f) | Bal: $%.2f -> Eq: $%.2f | Orders Hit: %d (-%.2fL) | Time: %s",
+                                 tierTitle, ddPct, ddUSD, bal, eq, ordersHit, lotsCut,
+                                 TimeToString(hitTime, TIME_DATE|TIME_MINUTES|TIME_SECONDS));
+
+   // Prevent duplicate on same bar & tier, unless upgrading threshold-only icon to actual cut icon
+   if(ObjectFind(0, baseName) >= 0 || ObjectFind(0, txtName) >= 0)
+     {
+      if(ordersHit <= 0)
+         return;
+      if(ObjectFind(0, txtName) >= 0)
+        {
+         string existingTxt = ObjectGetString(0, txtName, OBJPROP_TEXT);
+         if(StringFind(existingTxt, "(-") >= 0 || StringFind(existingTxt, "CLOSE ALL (x") >= 0)
+            return;
+         ObjectSetString(0, txtName, OBJPROP_TEXT, labelText);
+         ObjectSetString(0, txtName, OBJPROP_TOOLTIP, tooltip);
+        }
+      if(ObjectFind(0, baseName) >= 0)
+         ObjectSetString(0, baseName, OBJPROP_TOOLTIP, tooltip);
+      ChartRedraw(0);
+      Print(">>> [EQ-DD CHART ICON UPDATED] '", labelText, "' on bar ",
+            TimeToString(barTime, TIME_DATE|TIME_MINUTES), " | DD: ", DoubleToString(ddPct, 2),
+            "% (-$", DoubleToString(ddUSD, 2), ") | Lots Cut: ", DoubleToString(lotsCut, 2));
+      return;
+     }
+
+   // 1. Solid Marker Icon (Wingdings 171 star, 238 shield, 159 dot, or 251 check)
+   ObjectCreate(0, baseName, OBJ_ARROW, 0, barTime, markerPrice);
+   ObjectSetInteger(0, baseName, OBJPROP_ARROWCODE, iconCode);
+   ObjectSetInteger(0, baseName, OBJPROP_COLOR, iconColor);
+   ObjectSetInteger(0, baseName, OBJPROP_WIDTH, 4);
+   ObjectSetInteger(0, baseName, OBJPROP_BACK, false);
+   ObjectSetInteger(0, baseName, OBJPROP_SELECTABLE, false);
+   ObjectSetInteger(0, baseName, OBJPROP_HIDDEN, false);
+   ObjectSetString(0, baseName, OBJPROP_TOOLTIP, tooltip);
+
+   // 2. Bold Drawdown % Text Label
+   ObjectCreate(0, txtName, OBJ_TEXT, 0, barTime, labelPrice);
+   ObjectSetString(0, txtName, OBJPROP_TEXT, labelText);
+   ObjectSetString(0, txtName, OBJPROP_FONT, "Arial Black");
+   ObjectSetInteger(0, txtName, OBJPROP_FONTSIZE, fontSize);
+   ObjectSetInteger(0, txtName, OBJPROP_COLOR, iconColor);
+   ObjectSetInteger(0, txtName, OBJPROP_BACK, false);
+   ObjectSetInteger(0, txtName, OBJPROP_SELECTABLE, false);
+   ObjectSetInteger(0, txtName, OBJPROP_HIDDEN, false);
+   ObjectSetString(0, txtName, OBJPROP_TOOLTIP, tooltip);
+
+   ChartRedraw(0);
+
+   Print(">>> [EQ-DD CHART ICON] Placed '", labelText, "' on chart at bar ",
+         TimeToString(barTime, TIME_DATE|TIME_MINUTES), " | DD: ", DoubleToString(ddPct, 2),
+         "% (-$", DoubleToString(ddUSD, 2), ") | Orders Hit: ", ordersHit,
+         " | Lots Cut: ", DoubleToString(lotsCut, 2));
   }
 
 //+------------------------------------------------------------------+
@@ -2225,10 +2341,19 @@ void ManageEquityDrawdownTieredLotReduction()
      }
 
    if(candCount == 0)
+     {
+      if(activeTier > g_eqDdLastIconTier)
+        {
+         g_eqDdLastIconTier = activeTier;
+         DrawEqDdHitIcon(activeTier, ddPct, ddUSD, balance, equity, activeCutPct, 0, 0.0);
+        }
       return;
+     }
 
    // Phase 2: Execute tier action on each snapshot candidate
    int    remainingClosedFail = 0;
+   int    sweepHits           = 0;
+   double sweepLotsCut        = 0.0;
    for(int k = 0; k < candCount; k++)
      {
       int tkt = candTickets[k];
@@ -2281,6 +2406,8 @@ void ManageEquityDrawdownTieredLotReduction()
         {
          SetEqDdOrderExecutedTier(tkt, activeTier);
          g_eqDdTotalLotsReduced += closeLots;
+         sweepHits++;
+         sweepLotsCut += closeLots;
 
          if(isFullClose)
            {
@@ -2323,6 +2450,18 @@ void ManageEquityDrawdownTieredLotReduction()
          PrintFormat(">>> [EQ-DD TIER %d CLOSE FAILED] Ticket #%d (%.2fL of %.2fL) Err=%d | DD=%.2f%%",
                      activeTier, tkt, closeLots, oLots, GetLastError(), ddPct);
         }
+     }
+
+   if(sweepHits > 0)
+     {
+      if(activeTier > g_eqDdLastIconTier)
+         g_eqDdLastIconTier = activeTier;
+      DrawEqDdHitIcon(activeTier, ddPct, ddUSD, balance, equity, activeCutPct, sweepHits, sweepLotsCut);
+     }
+   else if(activeTier > g_eqDdLastIconTier)
+     {
+      g_eqDdLastIconTier = activeTier;
+      DrawEqDdHitIcon(activeTier, ddPct, ddUSD, balance, equity, activeCutPct, 0, 0.0);
      }
 
    // After Tier 4 sweep, check if any losing orders remain open (e.g. if budget/requote split across ticks)
@@ -4037,6 +4176,7 @@ int    GetEqDdSingleTicketTier(int ticket);
 int    GetEqDdOrderExecutedTier(int ticket, string comment = "");
 void   SetEqDdOrderExecutedTier(int ticket, int tier);
 void   ResetEqDdCycleState(string reason = "");
+void   DrawEqDdHitIcon(int tier, double ddPct, double ddUSD, double bal, double eq, double cutPct, int ordersHit, double lotsCut, datetime hitTime = 0, double hitPrice = 0.0);
 void   ManageHeavyExposurePartialLossClose();
 bool   CanExecutePartialLossClose(int orderType);
 bool     IsFLIPBasketSupportOrder(int ticket, string comment = "");
@@ -7900,6 +8040,7 @@ int OnInit()
    OriginalStopLossUSD = StopLossUSD;
 
    DeleteOurObjects();
+   g_eqDdLastIconTier = 0;
    DeleteDashboardObjects();
    DeleteLeftLiveOrdersDashboardObjects();
    DeleteLiquiditySweepObjects();
@@ -19811,7 +19952,7 @@ void UpdateDashboard(DailyProtectionState &state)
 
 // Header Bar
    CreateDashboardPanel(DASH_PREFIX+"HEADER", x, y, w, 36, C'20,55,90');
-   string eaTitle = StringFormat("%s | %s %s", "VMULTI-1120", Symbol(), TimeframeToString(Period()));
+   string eaTitle = StringFormat("%s | %s %s", "VMULTI-1121", Symbol(), TimeframeToString(Period()));
    CreateDashboardLabel(DASH_PREFIX+"TITLE", eaTitle, tx, y+4, 9, clrWhite);
    string priceStatus = StringFormat("BID: %." + IntegerToString(Digits) + "f | ASK: %." + IntegerToString(Digits) + "f | SPR: %d pts", Bid, Ask, (int)MarketInfo(Symbol(), MODE_SPREAD));
    CreateDashboardLabel(DASH_PREFIX+"PRICE", priceStatus, tx, y+19, 8, clrLightGray);
