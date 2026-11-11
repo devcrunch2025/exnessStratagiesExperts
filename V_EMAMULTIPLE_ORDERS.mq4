@@ -338,7 +338,7 @@ int    InpHourlySideLossIconCode          = 238;    // Chart icon Wingdings code
 color  InpHourlySideLossIconColor         = clrOrangeRed; // Plan B: Chart icon & text color for 1H side loss cut
 int    InpHourlySideLossIconFontSize      = 10;     // Chart icon text font size
 bool   InpEnableHourlyPlanCDayProfitClose = true;   // Plan C (Extra): Check every 15 min; if Day Equity Profit > 10% vs Dubai 00:00 opening equity, close ALL open orders
-int    InpHourlyPlanCIntervalMinutes      = 15;     // Plan C execution interval in minutes (15 = every 15 minutes)
+int    InpHourlyPlanCIntervalMinutes      = 30;//15;     // Plan C execution interval in minutes (15 = every 15 minutes)
 double InpHourlyPlanCDayProfitPct         = 10.0;   // Plan C: Day equity profit threshold % (> 10.0%, e.g. $500 -> >$550)
 bool   InpHourlyPlanCOncePerDay           = false;  // Plan C repeat mode: false = evaluate every 15 min without daily lock (true = max 1x/Dubai day)
 color  InpHourlyPlanCIconColor            = clrGold;// Plan C: Chart icon & label color when 15M Plan C (DayEq >10%) executes
@@ -347,7 +347,7 @@ int    InpHourlyPlanCIconCode             = 252;    // Plan C: Chart icon Wingdi
 bool   InpEnableHourlyPlanDDayProfitClose = true;   // Plan D (Extra): Check every 1 min (1st min >31%, 2nd >32%, ..., 60th >90%); close ALL & reset every 1h
 int    InpHourlyPlanDIntervalSeconds      = 60;     // Plan D check interval in seconds (60 = every 1 minute)
 int    InpHourlyPlanDCycleMinutes         = 60;     // Plan D hourly reset cycle in minutes (60 = reset at top of every hour back to min 1)
-double InpHourlyPlanDStartPct             = 31.0;   // Plan D: 1st minute (:00) Day equity profit threshold % (> 31.0%)
+double InpHourlyPlanDStartPct             = 21.0;   // Plan D: 1st minute (:00) Day equity profit threshold % (> 21.0%)
 double InpHourlyPlanDStepPerMinPct        = 1.0;    // Plan D: Minute step increment % (+1.0% per min -> min 2 >32%, ..., min 59 >89%, min 60 >90%)
 double InpHourlyPlanDMaxPct               = 90.0;   // Plan D: Maximum threshold cap % at 60th minute (> 90.0%)
 bool   InpHourlyPlanDOncePerHour          = true;   // Plan D repeat mode (Option 3): true = trigger max 1x/hour then wait for :00 hourly reset (false = repeat inside hour)
