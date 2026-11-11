@@ -44,7 +44,7 @@ CheckBasketProfitClose  Total open basket profit
 
 
 
-string glbVersion = "VMULTI-1154- Old partial Close is enabled";
+string glbVersion = "VMULTI-1160- FINAL - Old partial Close is enabled";
 
 
 
