@@ -43,6 +43,7 @@ CheckBasketProfitClose  Total open basket profit
 
 
 
+
 string glbVersion = "VMULTI-1147- Reverse100 2X Opposite + StepLoss 3000/2000 + Gap>1000 Day>5% + 1H Plan A/B";
 
 
