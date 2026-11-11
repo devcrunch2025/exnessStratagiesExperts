@@ -44,7 +44,7 @@ CheckBasketProfitClose  Total open basket profit
 
 
 
-string glbVersion = "VMULTI-1149- Left Dashboard Order ID Column";
+string glbVersion = "VMULTI-1150- 1H Extra Plan C (15M DayEq >10% Close All)";
 
 
 
@@ -320,10 +320,10 @@ bool   InpDrawEqDdHitIcon                 = true;   // Draw chart icon with DD% 
 int    InpEqDdHitIconCode                 = 171;    // Chart icon Wingdings code (171=star, 238=shield, 159=dot, 251=check)
 int    InpEqDdHitFontSize                 = 10;     // Chart icon text font size
 
-// ===== HOURLY 1-HOUR PER-SIDE ENGINE: PLAN A (DAY EQ PROFIT >5% CLOSE ALL) OR PLAN B (SIDE LOSS >20% CUT 20% LOT) =====
-bool   InpEnableHourlySideLossCut         = true;   // Run every 1 hour: Plan A (Day Equity Profit >5% Close All) OR Plan B (Per-Side Loss >20% Cut 20% LOT)
-int    InpHourlySideLossIntervalMinutes   = 60;     // Execution interval in minutes (60 = every 1 hour)
-bool   InpEnableHourlyPlanADayProfitClose = true;   // Plan A: If Day Equity Profit > 5% vs Dubai 00:00 opening equity, close ALL open orders
+// ===== HOURLY 1-HOUR PER-SIDE ENGINE: PLAN A (1H DAY EQ >5% CLOSE ALL), PLAN B (1H SIDE LOSS >20% CUT 20% LOT), PLAN C (15M DAY EQ >10% CLOSE ALL) =====
+bool   InpEnableHourlySideLossCut         = true;   // Run 1-Hour Engine: Plan A (1H DayEq >5% Close All), Plan B (1H SideLoss >20% Cut 20% LOT), Plan C (15M DayEq >10% Close All)
+int    InpHourlySideLossIntervalMinutes   = 60;     // Plan A/B execution interval in minutes (60 = every 1 hour)
+bool   InpEnableHourlyPlanADayProfitClose = true;   // Plan A: If Day Equity Profit > 5% vs Dubai 00:00 opening equity, close ALL open orders (every 1 hour)
 double InpHourlyPlanADayProfitPct         = 5.0;    // Plan A: Day equity profit threshold % (> 5.0%, e.g. $500 -> >$525)
 bool   InpHourlyPlanAOncePerDay           = false;  // Plan A repeat mode: false = evaluate every 1 hour without daily lock (true = max 1x/Dubai day)
 color  InpHourlyPlanAIconColor            = clrLime;// Plan A: Chart icon & label color when Hour Target HIT (Day Equity >5%) executes
@@ -337,6 +337,13 @@ bool   InpDrawHourlySideLossIcon          = true;   // Plan B: Draw chart icon &
 int    InpHourlySideLossIconCode          = 238;    // Chart icon Wingdings code (238=shield, 171=star, 251=check)
 color  InpHourlySideLossIconColor         = clrOrangeRed; // Plan B: Chart icon & text color for 1H side loss cut
 int    InpHourlySideLossIconFontSize      = 10;     // Chart icon text font size
+bool   InpEnableHourlyPlanCDayProfitClose = true;   // Plan C (Extra): Check every 15 min; if Day Equity Profit > 10% vs Dubai 00:00 opening equity, close ALL open orders
+int    InpHourlyPlanCIntervalMinutes      = 15;     // Plan C execution interval in minutes (15 = every 15 minutes)
+double InpHourlyPlanCDayProfitPct         = 10.0;   // Plan C: Day equity profit threshold % (> 10.0%, e.g. $500 -> >$550)
+bool   InpHourlyPlanCOncePerDay           = false;  // Plan C repeat mode: false = evaluate every 15 min without daily lock (true = max 1x/Dubai day)
+color  InpHourlyPlanCIconColor            = clrGold;// Plan C: Chart icon & label color when 15M Plan C (DayEq >10%) executes
+bool   InpDrawHourlyPlanCIcon             = true;   // Plan C: Draw chart icon & label whenever 15M Plan C (>10% Close All) executes
+int    InpHourlyPlanCIconCode             = 252;    // Plan C: Chart icon Wingdings code (252=checkmark, 171=star, 238=shield)
 
 // ===== PRICE GAP (>1000 RAW FROM EMA FLIP / UPDATED ANCHOR) & DAY EQUITY PROFIT (>5%) CLOSE ALL =====
 bool   InpEnablePriceGapDayProfitClose    = true;    // Close ALL open orders if |MarketPrice - Anchor| > 1000 raw AND Day Equity Profit > 5%
@@ -3373,6 +3380,21 @@ double   g_hourlySideLossLastHitUSD     = 0.0;  // Plan B: Side floating loss US
 int      g_hourlySideLossLastHitOrders  = 0;    // Plan B: Number of orders cut in latest pass
 double   g_hourlySideLossLastHitLots    = 0.0;  // Plan B: Lots closed in latest pass
 double   g_hourlySideLossLastHitPL      = 0.0;  // Plan B: Estimated P/L closed in latest pass
+long     g_hourlyPlanCLastSlot          = -1;   // Plan C: Last checked 15-min bucket ((long)nowServer / intervalCSec)
+datetime g_hourlyPlanCLastRunTime       = 0;    // Plan C: Broker TimeCurrent() of latest 15-min evaluation
+datetime g_hourlyPlanCNextRunTime       = 0;    // Plan C: Broker TimeCurrent() of next scheduled 15-min check
+int      g_hourlyPlanCCheckCount        = 0;    // Plan C: Total 15-min evaluations executed
+bool     g_hourlyPlanCDoneToday         = false;// Optional Plan C 1x/day lock (when InpHourlyPlanCOncePerDay=true)
+int      g_hourlyPlanCHitsToday         = 0;    // Plan C: Total (>10% Day Eq Close All) sweeps executed today
+int      g_hourlyPlanCTotalSweeps       = 0;    // Plan C: Total (>10% Day Eq Close All) sweeps executed in session
+int      g_hourlyPlanCTotalOrders       = 0;    // Plan C: Total open orders closed by Plan C
+double   g_hourlyPlanCTotalLots         = 0.0;  // Plan C: Total lots closed by Plan C
+datetime g_hourlyPlanCLastHitTime       = 0;    // Plan C: Broker TimeCurrent() of latest execution
+double   g_hourlyPlanCLastPct           = 0.0;  // Plan C: Day equity profit % at latest execution
+double   g_hourlyPlanCLastUSD           = 0.0;  // Plan C: Day equity profit USD at latest execution
+int      g_hourlyPlanCLastOrders        = 0;    // Plan C: Orders closed in latest execution
+double   g_hourlyPlanCLastLots          = 0.0;  // Plan C: Lots closed in latest execution
+double   g_hourlyPlanCLastPL            = 0.0;  // Plan C: Net P/L realized in latest execution
 
 //+------------------------------------------------------------------+
 //| DubaiNightCloseGvKey                                             |
@@ -3386,7 +3408,7 @@ string DubaiNightCloseGvKey()
 //+------------------------------------------------------------------+
 //| SyncDubaiDayOpeningState                                         |
 //| Captures Dubai 00:00 GST opening day equity and handles live     |
-//| restart / next-day rollover reset for both 1H Plan A & Night     |
+//| restart / next-day rollover reset for 1H Plan A/C & Night        |
 //+------------------------------------------------------------------+
 void SyncDubaiDayOpeningState(datetime nowServer = 0)
   {
@@ -3404,6 +3426,7 @@ void SyncDubaiDayOpeningState(datetime nowServer = 0)
    string   gvLastCutK  = "EA_DUBAI_LAST_CUT_"  + IntegerToString(MagicNumber) + "_" + Symbol();
    string   gvCutCntK   = "EA_DUBAI_CUT_CNT_"   + IntegerToString(MagicNumber) + "_" + Symbol();
    string   gvPlanADnK  = "EA_HRLY_PLANA_DONE_" + IntegerToString(MagicNumber) + "_" + Symbol();
+   string   gvPlanCDnK  = "EA_HRLY_PLANC_DONE_" + IntegerToString(MagicNumber) + "_" + Symbol();
    double   curEquity   = AccountEquity();
    double   seedEquity  = (curEquity > 0.0) ? curEquity : AccountBalance();
 
@@ -3443,6 +3466,22 @@ void SyncDubaiDayOpeningState(datetime nowServer = 0)
          g_hourlyPlanADoneToday = false;
         }
 
+      if(!isTestRun && GlobalVariableCheck(gvPlanCDnK))
+        {
+         int savedPlanCDay = (int)MathRound(GlobalVariableGet(gvPlanCDnK));
+         if(savedPlanCDay == dubaiDayKey)
+            g_hourlyPlanCDoneToday = true;
+         else
+           {
+            GlobalVariableDel(gvPlanCDnK);
+            g_hourlyPlanCDoneToday = false;
+           }
+        }
+      else
+        {
+         g_hourlyPlanCDoneToday = false;
+        }
+
       if(!isTestRun && GlobalVariableCheck(gvOpenDayK) && GlobalVariableCheck(gvOpenEqK) &&
          (int)MathRound(GlobalVariableGet(gvOpenDayK)) == dubaiDayKey &&
          GlobalVariableGet(gvOpenEqK) > 0.0)
@@ -3457,6 +3496,7 @@ void SyncDubaiDayOpeningState(datetime nowServer = 0)
          g_dubaiNightLastCutTime   = 0;
          g_dubaiNightCutCountToday = 0;
          g_hourlyPlanAHitsToday    = 0;
+         g_hourlyPlanCHitsToday    = 0;
          if(!isTestRun)
            {
             if(GlobalVariableCheck(gvLastCutK))
@@ -3493,6 +3533,8 @@ void SyncDubaiDayOpeningState(datetime nowServer = 0)
       g_dubaiNightLastResetTime     = nowServer;
       g_hourlyPlanADoneToday        = false;
       g_hourlyPlanAHitsToday        = 0;
+      g_hourlyPlanCDoneToday        = false;
+      g_hourlyPlanCHitsToday        = 0;
       if(!isTestRun)
         {
          if(GlobalVariableCheck(gvKey))
@@ -3503,6 +3545,8 @@ void SyncDubaiDayOpeningState(datetime nowServer = 0)
             GlobalVariableDel(gvCutCntK);
          if(GlobalVariableCheck(gvPlanADnK))
             GlobalVariableDel(gvPlanADnK);
+         if(GlobalVariableCheck(gvPlanCDnK))
+            GlobalVariableDel(gvPlanCDnK);
          if(seedEquity > 0.0)
            {
             GlobalVariableSet(gvOpenDayK, (double)dubaiDayKey);
@@ -3617,6 +3661,88 @@ void DrawHourlyPlanACloseIcon(double dayEqPct, double dayEqUSD, double dayOpenEq
    ChartRedraw(0);
 
    PrintFormat(">>> [1H TARGET HIT CHART ICON] Placed '%s' on bar %s (Dubai %s)",
+               labelText, TimeToString(barTime, TIME_DATE|TIME_MINUTES),
+               TimeToString(dubaiDT, TIME_MINUTES|TIME_SECONDS));
+  }
+
+//+------------------------------------------------------------------+
+//| DrawHourlyPlanCCloseIcon                                         |
+//| Places chart marker & label when 15-Min Plan C (DayEq > 10%)     |
+//| closes all open orders.                                          |
+//+------------------------------------------------------------------+
+void DrawHourlyPlanCCloseIcon(double dayEqPct, double dayEqUSD, double dayOpenEq, double curEq, int ordersClosed, double lotsClosed, double netPL, datetime hitTime = 0, double hitPrice = 0.0, int hitSeq = 0)
+  {
+   if(!InpDrawHourlyPlanCIcon || ordersClosed <= 0)
+      return;
+
+   if(hitTime <= 0)
+      hitTime = TimeCurrent();
+
+   datetime barTime  = ((Bars > 0 && Time[0] > 0) ? Time[0] : hitTime);
+   int      seqTag   = (hitSeq > 0) ? hitSeq : MathMax(1, g_hourlyPlanCTotalSweeps);
+   string   baseName = PREFIX + "HRLYC_HIT_" + IntegerToString((int)barTime) + "_" + IntegerToString(seqTag);
+   string   txtName  = baseName + "_TXT";
+
+   double atr = iATR(Symbol(), Period(), 14, 1);
+   if(atr <= 0.0)
+      atr = 30 * Point;
+   if(atr <= 0.0)
+      atr = 1.0;
+
+   double baseHigh    = ((Bars > 0 && High[0] > 0.0) ? High[0] : Bid);
+   double atrOffset   = 1.95 + ((seqTag - 1) % 3) * 0.45;
+   double markerPrice = (hitPrice > 0.0 ? hitPrice : baseHigh) + (atr * atrOffset);
+   double labelPrice  = markerPrice + (atr * 0.35);
+
+   color iconColor = InpHourlyPlanCIconColor;
+   int   iconCode  = (InpHourlyPlanCIconCode > 0 ? InpHourlyPlanCIconCode : 252);
+   int   fontSize  = (InpHourlySideLossIconFontSize > 0 ? InpHourlySideLossIconFontSize : 10);
+
+   datetime dubaiDT   = hitTime + (ServerToDubaiOffsetHours * 3600);
+   string   plSign    = (netPL >= 0.0) ? "+" : "-";
+   double   planCThr  = (InpHourlyPlanCDayProfitPct > 0.0) ? InpHourlyPlanCDayProfitPct : 10.0;
+   string   labelText = StringFormat("15M PLAN-C +%.1f%% ALL (x%d -%.2fL)", dayEqPct, ordersClosed, lotsClosed);
+   string   tooltip   = StringFormat("15M PLAN-C TARGET HIT #%d | DayEq: +%.2f%% (+$%.2f) > %.1f%% | Open:$%.2f Cur:$%.2f | Closed ALL %d (-%.2fL, NetPL:%s$%.2f) | Dubai:%s",
+                                     seqTag, dayEqPct, dayEqUSD, planCThr, dayOpenEq, curEq,
+                                     ordersClosed, lotsClosed, plSign, MathAbs(netPL),
+                                     TimeToString(dubaiDT, TIME_DATE|TIME_MINUTES|TIME_SECONDS));
+
+   if(ObjectFind(0, baseName) >= 0 || ObjectFind(0, txtName) >= 0)
+     {
+      if(ObjectFind(0, txtName) >= 0)
+        {
+         ObjectSetString(0, txtName, OBJPROP_TEXT, labelText);
+         ObjectSetString(0, txtName, OBJPROP_TOOLTIP, tooltip);
+        }
+      if(ObjectFind(0, baseName) >= 0)
+         ObjectSetString(0, baseName, OBJPROP_TOOLTIP, tooltip);
+      ChartRedraw(0);
+      return;
+     }
+
+   ObjectCreate(0, baseName, OBJ_ARROW, 0, barTime, markerPrice);
+   ObjectSetInteger(0, baseName, OBJPROP_ARROWCODE, iconCode);
+   ObjectSetInteger(0, baseName, OBJPROP_COLOR, iconColor);
+   ObjectSetInteger(0, baseName, OBJPROP_WIDTH, 4);
+   ObjectSetInteger(0, baseName, OBJPROP_BACK, false);
+   ObjectSetInteger(0, baseName, OBJPROP_SELECTABLE, false);
+   ObjectSetInteger(0, baseName, OBJPROP_HIDDEN, false);
+   ObjectSetString(0, baseName, OBJPROP_TOOLTIP, tooltip);
+
+   ObjectCreate(0, txtName, OBJ_TEXT, 0, barTime, labelPrice);
+   ObjectSetString(0, txtName, OBJPROP_TEXT, labelText);
+   ObjectSetString(0, txtName, OBJPROP_FONT, "Arial Black");
+   ObjectSetInteger(0, txtName, OBJPROP_FONTSIZE, fontSize);
+   ObjectSetInteger(0, txtName, OBJPROP_COLOR, iconColor);
+   ObjectSetInteger(0, txtName, OBJPROP_ANCHOR, ANCHOR_LOWER);
+   ObjectSetInteger(0, txtName, OBJPROP_BACK, false);
+   ObjectSetInteger(0, txtName, OBJPROP_SELECTABLE, false);
+   ObjectSetInteger(0, txtName, OBJPROP_HIDDEN, false);
+   ObjectSetString(0, txtName, OBJPROP_TOOLTIP, tooltip);
+
+   ChartRedraw(0);
+
+   PrintFormat(">>> [15M PLAN-C CHART ICON] Placed '%s' on bar %s (Dubai %s)",
                labelText, TimeToString(barTime, TIME_DATE|TIME_MINUTES),
                TimeToString(dubaiDT, TIME_MINUTES|TIME_SECONDS));
   }
@@ -4022,13 +4148,162 @@ bool ExecuteHourlyPlanACloseAll(double dayOpenEq, double curEquity, double dayPr
   }
 
 //+------------------------------------------------------------------+
+//| ExecuteHourlyPlanCCloseAll                                       |
+//| Plan C (Extra, every 15 min): When Day Equity Profit > 10% vs    |
+//| Dubai 00:00 opening equity, closes ALL open market orders        |
+//| (OP_BUY & OP_SELL) for Symbol & MagicNumber.                     |
+//+------------------------------------------------------------------+
+bool ExecuteHourlyPlanCCloseAll(double dayOpenEq, double curEquity, double dayProfitUSD, double dayProfitPct, datetime nowServer, int &remainingOpenOut)
+  {
+   remainingOpenOut = 0;
+   datetime dubaiTime = nowServer + (ServerToDubaiOffsetHours * 3600);
+   bool     isTestRun = (IsTesting() || IsOptimization());
+
+   int buyCount  = 0;
+   int sellCount = 0;
+   int openTickets[1000];
+   ArrayInitialize(openTickets, 0);
+   int openCount = 0;
+
+   for(int i = OrdersTotal() - 1; i >= 0; i--)
+     {
+      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
+         continue;
+      if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber)
+         continue;
+
+      int oType = OrderType();
+      if(oType == OP_BUY)
+        {
+         buyCount++;
+         if(openCount < 1000)
+            openTickets[openCount++] = OrderTicket();
+        }
+      else if(oType == OP_SELL)
+        {
+         sellCount++;
+         if(openCount < 1000)
+            openTickets[openCount++] = OrderTicket();
+        }
+     }
+
+   if(openCount == 0)
+      return false;
+
+   double planCThr    = (InpHourlyPlanCDayProfitPct > 0.0) ? InpHourlyPlanCDayProfitPct : 10.0;
+   int    closedCount = 0;
+   int    failCount   = 0;
+   double closedLots  = 0.0;
+   double closedPL    = 0.0;
+
+   for(int k = 0; k < openCount; k++)
+     {
+      int tkt = openTickets[k];
+      if(!OrderSelect(tkt, SELECT_BY_TICKET, MODE_TRADES))
+         continue;
+      if(OrderCloseTime() != 0)
+         continue;
+      if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber)
+         continue;
+
+      int oType = OrderType();
+      if(oType != OP_BUY && oType != OP_SELL)
+         continue;
+
+      double oLots = OrderLots();
+      double oPL   = OrderProfit() + OrderSwap() + OrderCommission();
+      color  cClr  = (oType == OP_BUY) ? clrRed : clrBlue;
+
+      RefreshRates();
+      ResetLastError();
+      g_eqDdForceCloseBudget = true;
+      bool ok = SafeOrderCloseMarket(tkt, oLots, Slippage, cClr);
+      g_eqDdForceCloseBudget = false;
+
+      if(ok)
+        {
+         RecordOrderCloseReason(tkt, "15M_PLAN_C_DAY_PROFIT_10PCT");
+         closedCount++;
+         closedLots += oLots;
+         closedPL   += oPL;
+        }
+      else
+        {
+         failCount++;
+         PrintFormat(">>> [1H PLAN-C 15M CLOSE FAIL] Ticket #%d (%s %.2fL) Err=%d | Dubai=%s",
+                     tkt, (oType == OP_BUY ? "BUY" : "SELL"), oLots, GetLastError(),
+                     TimeToString(dubaiTime, TIME_DATE|TIME_MINUTES|TIME_SECONDS));
+        }
+     }
+
+   if(closedCount > 0 || failCount > 0)
+      InvalidateOrderCache();
+
+   int remainingOpen = 0;
+   for(int j = OrdersTotal() - 1; j >= 0; j--)
+     {
+      if(!OrderSelect(j, SELECT_BY_POS, MODE_TRADES))
+         continue;
+      if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber)
+         continue;
+      int rType = OrderType();
+      if(rType == OP_BUY || rType == OP_SELL)
+         remainingOpen++;
+     }
+   remainingOpenOut = remainingOpen;
+
+   if(closedCount > 0)
+     {
+      g_hourlyPlanCTotalSweeps++;
+      g_hourlyPlanCTotalOrders += closedCount;
+      g_hourlyPlanCTotalLots   += closedLots;
+      g_hourlyPlanCHitsToday++;
+      g_hourlyPlanCLastHitTime  = nowServer;
+      g_hourlyPlanCLastPct      = dayProfitPct;
+      g_hourlyPlanCLastUSD      = dayProfitUSD;
+      g_hourlyPlanCLastOrders   = closedCount;
+      g_hourlyPlanCLastLots     = closedLots;
+      g_hourlyPlanCLastPL       = closedPL;
+
+      if(InpHourlyPlanCOncePerDay && remainingOpen == 0 && failCount == 0)
+        {
+         g_hourlyPlanCDoneToday = true;
+         if(!isTestRun && g_dubaiNightCloseDayKey > 0)
+            GlobalVariableSet("EA_HRLY_PLANC_DONE_" + IntegerToString(MagicNumber) + "_" + Symbol(), (double)g_dubaiNightCloseDayKey);
+        }
+
+      PrintFormat(">>> [1H PLAN-C 15M DAY EQ >%.1f%% CLOSE ALL] Dubai=%s (Broker=%s) | Eq=$%.2f vs Open=$%.2f (+$%.2f / +%.2f%%) -> Closed ALL %d Order(s) (B:%d S:%d | -%.2fL, NetPL=%s$%.2f, Fail=%d, Rem=%d)",
+                  planCThr, TimeToString(dubaiTime, TIME_DATE|TIME_MINUTES|TIME_SECONDS),
+                  TimeToString(nowServer, TIME_DATE|TIME_MINUTES|TIME_SECONDS),
+                  curEquity, dayOpenEq, dayProfitUSD, dayProfitPct,
+                  closedCount, buyCount, sellCount, closedLots,
+                  (closedPL >= 0.0 ? "+" : "-"), MathAbs(closedPL), failCount, remainingOpen);
+
+      DrawHourlyPlanCCloseIcon(dayProfitPct, dayProfitUSD, dayOpenEq, curEquity, closedCount, closedLots, closedPL, nowServer, 0.0, g_hourlyPlanCTotalSweeps);
+      LastDashboardUpdateMs = 0;
+      if(ShowLeftLiveOrdersDashboard)
+         UpdateLeftLiveOrdersDashboard();
+      return true;
+     }
+   else if(failCount > 0)
+     {
+      PrintFormat(">>> [1H PLAN-C 15M ATTEMPT FAILED] Dubai=%s | DayEq=+%.2f%% (>%.1f%%) | Open=%d Fail=%d Rem=%d",
+                  TimeToString(dubaiTime, TIME_DATE|TIME_MINUTES|TIME_SECONDS),
+                  dayProfitPct, planCThr, openCount, failCount, remainingOpen);
+     }
+
+   return false;
+  }
+
+//+------------------------------------------------------------------+
 //| ManageHourlySideLoss20PctCut                                     |
-//| Runs strictly once every 1 hour (60 min):                        |
-//| Plan A: If Day Equity Profit > 5% vs Dubai 00:00 opening equity, |
-//|         close ALL open orders immediately (BUY + SELL).          |
-//| OR Plan B: Otherwise evaluate BUY-only and SELL-only floating    |
-//|            loss % vs Balance independently (NO combination) and  |
-//|            close 20% LOT (min 0.01) on any side > 20% loss.      |
+//| Runs Plan C every 15 min & Plan A / Plan B every 1 hour (60m):   |
+//| Plan C (Extra, 15m): If Day Equity Profit > 10% vs Dubai 00:00   |
+//|         opening equity, close ALL open orders immediately.       |
+//| Plan A (1H): If Day Equity Profit > 5% vs Dubai 00:00 opening    |
+//|         equity, close ALL open orders immediately (BUY + SELL).  |
+//| OR Plan B (1H): Evaluate BUY-only & SELL-only floating loss %    |
+//|         vs Balance independently and cut 20% LOT on > 20% loss.  |
 //+------------------------------------------------------------------+
 void ManageHourlySideLoss20PctCut()
   {
@@ -4039,12 +4314,81 @@ void ManageHourlySideLoss20PctCut()
    if(nowServer <= 0)
       return;
 
-   // Ensure Dubai 00:00 GST opening equity & midnight rollover are synced BEFORE any 1H Plan A check
+   // Ensure Dubai 00:00 GST opening equity & midnight rollover are synced BEFORE any 1H Plan A/C check
    SyncDubaiDayOpeningState(nowServer);
 
+   bool isTestRun = (IsTesting() || IsOptimization());
+
+   // ===== EXTRA PLAN C: Check every 15 min -> Day Equity Profit > 10% vs Dubai 00:00 opening equity -> Close ALL =====
+   int    intervalCSec = MathMax(60, InpHourlyPlanCIntervalMinutes * 60);
+   long   curSlotC     = (long)(((long)nowServer) / intervalCSec);
+   string gvSlotCK     = "EA_HRLYC_SLOT_" + IntegerToString(MagicNumber) + "_" + Symbol() + "_" + IntegerToString(InpHourlyPlanCIntervalMinutes);
+   string gvRunCK      = "EA_HRLYC_RUN_"  + IntegerToString(MagicNumber) + "_" + Symbol() + "_" + IntegerToString(InpHourlyPlanCIntervalMinutes);
+   bool   planCClosedAllThisTick = false;
+
+   if(g_hourlyPlanCLastSlot < 0)
+     {
+      if(!isTestRun && GlobalVariableCheck(gvSlotCK))
+        {
+         long savedSlotC = (long)MathRound(GlobalVariableGet(gvSlotCK));
+         if(savedSlotC == curSlotC)
+           {
+            g_hourlyPlanCLastSlot    = curSlotC;
+            g_hourlyPlanCNextRunTime = (datetime)((curSlotC + 1) * (long)intervalCSec);
+            if(GlobalVariableCheck(gvRunCK))
+               g_hourlyPlanCLastRunTime = (datetime)MathRound(GlobalVariableGet(gvRunCK));
+           }
+        }
+
+      if(g_hourlyPlanCLastSlot < 0)
+        {
+         long secsIntoSlotC = ((long)nowServer) % intervalCSec;
+         if(secsIntoSlotC > 60)
+           {
+            g_hourlyPlanCLastSlot    = curSlotC;
+            g_hourlyPlanCNextRunTime = (datetime)((curSlotC + 1) * (long)intervalCSec);
+            if(!isTestRun)
+               GlobalVariableSet(gvSlotCK, (double)curSlotC);
+           }
+        }
+     }
+
+   if(curSlotC == g_hourlyPlanCLastSlot)
+     {
+      g_hourlyPlanCNextRunTime = (datetime)((curSlotC + 1) * (long)intervalCSec);
+     }
+   else
+     {
+      g_hourlyPlanCLastSlot    = curSlotC;
+      g_hourlyPlanCLastRunTime = nowServer;
+      g_hourlyPlanCNextRunTime = (datetime)((curSlotC + 1) * (long)intervalCSec);
+      g_hourlyPlanCCheckCount++;
+      if(!isTestRun)
+        {
+         GlobalVariableSet(gvSlotCK, (double)curSlotC);
+         GlobalVariableSet(gvRunCK,  (double)nowServer);
+        }
+
+      double curEqC    = AccountEquity();
+      double dayOpenC  = g_dubaiDayOpeningEquity;
+      double dayProfUC = (dayOpenC > 0.0) ? (curEqC - dayOpenC) : 0.0;
+      double dayProfPC = (dayOpenC > 0.0) ? ((dayProfUC / dayOpenC) * 100.0) : 0.0;
+      double planCThr  = (InpHourlyPlanCDayProfitPct > 0.0) ? InpHourlyPlanCDayProfitPct : 10.0;
+      bool   planCHit  = (InpEnableHourlyPlanCDayProfitClose &&
+                          (!InpHourlyPlanCOncePerDay || !g_hourlyPlanCDoneToday) &&
+                          dayOpenC > 0.0 &&
+                          dayProfPC > planCThr);
+      if(planCHit)
+        {
+         int remOpenC = 0;
+         if(ExecuteHourlyPlanCCloseAll(dayOpenC, curEqC, dayProfUC, dayProfPC, nowServer, remOpenC) && remOpenC == 0)
+            planCClosedAllThisTick = true;
+        }
+     }
+
+   // ===== 1-HOUR PLAN A / PLAN B TIMER GATE (60 MIN) =====
    int    intervalSec = MathMax(60, InpHourlySideLossIntervalMinutes * 60);
    long   curSlot     = (long)(((long)nowServer) / intervalSec);
-   bool   isTestRun   = (IsTesting() || IsOptimization());
    string gvSlotK     = "EA_HRLY_LOSS_SLOT_" + IntegerToString(MagicNumber) + "_" + Symbol() + "_" + IntegerToString(InpHourlySideLossIntervalMinutes);
    string gvRunK      = "EA_HRLY_LOSS_RUN_"  + IntegerToString(MagicNumber) + "_" + Symbol() + "_" + IntegerToString(InpHourlySideLossIntervalMinutes);
 
@@ -4089,6 +4433,10 @@ void ManageHourlySideLoss20PctCut()
       GlobalVariableSet(gvSlotK, (double)curSlot);
       GlobalVariableSet(gvRunK,  (double)nowServer);
      }
+
+   // If Plan C already closed 100% of open market orders on this top-of-hour tick, avoid duplicate icon/close
+   if(planCClosedAllThisTick)
+      return;
 
    // ===== PLAN A: Day Equity Profit > 5% vs Dubai 00:00 opening equity -> Close ALL open orders =====
    double curEquity    = AccountEquity();
@@ -6777,6 +7125,8 @@ void   DrawEqDdHitIcon(int tier, double ddPct, double ddUSD, double bal, double 
 void   SyncDubaiDayOpeningState(datetime nowServer = 0);
 void   DrawHourlyPlanACloseIcon(double dayEqPct, double dayEqUSD, double dayOpenEq, double curEq, int ordersClosed, double lotsClosed, double netPL, datetime hitTime = 0, double hitPrice = 0.0, int hitSeq = 0);
 bool   ExecuteHourlyPlanACloseAll(double dayOpenEq, double curEquity, double dayProfitUSD, double dayProfitPct, datetime nowServer);
+void   DrawHourlyPlanCCloseIcon(double dayEqPct, double dayEqUSD, double dayOpenEq, double curEq, int ordersClosed, double lotsClosed, double netPL, datetime hitTime = 0, double hitPrice = 0.0, int hitSeq = 0);
+bool   ExecuteHourlyPlanCCloseAll(double dayOpenEq, double curEquity, double dayProfitUSD, double dayProfitPct, datetime nowServer, int &remainingOpenOut);
 void   DrawHourlySideLossCutIcon(string sideTag, double ddPct, double ddUSD, double bal, double cutPct, int ordersHit, double lotsCut, double estPL, datetime hitTime = 0, double hitPrice = 0.0);
 void   ExecuteHourlySideLossCutForSide(int sideType, double balance, double sideNetPL, double sideLossPct, datetime nowServer, double cutPct, double minLotCfg);
 void   ManageHourlySideLoss20PctCut();
@@ -10783,6 +11133,10 @@ int OnInit()
    g_hourlySideLossNextRunTime   = 0;
    g_hourlyPlanADoneToday        = false;
    g_hourlyPlanAHitsToday        = 0;
+   g_hourlyPlanCLastSlot         = -1;
+   g_hourlyPlanCNextRunTime      = 0;
+   g_hourlyPlanCDoneToday        = false;
+   g_hourlyPlanCHitsToday        = 0;
    g_priceGapCloseAnchorLoaded   = false;
    g_priceGapCloseAnchorPrice    = 0.0;
    g_priceGapCloseSourceFlipPx   = 0.0;
@@ -10850,6 +11204,17 @@ int OnInit()
       g_hourlySideLossLastHitOrders  = 0;
       g_hourlySideLossLastHitLots    = 0.0;
       g_hourlySideLossLastHitPL      = 0.0;
+      g_hourlyPlanCLastRunTime       = 0;
+      g_hourlyPlanCCheckCount        = 0;
+      g_hourlyPlanCTotalSweeps       = 0;
+      g_hourlyPlanCTotalOrders       = 0;
+      g_hourlyPlanCTotalLots         = 0.0;
+      g_hourlyPlanCLastHitTime       = 0;
+      g_hourlyPlanCLastPct           = 0.0;
+      g_hourlyPlanCLastUSD           = 0.0;
+      g_hourlyPlanCLastOrders        = 0;
+      g_hourlyPlanCLastLots          = 0.0;
+      g_hourlyPlanCLastPL            = 0.0;
       g_eqDdDailyResetTime         = 0;
       g_dubaiNightCloseLastHitTime = 0;
       g_dubaiNightLastResetTime    = 0;
@@ -10986,13 +11351,15 @@ void OnDeinit(const int reason)
       PrintFormat(">>> [EQ-DD LOT SHIELD SUMMARY] Peak DD=%.2f%% | Partial Cuts (%s Tiers): %d | Close-All Orders: %d | Total Lots Reduced: %.2fL",
                   g_eqDdSessionPeakPct, tierRangeStr, g_eqDdTotalPartialCuts, g_eqDdTotalCloseAllOrders, g_eqDdTotalLotsReduced);
      }
-   if(g_hourlyPlanATotalSweeps > 0 || g_hourlySideLossTotalCuts > 0 || g_hourlySideLossCheckCount > 0)
+   if(g_hourlyPlanATotalSweeps > 0 || g_hourlySideLossTotalCuts > 0 || g_hourlySideLossCheckCount > 0 || g_hourlyPlanCTotalSweeps > 0 || g_hourlyPlanCCheckCount > 0)
      {
-      PrintFormat(">>> [1H PLAN A/B SUMMARY] Checks (%dm): %d | Plan-A (DayEq>%.0f%%): Sweeps=%d Orders=%d (-%.2fL) | Plan-B (Side>%.0f%% -%.0f%%L): Sweeps=%d Cuts=%d (-%.2fL)",
+      PrintFormat(">>> [1H PLAN A/B/C SUMMARY] 1H-Chk(%dm): %d | Plan-A (DayEq>%.0f%%): Sweeps=%d Orders=%d (-%.2fL) | Plan-B (Side>%.0f%% -%.0f%%L): Sweeps=%d Cuts=%d (-%.2fL) | 15M-Chk(%dm): %d | Plan-C (DayEq>%.0f%%): Sweeps=%d Orders=%d (-%.2fL)",
                   InpHourlySideLossIntervalMinutes, g_hourlySideLossCheckCount,
                   InpHourlyPlanADayProfitPct, g_hourlyPlanATotalSweeps, g_hourlyPlanATotalOrders, g_hourlyPlanATotalLots,
                   InpHourlySideLossThresholdPct, InpHourlySideLossCutPct,
-                  g_hourlySideLossTotalSweeps, g_hourlySideLossTotalCuts, g_hourlySideLossTotalLotsCut);
+                  g_hourlySideLossTotalSweeps, g_hourlySideLossTotalCuts, g_hourlySideLossTotalLotsCut,
+                  InpHourlyPlanCIntervalMinutes, g_hourlyPlanCCheckCount,
+                  InpHourlyPlanCDayProfitPct, g_hourlyPlanCTotalSweeps, g_hourlyPlanCTotalOrders, g_hourlyPlanCTotalLots);
      }
    if(g_priceGapCloseTotalSweeps > 0)
      {
@@ -24150,6 +24517,9 @@ void UpdateDashboard(DailyProtectionState &state)
    string dashHrlyNxt = (g_hourlySideLossNextRunTime > 0)
                         ? TimeToString(g_hourlySideLossNextRunTime + (ServerToDubaiOffsetHours * 3600), TIME_MINUTES)
                         : "--:--";
+   string dashHrlyCNxt = (g_hourlyPlanCNextRunTime > 0)
+                        ? TimeToString(g_hourlyPlanCNextRunTime + (ServerToDubaiOffsetHours * 3600), TIME_MINUTES)
+                        : "--:--";
    datetime hrlyDashNow   = TimeCurrent();
    datetime hrlyDashDub   = (hrlyDashNow > 0) ? (hrlyDashNow + (ServerToDubaiOffsetHours * 3600)) : 0;
    int      hrlyDashDay   = (hrlyDashDub > 0) ? (TimeYear(hrlyDashDub) * 1000 + TimeDayOfYear(hrlyDashDub)) : -1;
@@ -24158,9 +24528,14 @@ void UpdateDashboard(DailyProtectionState &state)
    double   hrlyDashEqPct = (hrlyDashOpen > 0.0) ? (((AccountEquity() - hrlyDashOpen) / hrlyDashOpen) * 100.0) : 0.0;
    string   hrlyDashSign  = (hrlyDashEqPct >= 0.0) ? "+" : "";
    double   hrlyDashAThr  = (InpHourlyPlanADayProfitPct > 0.0) ? InpHourlyPlanADayProfitPct : 5.0;
+   double   hrlyDashCThr  = (InpHourlyPlanCDayProfitPct > 0.0) ? InpHourlyPlanCDayProfitPct : 10.0;
    bool     hrlyDashPlanA = (InpEnableHourlySideLossCut && InpEnableHourlyPlanADayProfitClose &&
                              (!InpHourlyPlanAOncePerDay || !g_hourlyPlanADoneToday) &&
                              hrlyDashOpen > 0.0 && hrlyDashEqPct > hrlyDashAThr &&
+                             (dashBuyCnt + dashSellCnt) > 0);
+   bool     hrlyDashPlanC = (InpEnableHourlySideLossCut && InpEnableHourlyPlanCDayProfitClose &&
+                             (!InpHourlyPlanCOncePerDay || !g_hourlyPlanCDoneToday) &&
+                             hrlyDashOpen > 0.0 && hrlyDashEqPct > hrlyDashCThr &&
                              (dashBuyCnt + dashSellCnt) > 0);
    string eqDdState = "";
    color  eqDdClr   = clrSilver;
@@ -24168,13 +24543,14 @@ void UpdateDashboard(DailyProtectionState &state)
      {
       if(InpEnableHourlySideLossCut)
         {
-         string hPlanStr = hrlyDashPlanA ? "A:CLOSE-ALL" : (dashHrlyBreach ? "B:BREACH" : "OK");
-         eqDdState = StringFormat("1H %s (Eq:%s%.1f%%/%.0f%% A:%d B:%d)",
-                                  hPlanStr, hrlyDashSign, hrlyDashEqPct, hrlyDashAThr,
-                                  g_hourlyPlanATotalSweeps, g_hourlySideLossTotalCuts);
-         eqDdClr = hrlyDashPlanA ? clrLime
+         string hPlanStr = hrlyDashPlanC ? "C:15M-ALL" : (hrlyDashPlanA ? "A:CLOSE-ALL" : (dashHrlyBreach ? "B:BREACH" : "OK"));
+         eqDdState = StringFormat("1H %s %s%.1f%% A%d/B%d/C%d",
+                                  hPlanStr, hrlyDashSign, hrlyDashEqPct,
+                                  g_hourlyPlanATotalSweeps, g_hourlySideLossTotalCuts, g_hourlyPlanCTotalSweeps);
+         eqDdClr = hrlyDashPlanC ? clrGold
+                 : (hrlyDashPlanA ? clrLime
                  : (dashHrlyBreach ? clrOrangeRed
-                 : ((g_hourlyPlanATotalSweeps > 0 || g_hourlySideLossTotalCuts > 0) ? clrGold : clrSilver));
+                 : ((g_hourlyPlanATotalSweeps > 0 || g_hourlyPlanCTotalSweeps > 0 || g_hourlySideLossTotalCuts > 0) ? clrGold : clrSilver)));
         }
       else
         {
@@ -24238,9 +24614,17 @@ void UpdateDashboard(DailyProtectionState &state)
      {
       if(InpEnableHourlySideLossCut)
         {
-         if(g_hourlyPlanALastHitTime > 0 && g_hourlyPlanALastHitTime >= g_hourlySideLossLastHitTime)
+         if(g_hourlyPlanCLastHitTime > 0 && g_hourlyPlanCLastHitTime >= g_hourlyPlanALastHitTime && g_hourlyPlanCLastHitTime >= g_hourlySideLossLastHitTime)
            {
-            eqDdHitLine = StringFormat("1H LATEST   : PLAN-A +%.1f%% ALL @ %s GST x%d (-%.2fL)",
+            eqDdHitLine = StringFormat("1H LATEST   : PLAN-C +%.1f%% ALL @ %s x%d (-%.2fL)",
+                                       g_hourlyPlanCLastPct,
+                                       FormatDubaiShortDT(g_hourlyPlanCLastHitTime, false),
+                                       g_hourlyPlanCLastOrders, g_hourlyPlanCLastLots);
+            eqDdHitClr  = clrGold;
+           }
+         else if(g_hourlyPlanALastHitTime > 0 && g_hourlyPlanALastHitTime >= g_hourlySideLossLastHitTime)
+           {
+            eqDdHitLine = StringFormat("1H LATEST   : PLAN-A +%.1f%% ALL @ %s x%d (-%.2fL)",
                                        g_hourlyPlanALastPct,
                                        FormatDubaiShortDT(g_hourlyPlanALastHitTime, false),
                                        g_hourlyPlanALastOrders, g_hourlyPlanALastLots);
@@ -24248,7 +24632,7 @@ void UpdateDashboard(DailyProtectionState &state)
            }
          else if(g_hourlySideLossLastHitTime > 0)
            {
-            eqDdHitLine = StringFormat("1H LATEST   : PLAN-B %s %.1f%% (-%.0f%%L) @ %s GST x%d (-%.2fL)",
+            eqDdHitLine = StringFormat("1H LATEST   : PLAN-B %s %.1f%% (-%.0f%%L) @ %s x%d (-%.2fL)",
                                        g_hourlySideLossLastHitSide, g_hourlySideLossLastHitPct, InpHourlySideLossCutPct,
                                        FormatDubaiShortDT(g_hourlySideLossLastHitTime, false),
                                        g_hourlySideLossLastHitOrders, g_hourlySideLossLastHitLots);
@@ -24256,9 +24640,9 @@ void UpdateDashboard(DailyProtectionState &state)
            }
          else
            {
-            eqDdHitLine = StringFormat("1H LATEST   : DD OFF | A:>%.0f%% ALL | B:>%.0f%% -%.0f%%L (Nxt %s)",
-                                       hrlyDashAThr, InpHourlySideLossThresholdPct, InpHourlySideLossCutPct, dashHrlyNxt);
-            eqDdHitClr  = hrlyDashPlanA ? clrLime : (dashHrlyBreach ? clrOrangeRed : clrSilver);
+            eqDdHitLine = StringFormat("1H LATEST   : A>%.0f%% 1h B>%.0f%% 1h C>%.0f%% 15m (%s)",
+                                       hrlyDashAThr, InpHourlySideLossThresholdPct, hrlyDashCThr, dashHrlyCNxt);
+            eqDdHitClr  = hrlyDashPlanC ? clrGold : (hrlyDashPlanA ? clrLime : (dashHrlyBreach ? clrOrangeRed : clrSilver));
            }
         }
       else
@@ -24844,10 +25228,16 @@ void UpdateLeftLiveOrdersDashboard()
    double   liveHrlyEqPct = (liveHrlyOpenE > 0.0) ? (((liveEq - liveHrlyOpenE) / liveHrlyOpenE) * 100.0) : 0.0;
    string   liveHrlySign  = (liveHrlyEqPct >= 0.0) ? "+" : "";
    double   liveHrlyAThr  = (InpHourlyPlanADayProfitPct > 0.0) ? InpHourlyPlanADayProfitPct : 5.0;
+   double   liveHrlyCThr  = (InpHourlyPlanCDayProfitPct > 0.0) ? InpHourlyPlanCDayProfitPct : 10.0;
    bool     hrlyPlanAArmed = (!InpEnableEqDdLotReduction && InpEnableHourlySideLossCut &&
                               InpEnableHourlyPlanADayProfitClose &&
                               (!InpHourlyPlanAOncePerDay || !g_hourlyPlanADoneToday) &&
                               liveHrlyOpenE > 0.0 && liveHrlyEqPct > liveHrlyAThr &&
+                              (buyCount + sellCount) > 0);
+   bool     hrlyPlanCArmed = (!InpEnableEqDdLotReduction && InpEnableHourlySideLossCut &&
+                              InpEnableHourlyPlanCDayProfitClose &&
+                              (!InpHourlyPlanCOncePerDay || !g_hourlyPlanCDoneToday) &&
+                              liveHrlyOpenE > 0.0 && liveHrlyEqPct > liveHrlyCThr &&
                               (buyCount + sellCount) > 0);
 
    double curAcctDdUSD = (liveBal > liveEq) ? (liveBal - liveEq) : 0.0;
@@ -24866,13 +25256,15 @@ void UpdateLeftLiveOrdersDashboard()
          else
             hitTag = StringFormat(" [%s:T%d]", domCh, leftTier);
         }
+      else if(hrlyPlanCArmed)
+         hitTag = StringFormat(" [15M-C +%.1f%%]", liveHrlyEqPct);
       else if(hrlyPlanAArmed)
          hitTag = StringFormat(" [1H-A +%.1f%%]", liveHrlyEqPct);
       else if(hrlyBreachAny)
          hitTag = StringFormat(" [1H-B >%.0f%%L]", InpHourlySideLossThresholdPct);
       else if(InpEnableEqDdLotReduction && g_eqDdSessionPeakPct > 0.0)
          hitTag = StringFormat(" | Pk:%.1f%%", g_eqDdSessionPeakPct);
-      eqBadgeClr = (leftTier >= 1) ? GetEqDdTierColor(leftTier) : (hrlyPlanAArmed ? clrLime : (hrlyBreachAny ? clrOrangeRed : clrTomato));
+      eqBadgeClr = (leftTier >= 1) ? GetEqDdTierColor(leftTier) : (hrlyPlanCArmed ? clrGold : (hrlyPlanAArmed ? clrLime : (hrlyBreachAny ? clrOrangeRed : clrTomato)));
       eqBadgeTxt = StringFormat("DD B:%.1f%% S:%.1f%%%s", liveBuyDdPct, liveSellDdPct, hitTag);
      }
    else if(maxSideDdPct > 0.0)
@@ -24885,13 +25277,15 @@ void UpdateLeftLiveOrdersDashboard()
          tierTag = StringFormat(" [T%d -%.0f%%L]", leftTier, domCutPct);
       else if(InpEnableEqDdLotReduction && domDoneT >= 1)
          tierTag = StringFormat(" [T%d Done]", domDoneT);
+      else if(hrlyPlanCArmed)
+         tierTag = StringFormat(" [15M-C +%.1f%%]", liveHrlyEqPct);
       else if(hrlyPlanAArmed)
          tierTag = StringFormat(" [1H-A +%.1f%%]", liveHrlyEqPct);
       else if(hrlyBreachAny)
          tierTag = StringFormat(" [1H-B >%.0f%%L]", InpHourlySideLossThresholdPct);
       else if(InpEnableEqDdLotReduction && g_eqDdSessionPeakPct > 0.0)
          tierTag = StringFormat(" | Pk:%.1f%%", g_eqDdSessionPeakPct);
-      eqBadgeClr = (leftTier >= 1) ? GetEqDdTierColor(leftTier) : (hrlyPlanAArmed ? clrLime : (hrlyBreachAny ? clrOrangeRed : clrTomato));
+      eqBadgeClr = (leftTier >= 1) ? GetEqDdTierColor(leftTier) : (hrlyPlanCArmed ? clrGold : (hrlyPlanAArmed ? clrLime : (hrlyBreachAny ? clrOrangeRed : clrTomato)));
       eqBadgeTxt = StringFormat("%s DD: %.1f%% (-$%s)%s", maxSideName, maxSideDdPct, absLossStr, tierTag);
      }
    else
@@ -24899,8 +25293,8 @@ void UpdateLeftLiveOrdersDashboard()
       string gainStr = (eqDiffUSD >= 1000.0) ? DoubleToString(eqDiffUSD, 0) : DoubleToString(eqDiffUSD, 2);
       string pkTag   = (InpEnableEqDdLotReduction && g_eqDdSessionPeakPct > 0.0)
                        ? StringFormat(" | Pk:%.1f%%", g_eqDdSessionPeakPct)
-                       : ((!InpEnableEqDdLotReduction && InpEnableHourlySideLossCut && (g_hourlyPlanATotalSweeps > 0 || g_hourlySideLossTotalCuts > 0))
-                          ? StringFormat(" | 1H A:%d B:%d", g_hourlyPlanATotalSweeps, g_hourlySideLossTotalCuts) : "");
+                       : ((!InpEnableEqDdLotReduction && InpEnableHourlySideLossCut && (g_hourlyPlanATotalSweeps > 0 || g_hourlyPlanCTotalSweeps > 0 || g_hourlySideLossTotalCuts > 0))
+                          ? StringFormat(" | 1H A:%d B:%d C:%d", g_hourlyPlanATotalSweeps, g_hourlySideLossTotalCuts, g_hourlyPlanCTotalSweeps) : "");
       eqBadgeClr = (eqDiffUSD > 0.0) ? clrLime : clrSilver;
       eqBadgeTxt = StringFormat("SIDE DD: 0.0%% (+$%s)%s", gainStr, pkTag);
      }
@@ -24926,7 +25320,16 @@ void UpdateLeftLiveOrdersDashboard()
          string nxt1hClk = (g_hourlySideLossNextRunTime > 0)
                            ? TimeToString(g_hourlySideLossNextRunTime + (ServerToDubaiOffsetHours * 3600), TIME_MINUTES)
                            : "--:--";
-         if(hrlyPlanAArmed)
+         string nxt15mClk = (g_hourlyPlanCNextRunTime > 0)
+                           ? TimeToString(g_hourlyPlanCNextRunTime + (ServerToDubaiOffsetHours * 3600), TIME_MINUTES)
+                           : "--:--";
+         if(hrlyPlanCArmed)
+           {
+            ddStatLeftTxt = StringFormat("15M PLAN-C : DAY %s%.1f%%>%.0f%% WAIT %s -> CLOSE ALL",
+                                         liveHrlySign, liveHrlyEqPct, liveHrlyCThr, nxt15mClk);
+            ddStatLeftClr = clrGold;
+           }
+         else if(hrlyPlanAArmed)
            {
             ddStatLeftTxt = StringFormat("1H PLAN-A  : DAY %s%.1f%%>%.0f%% WAIT %s -> CLOSE ALL",
                                          liveHrlySign, liveHrlyEqPct, liveHrlyAThr, nxt1hClk);
@@ -24940,13 +25343,13 @@ void UpdateLeftLiveOrdersDashboard()
            }
          else
            {
-            ddStatLeftTxt = StringFormat("1H A/B OK  : Eq:%s%.1f%%/%.0f%% | B:%.1f%% S:%.1f%% (>%.0f%%)",
-                                         liveHrlySign, liveHrlyEqPct, liveHrlyAThr,
-                                         liveBuyDdPct, liveSellDdPct, InpHourlySideLossThresholdPct);
+            ddStatLeftTxt = StringFormat("1H A/B/C   : Eq:%s%.1f%% (A>%.0f%% C>%.0f%%) | B:%.1f%% S:%.1f%%",
+                                         liveHrlySign, liveHrlyEqPct, liveHrlyAThr, liveHrlyCThr,
+                                         liveBuyDdPct, liveSellDdPct);
             ddStatLeftClr = (maxSideDdPct > 0.0) ? clrWhite : clrLime;
            }
-         ddStatRightTxt = StringFormat("Nxt:%s | A:%d B:%d", nxt1hClk, g_hourlyPlanATotalSweeps, g_hourlySideLossTotalCuts);
-         ddStatRightClr = (g_hourlyPlanATotalSweeps > 0 || g_hourlySideLossTotalCuts > 0 || hrlyPlanAArmed || hrlyBreachAny) ? clrGold : clrLightGray;
+         ddStatRightTxt = StringFormat("1H:%s 15M:%s | %d/%d/%d", nxt1hClk, nxt15mClk, g_hourlyPlanATotalSweeps, g_hourlySideLossTotalCuts, g_hourlyPlanCTotalSweeps);
+         ddStatRightClr = (g_hourlyPlanATotalSweeps > 0 || g_hourlyPlanCTotalSweeps > 0 || g_hourlySideLossTotalCuts > 0 || hrlyPlanCArmed || hrlyPlanAArmed || hrlyBreachAny) ? clrGold : clrLightGray;
         }
       else
         {
@@ -25009,7 +25412,7 @@ void UpdateLeftLiveOrdersDashboard()
      }
    CreateLeftLivePanel(LEFT_LIVE_PREFIX+"DD_STATBAR", x, y+38, width, 22, C'18,24,34');
    CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"DD_STAT_L", ddStatLeftTxt, tx, y+43, 8, ddStatLeftClr);
-   CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"DD_STAT_R", ddStatRightTxt, x+width-176, y+43, 8, ddStatRightClr);
+   CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"DD_STAT_R", ddStatRightTxt, x+width-186, y+43, 8, ddStatRightClr);
 
    // Row 3 (y+60): Chronological Latest DD Event Banner (Hit / Wait / Cleared in Dubai Time)
    string ddBannerTxt = "DD LATEST  : NONE YET";
@@ -25026,7 +25429,17 @@ void UpdateLeftLiveOrdersDashboard()
      {
       if(InpEnableHourlySideLossCut)
         {
-         if(g_hourlyPlanALastHitTime > 0 && g_hourlyPlanALastHitTime >= g_hourlySideLossLastHitTime)
+         if(g_hourlyPlanCLastHitTime > 0 && g_hourlyPlanCLastHitTime >= g_hourlyPlanALastHitTime && g_hourlyPlanCLastHitTime >= g_hourlySideLossLastHitTime)
+           {
+            string cPlSign = (g_hourlyPlanCLastPL >= 0.0) ? "+" : "-";
+            ddBannerTxt = StringFormat("15M PLAN-C : +%.1f%% ALL @ %s x%d (-%.2fL %s$%.1f)",
+                                       g_hourlyPlanCLastPct,
+                                       FormatDubaiShortDT(g_hourlyPlanCLastHitTime, true),
+                                       g_hourlyPlanCLastOrders, g_hourlyPlanCLastLots,
+                                       cPlSign, MathAbs(g_hourlyPlanCLastPL));
+            ddBannerClr = clrGold;
+           }
+         else if(g_hourlyPlanALastHitTime > 0 && g_hourlyPlanALastHitTime >= g_hourlySideLossLastHitTime)
            {
             string aPlSign = (g_hourlyPlanALastPL >= 0.0) ? "+" : "-";
             ddBannerTxt = StringFormat("1H PLAN-A  : DAY +%.2f%% ALL @ %s GST | x%d (-%.2fL %s$%.1f)",
@@ -25048,10 +25461,10 @@ void UpdateLeftLiveOrdersDashboard()
            }
          else
            {
-            ddBannerTxt = StringFormat("1H A/B     : NONE YET | A:Day>%.0f%% ALL | B:Side>%.0f%% -%.0f%%L (Chk:%d)",
+            ddBannerTxt = StringFormat("1H A/B/C   : NONE YET | A>%.0f%% B>%.0f%% C>%.0f%%(15m) Chk:%d/%d",
                                        liveHrlyAThr, InpHourlySideLossThresholdPct,
-                                       InpHourlySideLossCutPct, g_hourlySideLossCheckCount);
-            ddBannerClr = hrlyPlanAArmed ? clrLime : (hrlyBreachAny ? clrOrangeRed : clrSilver);
+                                       liveHrlyCThr, g_hourlySideLossCheckCount, g_hourlyPlanCCheckCount);
+            ddBannerClr = hrlyPlanCArmed ? clrGold : (hrlyPlanAArmed ? clrLime : (hrlyBreachAny ? clrOrangeRed : clrSilver));
            }
         }
       else
