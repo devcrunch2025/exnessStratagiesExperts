@@ -44,7 +44,7 @@ CheckBasketProfitClose  Total open basket profit
 
 
 
-string glbVersion = "VMULTI-1160- FINAL - Old partial Close is enabled";
+string glbVersion = "VMULTI-1160- FINAL 2 - Old partial Close is enabled";
 
 
 
@@ -321,7 +321,7 @@ int    InpEqDdHitIconCode                 = 171;    // Chart icon Wingdings code
 int    InpEqDdHitFontSize                 = 10;     // Chart icon text font size
 
 // ===== HOURLY 1-HOUR PER-SIDE ENGINE: PLAN A (1H DAY EQ >5% CLOSE ALL), PLAN B (1H SIDE LOSS >20% CUT 20% LOT), PLAN C (15M DAY EQ >10% CLOSE ALL), PLAN D (1M 31->90% HR-RESET CLOSE ALL) =====
-bool   InpEnableHourlySideLossCut         = true;   // Run 1-Hour Engine: Plan A (1H >5%), Plan B (1H SideLoss >20% Cut 20% LOT), Plan C (15M >10%), Plan D (1M 31-90% HrReset)
+bool   InpEnableHourlySideLossCut         = false;//true;   // Run 1-Hour Engine: Plan A (1H >5%), Plan B (1H SideLoss >20% Cut 20% LOT), Plan C (15M >10%), Plan D (1M 31-90% HrReset)
 int    InpHourlySideLossIntervalMinutes   = 60;     // Plan A/B execution interval in minutes (60 = every 1 hour)
 bool   InpEnableHourlyPlanADayProfitClose = true;   // Plan A: If Day Equity Profit > 5% vs Dubai 00:00 opening equity, close ALL open orders (every 1 hour)
 double InpHourlyPlanADayProfitPct         = 5.0;    // Plan A: Day equity profit threshold % (> 5.0%, e.g. $500 -> >$525)
@@ -732,14 +732,14 @@ double   PostOrderSLTPVerifyLots[MAX_POST_ORDER_SLTP_VERIFY];
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
-bool EnableRecoveryOrders = false; // Retired in favor of high-performing Type 2 (LSD Structural Recovery)
+bool EnableRecoveryOrders = true; // Retired in favor of high-performing Type 2 (LSD Structural Recovery)
 double RecoveryTriggerLossUSD =1;//2;//1;//0.50;// 2;
 double RecoveryLotMultiplier = 2;
 int MaxRecoveryOrders =10;// 5;//1;
 double RecoveryBasketProfitUSD = 1;
-double RecoveryMinDistanceRaw =500;//1000;//1000;//100;//20;// 200.0;
-double RecoveryStopLossDistanceRaw =300;// 200.0; // Raw price gap ($200) for Recovery order StopLoss
-double RecoveryStopLossRaw         =300;// 200.0; // Alias matching RecoveryStopLossDistanceRaw
+double RecoveryMinDistanceRaw =300;//1000;//1000;//100;//20;// 200.0;
+double RecoveryStopLossDistanceRaw =3000;//300;// 200.0; // Raw price gap ($200) for Recovery order StopLoss
+double RecoveryStopLossRaw         =3000;//300;// 200.0; // Alias matching RecoveryStopLossDistanceRaw
 
 double DayProfitLadder1Amount = 5;
 
@@ -19237,7 +19237,7 @@ void CheckRecoveryOrders()
    if(CountActiveRecoveryOrders() >= 1)
       return;
 
-   if(!IsEmaWEAKDistanceReduced50PercentFromPeak() && GlobalSSLDirection != 1 && EMADirection)
+   if(!IsEmaWEAKDistanceReduced50PercentFromPeak() && GlobalSSLDirection !=  EMADirection)
      {
       return;
 
