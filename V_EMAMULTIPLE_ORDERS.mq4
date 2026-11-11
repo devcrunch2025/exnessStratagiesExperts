@@ -442,7 +442,7 @@ bool   InpReverse100SkipPartialClosed       = true;  // Do not create _REV recov
 bool   InpReverse100EnableAdverseStepClose  = true;  // Partial-close 0.01 lot every $100 adverse move (loss direction) on orders with LOT > 0.05
 bool   InpAdverseStep100AllOrders           = true;  // Apply $100 step 0.01 partial close to ALL open orders with LOT > 0.05 (false = _REV only)
 double InpReverse100AdverseStepMinLots      = 0.05;  // Keep >0.05L floor: only cut orders with LOT > 0.05 and stop once remaining <= 0.05
-double InpReverse100AdverseStepRaw          = 100.0; // Adverse raw price step per partial close ($100, $200, $300...)
+double InpReverse100AdverseStepRaw          = 500;//100.0; // Adverse raw price step per partial close ($100, $200, $300...)
 double InpReverse100AdverseStepLots         = 0.01;  // Fixed lot size to partial-close per adverse $100 step (0.01)
 bool   InpReverse100AdverseStepCloseLast    = false; // Stop at >0.05 floor (false = never close remaining <=0.05L)
 bool   InpDrawReverse100StepCutIcon         = true;  // Draw chart marker & label when a $100 adverse step 0.01 partial close executes
