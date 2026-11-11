@@ -44,7 +44,7 @@ CheckBasketProfitClose  Total open basket profit
 
 
 
-string glbVersion = "VMULTI-1147- Reverse100 2X Opposite + StepLoss 3000/2000 + Gap>1000 Day>5% + 1H Plan A/B";
+string glbVersion = "VMULTI-1148- Level1 +25/SL+25 + Step1 +25/SL+25 + 1H Target Hit Icons";
 
 
 
@@ -56,6 +56,8 @@ double protectgapOnOrderclose=31;//30;//101;//1000;//303;//11111111111111
 
 //Chance 1
 double SecureOneDollarProfitPerOrder=5;//1.0*10; //1X set modify order at profit $1(any lot)
+double InpLadderStepExtraMoveRaw = 25.0; // Extra raw BTC price move added to ladder thresholds (Level 1: $100 -> $125)
+double InpLadderStepExtraSLRaw   = 25.0; // Extra raw BTC price locked on ladder SL rungs (Level 1 SL = openPrice +/- 25)
 
 //chance 2
 int partialClose01in05IndividualPercentage=20;//10;//2*2;//per lot 0.01//if 0.05 close 0.01 at total profit of 20% means close 0.01 lot
@@ -137,6 +139,8 @@ double FLIPBasketSupportLot = 0.06;                 // FLIP Basket Support order
 double FLIPBasketSupportPendingGapRaw = 50.0;       // Raw gap (BTC price points) for FLIPBasketSupport pending stop order placement
 double FLIPBasketSupportTakeProfitDistanceRaw = 2000;// Take profit distance (raw BTC price distance) for FLIPBasketSupport orders
 double FLIPBasketSupportTakeProfitDistanceStopLossStep = 100.0; // Positive profit move step size (raw BTC price) to ratchet FLIPBasketSupport StopLoss
+double FLIPBasketSupportTakeProfitStepExtraMoveRaw = 25.0; // Extra raw BTC profit move before Step 1 activates (+100 -> +125; Step N = N*100 + 25)
+double FLIPBasketSupportTakeProfitStepExtraSLRaw   = 25.0; // Extra raw BTC profit locked on Step-Trailing SL (Step 1 SL = openPrice +/- 25; Step N = (N-1)*100 + 25)
 double FLIPBasketSupportMinEmaDistance = 100;       // Minimum raw price gap from live price to EMA ($100) required to open FLIPBasketSupport order
 double FLIPBasketSupportMinOpenOrderGapRaw = 100.0; // Gate 6: Minimum raw price gap ($100) between open order and FLIPBasketSupportOrder
 int    FLIPBasketSupportMinCloseGapSeconds = 300;   // Minimum 5-minute gap (300s) from recent closed FLIPBasketSupport order
@@ -322,11 +326,14 @@ int    InpHourlySideLossIntervalMinutes   = 60;     // Execution interval in min
 bool   InpEnableHourlyPlanADayProfitClose = true;   // Plan A: If Day Equity Profit > 5% vs Dubai 00:00 opening equity, close ALL open orders
 double InpHourlyPlanADayProfitPct         = 5.0;    // Plan A: Day equity profit threshold % (> 5.0%, e.g. $500 -> >$525)
 bool   InpHourlyPlanAOncePerDay           = false;  // Plan A repeat mode: false = evaluate every 1 hour without daily lock (true = max 1x/Dubai day)
-color  InpHourlyPlanAIconColor            = clrLime;// Plan A: Chart icon & label color when Day Equity >5% Close All executes
+color  InpHourlyPlanAIconColor            = clrLime;// Plan A: Chart icon & label color when Hour Target HIT (Day Equity >5%) executes
+bool   InpDrawHourlyPlanAIcon             = true;   // Plan A: Draw chart icon & label whenever 1H Hour Target HIT (DayEq >5%) triggers
+bool   InpDrawHourlyPlanAIconWhenFlat     = true;   // Plan A: Also draw Hour Target HIT chart icon when triggered with 0 open orders
+int    InpHourlyPlanAIconCode             = 171;    // Plan A: Chart icon Wingdings code (171=star, 251=check, 238=shield)
 double InpHourlySideLossThresholdPct      = 20.0;   // Plan B: Floating loss % of Balance trigger (> 20.0%, BUY and SELL evaluated separately)
 double InpHourlySideLossCutPct            = 20.0;   // Plan B: Percentage of each losing order's lots to close (20% LOT)
 double InpHourlySideLossMinLot            = 0.01;   // Plan B: Minimum partial-close lot step & minimum preserved remaining order lot (0.01)
-bool   InpDrawHourlySideLossIcon          = true;   // Draw chart icon & label when 1-Hour Plan A Close-All or Plan B 20% lot cut executes
+bool   InpDrawHourlySideLossIcon          = true;   // Plan B: Draw chart icon & label when 1-Hour 20% side loss cut executes
 int    InpHourlySideLossIconCode          = 238;    // Chart icon Wingdings code (238=shield, 171=star, 251=check)
 color  InpHourlySideLossIconColor         = clrOrangeRed; // Plan B: Chart icon & text color for 1H side loss cut
 int    InpHourlySideLossIconFontSize      = 10;     // Chart icon text font size
@@ -655,6 +662,20 @@ bool RequireFreshSSLAfterLosingSL = false;
 bool ContinueTradingAfterSL = true;
 bool EnableFreezeLevelProtection = true;
 double MinimumSLModifyGapRaw = 25.0; // Minimum raw price gap (.0) required between SL modifications to prevent broker spam
+
+//+------------------------------------------------------------------+
+//| GetEffectiveMinSLModifyGap                                       |
+//| Half-tick tolerance avoids IEEE-754 float misses (24.999999999985)|
+//| when advancing an order SL by an exact 25.0 raw step.            |
+//+------------------------------------------------------------------+
+double GetEffectiveMinSLModifyGap()
+  {
+   if(MinimumSLModifyGapRaw <= 0.0)
+      return 0.0;
+   double tol = (Point > 0.0) ? (Point * 0.5) : 0.0;
+   double eff = MinimumSLModifyGapRaw - tol;
+   return (eff > 0.0) ? eff : 0.0;
+  }
 
 bool EnableProfitLadder1 = false;
 bool EnableProfitLadder2 = false;
@@ -3333,6 +3354,7 @@ int      g_hourlySideLossCheckCount     = 0;    // Total hourly evaluations exec
 bool     g_hourlyPlanADoneToday         = false;// Optional Plan A 1x/day lock (when InpHourlyPlanAOncePerDay=true)
 int      g_hourlyPlanAHitsToday         = 0;    // Total Plan A (>5% Day Eq Close All) sweeps executed today
 int      g_hourlyPlanATotalSweeps       = 0;    // Total Plan A (>5% Day Eq Close All) sweeps executed in session
+int      g_hourlyPlanATargetHits        = 0;    // Total 1H Plan A Target HIT detections in session (open orders + flat)
 int      g_hourlyPlanATotalOrders       = 0;    // Total open orders closed by Plan A
 double   g_hourlyPlanATotalLots         = 0.0;  // Total lots closed by Plan A
 datetime g_hourlyPlanALastHitTime       = 0;    // Broker TimeCurrent() of latest Plan A execution
@@ -3505,18 +3527,22 @@ void SyncDubaiDayOpeningState(datetime nowServer = 0)
 
 //+------------------------------------------------------------------+
 //| DrawHourlyPlanACloseIcon                                         |
-//| Places chart marker & label when 1H Plan A (DayEq >5%) closes all|
+//| Places chart star marker & "1H TARGET HIT" label whenever 1-Hour |
+//| Plan A (DayEq > 5%) target is hit (both close-all & flat checks) |
 //+------------------------------------------------------------------+
-void DrawHourlyPlanACloseIcon(double dayEqPct, double dayEqUSD, double dayOpenEq, double curEq, int ordersClosed, double lotsClosed, double netPL, datetime hitTime = 0, double hitPrice = 0.0)
+void DrawHourlyPlanACloseIcon(double dayEqPct, double dayEqUSD, double dayOpenEq, double curEq, int ordersClosed, double lotsClosed, double netPL, datetime hitTime = 0, double hitPrice = 0.0, int hitSeq = 0)
   {
-   if(!InpDrawHourlySideLossIcon || ordersClosed <= 0)
+   if(!InpDrawHourlyPlanAIcon)
+      return;
+   if(ordersClosed <= 0 && !InpDrawHourlyPlanAIconWhenFlat)
       return;
 
    if(hitTime <= 0)
       hitTime = TimeCurrent();
 
    datetime barTime  = ((Bars > 0 && Time[0] > 0) ? Time[0] : hitTime);
-   string   baseName = PREFIX + "HRLYA_ALL_" + IntegerToString((int)barTime);
+   int      seqTag   = (hitSeq > 0) ? hitSeq : MathMax(1, g_hourlyPlanATargetHits);
+   string   baseName = PREFIX + "HRLY_HIT_" + IntegerToString((int)barTime) + "_" + IntegerToString(seqTag);
    string   txtName  = baseName + "_TXT";
 
    double atr = iATR(Symbol(), Period(), 14, 1);
@@ -3526,21 +3552,34 @@ void DrawHourlyPlanACloseIcon(double dayEqPct, double dayEqUSD, double dayOpenEq
       atr = 1.0;
 
    double baseHigh    = ((Bars > 0 && High[0] > 0.0) ? High[0] : Bid);
-   double markerPrice = (hitPrice > 0.0 ? hitPrice : baseHigh) + (atr * 1.25);
+   double atrOffset   = 1.35 + ((seqTag - 1) % 3) * 0.45;
+   double markerPrice = (hitPrice > 0.0 ? hitPrice : baseHigh) + (atr * atrOffset);
    double labelPrice  = markerPrice + (atr * 0.35);
 
    color iconColor = InpHourlyPlanAIconColor;
-   int   iconCode  = (InpHourlySideLossIconCode > 0 ? InpHourlySideLossIconCode : 238);
+   int   iconCode  = (InpHourlyPlanAIconCode > 0 ? InpHourlyPlanAIconCode : 171);
    int   fontSize  = (InpHourlySideLossIconFontSize > 0 ? InpHourlySideLossIconFontSize : 10);
 
    datetime dubaiDT   = hitTime + (ServerToDubaiOffsetHours * 3600);
    string   plSign    = (netPL >= 0.0) ? "+" : "-";
    double   planAThr  = (InpHourlyPlanADayProfitPct > 0.0) ? InpHourlyPlanADayProfitPct : 5.0;
-   string   labelText = StringFormat("1H PLAN-A +%.1f%% ALL (x%d -%.2fL)", dayEqPct, ordersClosed, lotsClosed);
-   string   tooltip   = StringFormat("1H PLAN-A CLOSE ALL | DayEq: +%.2f%% (+$%.2f) > %.1f%% | Open:$%.2f Cur:$%.2f | Closed:%d (-%.2fL, NetPL:%s$%.2f) | Dubai:%s",
-                                     dayEqPct, dayEqUSD, planAThr, dayOpenEq, curEq,
-                                     ordersClosed, lotsClosed, plSign, MathAbs(netPL),
-                                     TimeToString(dubaiDT, TIME_DATE|TIME_MINUTES|TIME_SECONDS));
+   string   labelText = "";
+   string   tooltip   = "";
+   if(ordersClosed > 0)
+     {
+      labelText = StringFormat("1H TARGET HIT +%.1f%% ALL (x%d -%.2fL)", dayEqPct, ordersClosed, lotsClosed);
+      tooltip   = StringFormat("1H HOUR TARGET HIT | DayEq: +%.2f%% (+$%.2f) > %.1f%% | Open:$%.2f Cur:$%.2f | Closed ALL %d (-%.2fL, NetPL:%s$%.2f) | Dubai:%s",
+                               dayEqPct, dayEqUSD, planAThr, dayOpenEq, curEq,
+                               ordersClosed, lotsClosed, plSign, MathAbs(netPL),
+                               TimeToString(dubaiDT, TIME_DATE|TIME_MINUTES|TIME_SECONDS));
+     }
+   else
+     {
+      labelText = StringFormat("1H TARGET HIT +%.1f%% (0 Open)", dayEqPct);
+      tooltip   = StringFormat("1H HOUR TARGET HIT (0 OPEN) | DayEq: +%.2f%% (+$%.2f) > %.1f%% | Open:$%.2f Cur:$%.2f | Flat at hourly check | Dubai:%s",
+                               dayEqPct, dayEqUSD, planAThr, dayOpenEq, curEq,
+                               TimeToString(dubaiDT, TIME_DATE|TIME_MINUTES|TIME_SECONDS));
+     }
 
    if(ObjectFind(0, baseName) >= 0 || ObjectFind(0, txtName) >= 0)
      {
@@ -3569,12 +3608,17 @@ void DrawHourlyPlanACloseIcon(double dayEqPct, double dayEqUSD, double dayOpenEq
    ObjectSetString(0, txtName, OBJPROP_FONT, "Arial Black");
    ObjectSetInteger(0, txtName, OBJPROP_FONTSIZE, fontSize);
    ObjectSetInteger(0, txtName, OBJPROP_COLOR, iconColor);
+   ObjectSetInteger(0, txtName, OBJPROP_ANCHOR, ANCHOR_LOWER);
    ObjectSetInteger(0, txtName, OBJPROP_BACK, false);
    ObjectSetInteger(0, txtName, OBJPROP_SELECTABLE, false);
    ObjectSetInteger(0, txtName, OBJPROP_HIDDEN, false);
    ObjectSetString(0, txtName, OBJPROP_TOOLTIP, tooltip);
 
    ChartRedraw(0);
+
+   PrintFormat(">>> [1H TARGET HIT CHART ICON] Placed '%s' on bar %s (Dubai %s)",
+               labelText, TimeToString(barTime, TIME_DATE|TIME_MINUTES),
+               TimeToString(dubaiDT, TIME_MINUTES|TIME_SECONDS));
   }
 
 //+------------------------------------------------------------------+
@@ -3861,10 +3905,20 @@ bool ExecuteHourlyPlanACloseAll(double dayOpenEq, double curEquity, double dayPr
         }
      }
 
-   if(openCount == 0)
-      return true;
-
    double planAThr = (InpHourlyPlanADayProfitPct > 0.0) ? InpHourlyPlanADayProfitPct : 5.0;
+
+   if(openCount == 0)
+     {
+      g_hourlyPlanATargetHits++;
+      g_hourlyPlanAHitsToday++;
+      PrintFormat(">>> [1H HOUR TARGET HIT +%.1f%% (0 OPEN)] Dubai=%s (Broker=%s) | Eq=$%.2f vs Open=$%.2f (+$%.2f / +%.2f%%) > %.1f%% | 0 open orders [OR Plan B skipped]",
+                  dayProfitPct, TimeToString(dubaiTime, TIME_DATE|TIME_MINUTES|TIME_SECONDS),
+                  TimeToString(nowServer, TIME_DATE|TIME_MINUTES|TIME_SECONDS),
+                  curEquity, dayOpenEq, dayProfitUSD, dayProfitPct, planAThr);
+      DrawHourlyPlanACloseIcon(dayProfitPct, dayProfitUSD, dayOpenEq, curEquity, 0, 0.0, 0.0, nowServer, 0.0, g_hourlyPlanATargetHits);
+      return true;
+     }
+
    int    closedCount = 0;
    int    failCount   = 0;
    double closedLots  = 0.0;
@@ -3927,6 +3981,7 @@ bool ExecuteHourlyPlanACloseAll(double dayOpenEq, double curEquity, double dayPr
    if(closedCount > 0)
      {
       g_hourlyPlanATotalSweeps++;
+      g_hourlyPlanATargetHits++;
       g_hourlyPlanATotalOrders += closedCount;
       g_hourlyPlanATotalLots   += closedLots;
       g_hourlyPlanAHitsToday++;
@@ -3951,7 +4006,7 @@ bool ExecuteHourlyPlanACloseAll(double dayOpenEq, double curEquity, double dayPr
                   closedCount, buyCount, sellCount, closedLots,
                   (closedPL >= 0.0 ? "+" : "-"), MathAbs(closedPL), failCount, remainingOpen);
 
-      DrawHourlyPlanACloseIcon(dayProfitPct, dayProfitUSD, dayOpenEq, curEquity, closedCount, closedLots, closedPL, nowServer, 0.0);
+      DrawHourlyPlanACloseIcon(dayProfitPct, dayProfitUSD, dayOpenEq, curEquity, closedCount, closedLots, closedPL, nowServer, 0.0, g_hourlyPlanATargetHits);
       LastDashboardUpdateMs = 0;
       if(ShowLeftLiveOrdersDashboard)
          UpdateLeftLiveOrdersDashboard();
@@ -6434,12 +6489,12 @@ int CreateFLIPBasketSupportOrder(int flipDirection, bool ignoreEmaDistanceGate =
 //+------------------------------------------------------------------+
 //| ManageFLIPBasketSupportTrailingStopLoss: Dedicated step-trailing |
 //| StopLoss engine for FLIPBasketSupport AND Recovery orders.       |
-//| Ratchets StopLoss forward on every 100 raw BTC step move in      |
-//| positive profit (FLIPBasketSupportTakeProfitDistanceStopLossStep)|
-//| Step 1 (+100 move): SL = openPrice (100 below live price / BE)   |
-//| Step 2 (+200 move): SL = openPrice +/- 100 (+100 profit locked)  |
-//| Step 3 (+300 move): SL = openPrice +/- 200 (+200 profit locked)  |
-//| Step N (+N*100 move): SL = openPrice +/- (N-1)*100               |
+//| Ratchets StopLoss forward on every 100 raw BTC step move after   |
+//| the initial extra threshold (+25 raw -> +125 for Step 1):        |
+//| Step 1 (+125 move): SL = openPrice +/- 25  (+25 profit locked)   |
+//| Step 2 (+225 move): SL = openPrice +/- 125 (+125 profit locked)  |
+//| Step 3 (+325 move): SL = openPrice +/- 225 (+225 profit locked)  |
+//| Step N (+N*100+25): SL = openPrice +/- ((N-1)*100 + 25)          |
 //| Respects broker MODE_STOPLEVEL / GetRequiredStopDistance().      |
 //+------------------------------------------------------------------+
 void ManageFLIPBasketSupportTrailingStopLoss()
@@ -6452,6 +6507,8 @@ void ManageFLIPBasketSupportTrailingStopLoss()
    double stepSize = FLIPBasketSupportTakeProfitDistanceStopLossStep;
    if(stepSize <= 0.0)
       stepSize = 100.0;
+   double extraMove = MathMax(0.0, FLIPBasketSupportTakeProfitStepExtraMoveRaw);
+   double extraSL   = MathMax(0.0, FLIPBasketSupportTakeProfitStepExtraSLRaw);
 
    RefreshRates();
    double stopLevel = MarketInfo(Symbol(), MODE_STOPLEVEL) * Point;
@@ -6483,18 +6540,19 @@ void ManageFLIPBasketSupportTrailingStopLoss()
       if(oType == OP_BUY)
         {
          double favorableMove = Bid - openPrice;
-         if(favorableMove < stepSize)
-            continue; // Not yet reached 1st step (+100)
+         if(favorableMove + (Point * 0.5) < (stepSize + extraMove))
+            continue; // Not yet reached 1st step (+125)
 
-         int steps = (int)MathFloor(favorableMove / stepSize);
+         int steps = (int)MathFloor(((favorableMove - extraMove) + (Point * 0.5)) / stepSize);
          if(steps < 1)
             continue;
 
-         // Step 1 (+100 move): targetSL = openPrice (0 distance from openPrice, 100 below live price / breakeven)
-         // Step 2 (+200 move): targetSL = openPrice + 100 (+100 profit locked)
-         // Step 3 (+300 move): targetSL = openPrice + 200 (+200 profit locked)
-         // Step N (+N*100 move): targetSL = openPrice + ((N - 1) * stepSize)
-         double targetSL = NormalizeDouble(openPrice + ((steps - 1) * stepSize), Digits);
+         // Step 1 (+125 move): targetSL = openPrice + 25  (+25 profit locked)
+         // Step 2 (+225 move): targetSL = openPrice + 125 (+125 profit locked)
+         // Step 3 (+325 move): targetSL = openPrice + 225 (+225 profit locked)
+         // Step N (+N*100+25 move): targetSL = openPrice + ((N - 1) * stepSize + extraSL)
+         double lockedDist = ((steps - 1) * stepSize) + extraSL;
+         double targetSL   = NormalizeDouble(openPrice + lockedDist, Digits);
 
          // Broker safety: SL cannot be closer to Bid than minSafeDist
          if(targetSL > Bid - minSafeDist)
@@ -6505,29 +6563,37 @@ void ManageFLIPBasketSupportTrailingStopLoss()
            {
             ResetLastError();
             bool modified = SafeOrderModify(ticket, openPrice, targetSL, curTP, 0, clrLimeGreen);
-            Print("Step-Trailing [", (isFlipSupport ? "FLIP_SUPPORT" : "RECOVERY"), "]: BUY #", ticket,
-                  " Step=", steps, " (+", DoubleToString(favorableMove, 2), " pts)",
-                  " | Prev SL=", DoubleToString(curSL, Digits),
-                  " | New SL=", DoubleToString(targetSL, Digits),
-                  " | Success=", modified);
+            double actualSL = curSL;
+            if(OrderSelect(ticket, SELECT_BY_TICKET, MODE_TRADES))
+               actualSL = OrderStopLoss();
+            if(!modified || (curSL == 0.0 && actualSL > 0.0) || actualSL > curSL + (Point * 0.5))
+              {
+               Print("Step-Trailing [", (isFlipSupport ? "FLIP_SUPPORT" : "RECOVERY"), "]: BUY #", ticket,
+                     " Step=", steps, " (+", DoubleToString(favorableMove, 2), " pts)",
+                     " | Prev SL=", DoubleToString(curSL, Digits),
+                     " | New SL=", DoubleToString(actualSL, Digits),
+                     " | Target SL=", DoubleToString(targetSL, Digits),
+                     " | Success=", modified);
+              }
            }
         }
       else
          if(oType == OP_SELL)
            {
             double favorableMove = openPrice - Ask;
-            if(favorableMove < stepSize)
-               continue; // Not yet reached 1st step (+100)
+            if(favorableMove + (Point * 0.5) < (stepSize + extraMove))
+               continue; // Not yet reached 1st step (+125)
 
-            int steps = (int)MathFloor(favorableMove / stepSize);
+            int steps = (int)MathFloor(((favorableMove - extraMove) + (Point * 0.5)) / stepSize);
             if(steps < 1)
                continue;
 
-            // Step 1 (+100 move): targetSL = openPrice (0 distance from openPrice, 100 above live price / breakeven)
-            // Step 2 (+200 move): targetSL = openPrice - 100 (+100 profit locked)
-            // Step 3 (+300 move): targetSL = openPrice - 200 (+200 profit locked)
-            // Step N (+N*100 move): targetSL = openPrice - ((N - 1) * stepSize)
-            double targetSL = NormalizeDouble(openPrice - ((steps - 1) * stepSize), Digits);
+            // Step 1 (+125 move): targetSL = openPrice - 25  (+25 profit locked)
+            // Step 2 (+225 move): targetSL = openPrice - 125 (+125 profit locked)
+            // Step 3 (+325 move): targetSL = openPrice - 225 (+225 profit locked)
+            // Step N (+N*100+25 move): targetSL = openPrice - ((N - 1) * stepSize + extraSL)
+            double lockedDist = ((steps - 1) * stepSize) + extraSL;
+            double targetSL   = NormalizeDouble(openPrice - lockedDist, Digits);
 
             // Broker safety: SL cannot be closer to Ask than minSafeDist
             if(targetSL < Ask + minSafeDist)
@@ -6538,11 +6604,18 @@ void ManageFLIPBasketSupportTrailingStopLoss()
               {
                ResetLastError();
                bool modified = SafeOrderModify(ticket, openPrice, targetSL, curTP, 0, clrTomato);
-               Print("Step-Trailing [", (isFlipSupport ? "FLIP_SUPPORT" : "RECOVERY"), "]: SELL #", ticket,
-                     " Step=", steps, " (+", DoubleToString(favorableMove, 2), " pts)",
-                     " | Prev SL=", DoubleToString(curSL, Digits),
-                     " | New SL=", DoubleToString(targetSL, Digits),
-                     " | Success=", modified);
+               double actualSL = curSL;
+               if(OrderSelect(ticket, SELECT_BY_TICKET, MODE_TRADES))
+                  actualSL = OrderStopLoss();
+               if(!modified || (curSL == 0.0 && actualSL > 0.0) || actualSL < curSL - (Point * 0.5))
+                 {
+                  Print("Step-Trailing [", (isFlipSupport ? "FLIP_SUPPORT" : "RECOVERY"), "]: SELL #", ticket,
+                        " Step=", steps, " (+", DoubleToString(favorableMove, 2), " pts)",
+                        " | Prev SL=", DoubleToString(curSL, Digits),
+                        " | New SL=", DoubleToString(actualSL, Digits),
+                        " | Target SL=", DoubleToString(targetSL, Digits),
+                        " | Success=", modified);
+                 }
               }
            }
      }
@@ -6702,7 +6775,7 @@ string FormatDubaiShortDT(datetime serverTime, bool withSeconds = false);
 void   CalcEqDdSideDrawdowns(double balance, double &buyNetPLOut, double &buyDdPctOut, double &sellNetPLOut, double &sellDdPctOut, int &buyCountOut, int &sellCountOut);
 void   DrawEqDdHitIcon(int tier, double ddPct, double ddUSD, double bal, double eq, double cutPct, int ordersHit, double lotsCut, datetime hitTime = 0, double hitPrice = 0.0, string sideTag = "");
 void   SyncDubaiDayOpeningState(datetime nowServer = 0);
-void   DrawHourlyPlanACloseIcon(double dayEqPct, double dayEqUSD, double dayOpenEq, double curEq, int ordersClosed, double lotsClosed, double netPL, datetime hitTime = 0, double hitPrice = 0.0);
+void   DrawHourlyPlanACloseIcon(double dayEqPct, double dayEqUSD, double dayOpenEq, double curEq, int ordersClosed, double lotsClosed, double netPL, datetime hitTime = 0, double hitPrice = 0.0, int hitSeq = 0);
 bool   ExecuteHourlyPlanACloseAll(double dayOpenEq, double curEquity, double dayProfitUSD, double dayProfitPct, datetime nowServer);
 void   DrawHourlySideLossCutIcon(string sideTag, double ddPct, double ddUSD, double bal, double cutPct, int ordersHit, double lotsCut, double estPL, datetime hitTime = 0, double hitPrice = 0.0);
 void   ExecuteHourlySideLossCutForSide(int sideType, double balance, double sideNetPL, double sideLossPct, datetime nowServer, double cutPct, double minLotCfg);
@@ -9189,19 +9262,17 @@ double GetEmaAngleBreakevenBreathingSL(int orderType, double openPrice, double p
 //| CalculateProportionalLadderSL:                                   |
 //| MAIN COMMON METHOD for Proportional Profit Ladder across ALL     |
 //| methods and lot tiers:                                           |
-//| Base Lot 0.01 -> Gap $100                                        |
-//| Base Lot 0.02 -> Gap $80                                         |
-//| Base Lot 0.03 -> Gap $70                                         |
-//| Base Lot 0.04 -> Gap $60                                         |
-//| Base Lot 0.05+-> Gap $50                                         |
+//| Base Lot 0.01 -> Gap $100 (Level 1 @ +$125 -> SL openPrice +/-25)|
+//| Base Lot 0.02 -> Gap $80  (Level 1 @ +$105 -> SL openPrice +/-25)|
+//| Base Lot 0.03 -> Gap $70  (Level 1 @ +$95  -> SL openPrice +/-25)|
+//| Base Lot 0.04 -> Gap $60  (Level 1 @ +$85  -> SL openPrice +/-25)|
+//| Base Lot 0.05+-> Gap $50  (Level 1 @ +$75  -> SL openPrice +/-25)|
 //|                                                                  |
-//| Level 1: protects 0 loss (SL = openPrice / Breakeven)            |
-//| Level 2: locks +1x stepPriceGap ($50 behind market)              |
+//| Level 1: triggers at stepPriceGap + 25, locks +25 (openPrice+/-25|
+//| Level 2: locks +1x stepPriceGap + 25 ($125 for 0.01L)            |
 //| Level 3+:                                                        |
-//|   - Under STRONG EMA: locks +(ladderLevel - 2) * stepPriceGap    |
-//|     (Expands cushion to $100.00 behind market / 2x step gap)     |
-//|   - Under WEAK EMA: locks +(ladderLevel - 1) * stepPriceGap      |
-//|     (Retains tighter $50.00 behind market / 1x step gap)         |
+//|   - Under STRONG EMA: locks +(ladderLevel - 2)*stepPriceGap + 25 |
+//|   - Under WEAK EMA:   locks +(ladderLevel - 1)*stepPriceGap + 25 |
 //+------------------------------------------------------------------+
 double CalculateProportionalLadderSL(int orderType, double openPrice, double orderLots)
   {
@@ -9215,6 +9286,8 @@ double CalculateProportionalLadderSL(int orderType, double openPrice, double ord
 
 // 1. Get dynamic step gap based on lot & multiplier
    double stepPriceGap = GetLotBasedPriceGap(orderLots, balancelomultipler);
+   double extraMove    = MathMax(0.0, InpLadderStepExtraMoveRaw);
+   double extraSL      = MathMax(0.0, InpLadderStepExtraSLRaw);
 
 // 2. Halve the gap if EMA momentum weakened by 50%
    if(IsEmaWEAKDistanceReduced50PercentFromPeak())
@@ -9233,42 +9306,42 @@ double CalculateProportionalLadderSL(int orderType, double openPrice, double ord
       if(orderType == OP_SELL)
          maxLockableDistance = openPrice - (Ask + stopLevel);
 
-// If price has not reached Level 1 (1x stepPriceGap), no ladder SL yet
-   if(maxLockableDistance < stepPriceGap)
+// If price has not reached Level 1 (1x stepPriceGap + extraMove, e.g. $125 for 0.01L), no ladder SL yet
+   if(maxLockableDistance + (Point * 0.5) < (stepPriceGap + extraMove))
       return 0.0;
 
-// 4. Determine ladder step (1 = 1x gap, 2 = 2x gap, etc.)
-   int ladderLevel = (int)MathFloor(maxLockableDistance / stepPriceGap);
+// 4. Determine ladder step (1 = 1x gap + extraMove, 2 = 2x gap + extraMove, etc.)
+   int ladderLevel = (int)MathFloor(((maxLockableDistance - extraMove) + (Point * 0.5)) / stepPriceGap);
    if(ladderLevel < 1)
       return 0.0;
 
-// USER RULE (VMULTI-1072):
-// Level 1: protects 0 loss (SL = openPrice / Breakeven, $50 behind market)
-// Level 2: locks +1x stepPriceGap (+$50 profit, $50 behind market)
+// USER RULE (VMULTI-1148):
+// Level 1: triggers at stepPriceGap + 25 ($125 for 0.01L), locks +25 (SL = openPrice +/- 25)
+// Level 2: locks +(1 * stepPriceGap) + 25 (+$125 for 0.01L)
 // Level 3 onwards:
-//   - Under STRONG EMA: locks +(ladderLevel - 2) * stepPriceGap ($100.00 behind market / 2x step gap)
-//   - Under WEAK EMA: locks +(ladderLevel - 1) * stepPriceGap ($50.00 behind market / 1x step gap)
+//   - Under STRONG EMA: locks +((ladderLevel - 2) * stepPriceGap) + 25
+//   - Under WEAK EMA:   locks +((ladderLevel - 1) * stepPriceGap) + 25
    double lockedDistance = 0.0;
    if(ladderLevel == 1)
      {
-      lockedDistance = 0.0;
+      lockedDistance = extraSL;
      }
    else
       if(ladderLevel == 2)
         {
-         lockedDistance = 1.0 * stepPriceGap;
+         lockedDistance = (1.0 * stepPriceGap) + extraSL;
         }
       else // ladderLevel >= 3
         {
          if(!IsEmaWEAKDistanceReduced50PercentFromPeak())
            {
-            // Under STRONG EMA: Level 3 onwards change $50.00 behind market to $100.00 behind market
-            lockedDistance = (ladderLevel - 2) * stepPriceGap;
+            // Under STRONG EMA: Level 3 onwards keep 2x step cushion behind market + extraSL
+            lockedDistance = ((ladderLevel - 2) * stepPriceGap) + extraSL;
            }
          else
            {
-            // Under WEAK EMA: Retain standard 1x stepPriceGap cushion behind market
-            lockedDistance = (ladderLevel - 1) * stepPriceGap;
+            // Under WEAK EMA: Retain standard 1x stepPriceGap cushion behind market + extraSL
+            lockedDistance = ((ladderLevel - 1) * stepPriceGap) + extraSL;
            }
         }
    double ladderSL = 0.0;
@@ -9279,8 +9352,8 @@ double CalculateProportionalLadderSL(int orderType, double openPrice, double ord
       if(orderType == OP_SELL)
          ladderSL = NormalizeDouble(openPrice - lockedDistance, Digits);
 
-   // USER RULE (VMULTI-1105): When Level 1 (Breakeven) and MathAbs(EMAangle) > 4, allow extra -50 raw gap breathing SL
-   if(ladderLevel == 1)
+   // USER RULE (VMULTI-1105): When Level 1 is exact Breakeven (lockedDistance <= 0) and MathAbs(EMAangle) > 4, allow extra -50 raw gap breathing SL
+   if(ladderLevel == 1 && lockedDistance <= 0.0)
      {
       ladderSL = GetEmaAngleBreakevenBreathingSL(orderType, openPrice, ladderSL);
      }
@@ -9301,6 +9374,10 @@ void SecureOneDollarProfit()
    double stopLevel = GetRequiredStopDistance();
    if(stopLevel < 10.0)
       stopLevel = 10.0;
+
+   double extraMove = MathMax(0.0, InpLadderStepExtraMoveRaw);
+   double extraSL   = MathMax(0.0, InpLadderStepExtraSLRaw);
+   double slGapMin  = GetEffectiveMinSLModifyGap();
 
    RefreshRates();
 
@@ -9355,41 +9432,41 @@ void SecureOneDollarProfit()
          if(type == OP_SELL)
             maxLockableDistance = openPrice - (Ask + stopLevel);
 
-      if(maxLockableDistance < stepPriceGap)
-         continue; // Price has not yet reached the required gap
+      if(maxLockableDistance + (Point * 0.5) < (stepPriceGap + extraMove))
+         continue; // Price has not yet reached Level 1 threshold (stepPriceGap + extraMove)
 
-      // 4. Determine ladder step (1 = 1x gap, 2 = 2x gap, etc.)
-      int ladderLevel = (int)MathFloor(maxLockableDistance / stepPriceGap);
+      // 4. Determine ladder step (1 = 1x gap + extraMove, 2 = 2x gap + extraMove, etc.)
+      int ladderLevel = (int)MathFloor(((maxLockableDistance - extraMove) + (Point * 0.5)) / stepPriceGap);
       if(ladderLevel < 1)
          continue;
 
-      // USER RULE (VMULTI-1072):
-      // Level 1: protects 0 loss (SL = openPrice / Breakeven, $50 behind market)
-      // Level 2: locks +1x stepPriceGap (+$50 profit, $50 behind market)
+      // USER RULE (VMULTI-1148):
+      // Level 1: triggers at stepPriceGap + 25 ($125 for 0.01L), locks +25 (SL = openPrice +/- 25)
+      // Level 2: locks +(1 * stepPriceGap) + 25 (+$125 for 0.01L)
       // Level 3 onwards:
-      //   - Under STRONG EMA: locks +(ladderLevel - 2) * stepPriceGap ($100.00 behind market / 2x step gap)
-      //   - Under WEAK EMA: locks +(ladderLevel - 1) * stepPriceGap ($50.00 behind market / 1x step gap)
+      //   - Under STRONG EMA: locks +((ladderLevel - 2) * stepPriceGap) + 25
+      //   - Under WEAK EMA:   locks +((ladderLevel - 1) * stepPriceGap) + 25
       double lockedDistance = 0.0;
       if(ladderLevel == 1)
         {
-         lockedDistance = 0.0;
+         lockedDistance = extraSL;
         }
       else
          if(ladderLevel == 2)
            {
-            lockedDistance = 1.0 * stepPriceGap;
+            lockedDistance = (1.0 * stepPriceGap) + extraSL;
            }
          else // ladderLevel >= 3
            {
             if(!IsEmaWEAKDistanceReduced50PercentFromPeak())
               {
-               // Under STRONG EMA: Level 3 onwards change $50.00 behind market to $100.00 behind market
-               lockedDistance = (ladderLevel - 2) * stepPriceGap;
+               // Under STRONG EMA: Level 3 onwards keep 2x step cushion behind market + extraSL
+               lockedDistance = ((ladderLevel - 2) * stepPriceGap) + extraSL;
               }
             else
               {
-               // Under WEAK EMA: Retain standard 1x stepPriceGap cushion behind market
-               lockedDistance = (ladderLevel - 1) * stepPriceGap;
+               // Under WEAK EMA: Retain standard 1x stepPriceGap cushion behind market + extraSL
+               lockedDistance = ((ladderLevel - 1) * stepPriceGap) + extraSL;
               }
            }
       double newSL = 0.0;
@@ -9398,14 +9475,14 @@ void SecureOneDollarProfit()
       if(type == OP_BUY)
         {
          newSL = NormalizeDouble(openPrice + lockedDistance, Digits);
-         if(newSL >= openPrice && (currentSL == 0.0 || newSL >= currentSL + MinimumSLModifyGapRaw))
+         if(newSL >= openPrice && (currentSL == 0.0 || newSL >= currentSL + slGapMin))
             canModify = true;
         }
       else
          if(type == OP_SELL)
            {
             newSL = NormalizeDouble(openPrice - lockedDistance, Digits);
-            if(newSL <= openPrice && (currentSL == 0.0 || newSL <= currentSL - MinimumSLModifyGapRaw))
+            if(newSL <= openPrice && (currentSL == 0.0 || newSL <= currentSL - slGapMin))
                canModify = true;
            }
 
@@ -9417,13 +9494,20 @@ void SecureOneDollarProfit()
 
          if(modified)
            {
-            Print("Secured Lot-Based Ladder: ", ladderLevel, "X (Gap=$", DoubleToString(stepPriceGap, 2),
-                  " | Locked=+$", DoubleToString(lockedDistance, 2), " pts)",
-                  " | Ticket=", ticket,
-                  " | Lots=", DoubleToString(orderLots, 2),
-                  " | Type=", (type == OP_BUY ? "BUY" : "SELL"),
-                  " | P/L=$", DoubleToString(curPL, 2), " >= $", DoubleToString(minProfitUSD, 2),
-                  " | New SL=", DoubleToString(newSL, Digits));
+            double actualSL = newSL;
+            if(OrderSelect(ticket, SELECT_BY_TICKET, MODE_TRADES))
+               actualSL = OrderStopLoss();
+            if(currentSL == 0.0 || MathAbs(actualSL - currentSL) >= Point * 0.5)
+              {
+               Print("Secured Lot-Based Ladder: ", ladderLevel, "X (Move>=$", DoubleToString(stepPriceGap + extraMove, 2),
+                     " | Gap=$", DoubleToString(stepPriceGap, 2),
+                     " | Locked=+$", DoubleToString(lockedDistance, 2), " pts)",
+                     " | Ticket=", ticket,
+                     " | Lots=", DoubleToString(orderLots, 2),
+                     " | Type=", (type == OP_BUY ? "BUY" : "SELL"),
+                     " | P/L=$", DoubleToString(curPL, 2), " >= $", DoubleToString(minProfitUSD, 2),
+                     " | New SL=", DoubleToString(actualSL, Digits));
+              }
            }
          else
            {
@@ -10747,6 +10831,7 @@ int OnInit()
       g_hourlySideLossLastRunTime    = 0;
       g_hourlySideLossCheckCount     = 0;
       g_hourlyPlanATotalSweeps       = 0;
+      g_hourlyPlanATargetHits        = 0;
       g_hourlyPlanATotalOrders       = 0;
       g_hourlyPlanATotalLots         = 0.0;
       g_hourlyPlanALastHitTime       = 0;
@@ -14651,6 +14736,8 @@ bool SafeOrderClose(int ticket, double lots, int orderType, int slippage, color 
         }
      }
 
+   double slGapMin = GetEffectiveMinSLModifyGap();
+
    if(orderType == OP_BUY)
      {
       if(Bid - newSL < minSafeDistance)
@@ -14661,7 +14748,7 @@ bool SafeOrderClose(int ticket, double lots, int orderType, int slippage, color 
         {
          if(currentSL >= newSL)
             return true;
-         if(newSL - currentSL < MinimumSLModifyGapRaw)
+         if(newSL - currentSL < slGapMin)
             return true;
         }
      }
@@ -14676,7 +14763,7 @@ bool SafeOrderClose(int ticket, double lots, int orderType, int slippage, color 
            {
             if(currentSL <= newSL)
                return true;
-            if(currentSL - newSL < MinimumSLModifyGapRaw)
+            if(currentSL - newSL < slGapMin)
                return true;
            }
         }
@@ -14850,6 +14937,8 @@ bool CanModifyStopLossForHigherProfit(int ticket, double proposedSL, string call
 // methods which call modify order with stoploss."
 // =========================================================================
 
+   double slGapMin = GetEffectiveMinSLModifyGap();
+
 // 2. Evaluate BUY order: Must be strictly GREATER than curSL (above current SL)
    if(oType == OP_BUY)
      {
@@ -14868,7 +14957,7 @@ bool CanModifyStopLossForHigherProfit(int ticket, double proposedSL, string call
         }
 
       // Enforce anti-spam minimum modify gap
-      if((normPropSL - curSL) < MinimumSLModifyGapRaw)
+      if((normPropSL - curSL) < slGapMin)
          return false;
 
       return true;
@@ -14892,7 +14981,7 @@ bool CanModifyStopLossForHigherProfit(int ticket, double proposedSL, string call
         }
 
       // Enforce anti-spam minimum modify gap
-      if((curSL - normPropSL) < MinimumSLModifyGapRaw)
+      if((curSL - normPropSL) < slGapMin)
          return false;
 
       return true;
@@ -15292,7 +15381,8 @@ bool SafeOrderModify(int ticket,double openPrice,double stopLoss,double takeProf
             return false;
            }
         }
-   bool sameSL = (requestedSL <= 0.0 && OrderStopLoss() <= 0.0) || (requestedSL > 0.0 && MathAbs(OrderStopLoss() - requestedSL) < MinimumSLModifyGapRaw);
+   double slGapMin = GetEffectiveMinSLModifyGap();
+   bool sameSL = (requestedSL <= 0.0 && OrderStopLoss() <= 0.0) || (requestedSL > 0.0 && MathAbs(OrderStopLoss() - requestedSL) < slGapMin);
    bool sameTP = (requestedTP <= 0.0 && OrderTakeProfit() <= 0.0) || (requestedTP > 0.0 && MathAbs(OrderTakeProfit() - requestedTP) <= Point);
    if(sameSL && sameTP)
       return true;
@@ -16782,15 +16872,16 @@ void ModifyOpenOrdersToSecureProfit()
             newSL = GetEmaAngleBreakevenBreathingSL(type, openPrice, openPrice); // Level 1 / Breakeven with breathing room
 
          double beFloorETH = GetEmaAngleBreakevenBreathingSL(type, openPrice, openPrice);
+         double slGapMinETH = GetEffectiveMinSLModifyGap();
          if(type == OP_BUY)
            {
-            if(newSL >= beFloorETH && (currentSL == 0.0 || newSL >= currentSL + MinimumSLModifyGapRaw))
+            if(newSL >= beFloorETH && (currentSL == 0.0 || newSL >= currentSL + slGapMinETH))
                SafeOrderModify(ticket, openPrice, NormalizeDouble(newSL, Digits), currentTP, 0, clrGreen);
            }
          else
             if(type == OP_SELL)
               {
-               if(newSL <= beFloorETH && (currentSL == 0.0 || newSL <= currentSL - MinimumSLModifyGapRaw))
+               if(newSL <= beFloorETH && (currentSL == 0.0 || newSL <= currentSL - slGapMinETH))
                   SafeOrderModify(ticket, openPrice, NormalizeDouble(newSL, Digits), currentTP, 0, clrRed);
               }
          // Register winning order as secured by Equity Target Hit
