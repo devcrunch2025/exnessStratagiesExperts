@@ -44,7 +44,7 @@ CheckBasketProfitClose  Total open basket profit
 
 
 
-string glbVersion = "VMULTI-1152- REV100 Skip Partial";
+string glbVersion = "VMULTI-1153- REV100 $100 Step 0.01 Cut";
 
 
 
@@ -439,6 +439,12 @@ double InpReverse100TakeProfitRaw           = 500.0; // Initial TakeProfit raw d
 bool   InpReverse100IncludeHorizontal       = true;  // Include Horizontal line orders (EQH / EQL) as qualifying parents
 bool   InpReverse100IncludeFlipSupport      = false; // Exclude internal non-horizontal FLIPBasketSupport orders (default false)
 bool   InpReverse100SkipPartialClosed       = true;  // Do not create _REV recovery orders for partially closed orders (comments like "from #...")
+bool   InpReverse100EnableAdverseStepClose  = true;  // Partial-close 0.01 lot on _REV orders every $100 adverse move (loss direction)
+double InpReverse100AdverseStepRaw          = 100.0; // Adverse raw price step per partial close on _REV order ($100, $200, $300...)
+double InpReverse100AdverseStepLots         = 0.01;  // Fixed lot size to partial-close per adverse $100 step on _REV order (0.01)
+bool   InpReverse100AdverseStepCloseLast    = true;  // Allow closing remaining final <=0.01 lot when the next adverse step is reached
+bool   InpDrawReverse100StepCutIcon         = true;  // Draw chart marker & label when a _REV adverse step 0.01 partial close executes
+color  InpReverse100StepCutIconColor        = clrOrangeRed; // Chart icon & label color for _REV adverse step partial close
 bool   InpDrawReverse100Icon                = true;  // Draw chart arrow & label when a $100 2X Reverse order opens
 color  InpReverse100BuyIconColor            = clrDeepSkyBlue; // Chart icon & label color for 2X BUY Reverse order
 color  InpReverse100SellIconColor           = clrMagenta;     // Chart icon & label color for 2X SELL Reverse order
@@ -7685,6 +7691,22 @@ void   ResetReverse100RuntimeState();
 void   InitReverse100TriggeredRegistry();
 int    CountActiveReverse100Orders();
 void   CheckReverse100OppositeOrders();
+// Runtime tracking for _REV adverse $100 step 0.01-lot partial closes
+int      g_rev100StepCutRoots[];
+int      g_rev100StepCutSteps[];
+int      g_rev100StepCutTotalCuts     = 0;
+double   g_rev100StepCutTotalLots     = 0.0;
+datetime g_rev100StepCutLastHitTime   = 0;
+int      g_rev100StepCutLastRecTicket = 0;
+int      g_rev100StepCutLastStep      = 0;
+double   g_rev100StepCutLastAdvGap    = 0.0;
+datetime g_rev100StepCutFailLogTime   = 0;
+
+string Reverse100StepGvKey(int rootRevTicket);
+int    GetReverse100AdverseCutStep(int rootRevTicket);
+void   SetReverse100AdverseCutStep(int rootRevTicket, int step);
+void   DrawReverse100StepCutIcon(int closedTicket, int rootRevTicket, int origParentTicket, int orderType, int stepNo, double advGap, double stepTriggerRaw, double cutLots, double remLots, double openPrice, double closePrice, double estPL, datetime hitTime = 0);
+void   ManageReverse100AdverseStepPartialClose();
 void   InitParentRecoveryAttemptRegistry();
 void   RegisterParentRecoveryAttempt(int parentTicket);
 int    GetParentRecoveryAttemptCount(int parentTicket);
@@ -11469,7 +11491,7 @@ void CloseOppositeOrdersOnEmaDistance()
          continue;
 
       // ADD THIS EXACT LINE TO PROTECT YOUR RECOVERY BASKETS
-      if(StringFind(OrderComment(), "RECOVERY_") == 0)
+      if(IsAnyRecoveryOrder(OrderTicket(), OrderComment()))
          continue;
 
       int type = OrderType();
@@ -11877,6 +11899,13 @@ void OnDeinit(const int reason)
       PrintFormat(">>> [ADVERSE STEP LOSS SUMMARY] Steps=%d Partials=%d Worst0.01Closes=%d (-%.2fL) | Last=%s @%s GST",
                   g_stepLossTotalSweeps, g_stepLossTotalPartialCuts, g_stepLossTotalFullCloses, g_stepLossTotalLotsCut,
                   g_stepLossLastHitSide, (g_stepLossLastHitTime > 0 ? FormatDubaiShortDT(g_stepLossLastHitTime, true) : "NONE"));
+     }
+   if(g_rev100StepCutTotalCuts > 0)
+     {
+      PrintFormat(">>> [REV100 -$%.0f STEP CUT SUMMARY] Cuts=%d TotalLots=-%.2fL | LastRoot=#%d Step#%d (Adv=$%.1f) @%s GST",
+                  InpReverse100AdverseStepRaw, g_rev100StepCutTotalCuts, g_rev100StepCutTotalLots,
+                  g_rev100StepCutLastRecTicket, g_rev100StepCutLastStep, g_rev100StepCutLastAdvGap,
+                  (g_rev100StepCutLastHitTime > 0 ? FormatDubaiShortDT(g_rev100StepCutLastHitTime, true) : "NONE"));
      }
   }
 
@@ -12753,6 +12782,12 @@ void OnTickCore()
       return;
      }
    ManageRecoveryBasket();
+   if(TradeOperationFailedThisTick)
+     {
+      UpdateDashboardsThrottled(dailyState);
+      return;
+     }
+   ManageReverse100AdverseStepPartialClose();
    if(TradeOperationFailedThisTick)
      {
       UpdateDashboardsThrottled(dailyState);
@@ -18129,7 +18164,7 @@ datetime GetNewestOpenOrderTime(int orderType)
       if(OrderType() != baseType)
          continue;
       string comment = OrderComment();
-      if(StringFind(comment, "RECOVERY_") >= 0)
+      if(IsAnyRecoveryOrder(OrderTicket(), comment))
          continue; // Ignore recovery orders, track regular basket
       if(OrderOpenTime() > newestTime)
          newestTime = OrderOpenTime();
@@ -19455,7 +19490,8 @@ int GetParentRecoveryAttemptCount(int parentTicket)
         {
          if(OrderMagicNumber() == MagicNumber && OrderSymbol() == Symbol())
            {
-            if(StringFind(OrderComment(), targetPrefix) == 0)
+            string effCmt = GetEffectiveOrderComment(OrderTicket(), OrderComment());
+            if(effCmt == targetPrefix || StringFind(effCmt, targetPrefix + "_") == 0)
                count++;
            }
         }
@@ -19468,7 +19504,8 @@ int GetParentRecoveryAttemptCount(int parentTicket)
         {
          if(OrderMagicNumber() == MagicNumber && OrderSymbol() == Symbol())
            {
-            if(StringFind(OrderComment(), targetPrefix) == 0)
+            string effCmt = GetEffectiveOrderComment(OrderTicket(), OrderComment());
+            if(effCmt == targetPrefix || StringFind(effCmt, targetPrefix + "_") == 0)
                count++;
            }
         }
@@ -19513,10 +19550,11 @@ void InitParentRecoveryAttemptRegistry()
          continue;
       if(OrderMagicNumber() != MagicNumber || OrderSymbol() != Symbol())
          continue;
-      string cmt = OrderComment();
+      int hTkt = OrderTicket();
+      string cmt = GetEffectiveOrderComment(hTkt, OrderComment());
       if(StringFind(cmt, "RECOVERY_") == 0)
         {
-         int pTicket = GetRecoveryOrderParentTicket(OrderTicket(), cmt);
+         int pTicket = GetRecoveryOrderParentTicket(hTkt, cmt);
          if(pTicket > 0)
             RegisterParentRecoveryAttempt(pTicket);
         }
@@ -19529,10 +19567,11 @@ void InitParentRecoveryAttemptRegistry()
          continue;
       if(OrderMagicNumber() != MagicNumber || OrderSymbol() != Symbol())
          continue;
-      string cmt = OrderComment();
+      int tTkt = OrderTicket();
+      string cmt = GetEffectiveOrderComment(tTkt, OrderComment());
       if(StringFind(cmt, "RECOVERY_") == 0)
         {
-         int pTicket = GetRecoveryOrderParentTicket(OrderTicket(), cmt);
+         int pTicket = GetRecoveryOrderParentTicket(tTkt, cmt);
          if(pTicket > 0)
             RegisterParentRecoveryAttempt(pTicket);
         }
@@ -19559,7 +19598,8 @@ bool HasRecoveryOrder(int ParentTicket)
          continue;
       if(OrderSymbol() != Symbol())
          continue;
-      if(StringFind(OrderComment(), targetComment) == 0)
+      string effCmt = GetEffectiveOrderComment(OrderTicket(), OrderComment());
+      if(effCmt == targetComment || StringFind(effCmt, targetComment + "_") == 0)
         {
          found = true;
          break;
@@ -19664,7 +19704,7 @@ void CheckLsdStructuralRecoveryOrders()
          continue;
 
       string comment = OrderComment();
-      if(StringFind(comment, "RECOVERY_") >= 0 || IsFLIPBasketSupportOrder(parentTicket, comment))
+      if(IsAnyRecoveryOrder(parentTicket, comment) || IsFLIPBasketSupportOrder(parentTicket, comment))
          continue;
       if(!InpAllowRecoveryForHorizontalOrders && IsHorizontalLineOrder(parentTicket, comment))
          continue;
@@ -19880,7 +19920,7 @@ void CheckType3WeakEmaRecoveryOrders()
          continue;
 
       string comment = OrderComment();
-      if(StringFind(comment, "RECOVERY_") >= 0 || IsFLIPBasketSupportOrder(parentTicket, comment))
+      if(IsAnyRecoveryOrder(parentTicket, comment) || IsFLIPBasketSupportOrder(parentTicket, comment))
          continue;
       if(!InpAllowRecoveryForHorizontalOrders && IsHorizontalLineOrder(parentTicket, comment))
          continue;
@@ -20046,7 +20086,7 @@ void CheckTrendShiftHedgeRecoveryOrders()
          continue;
 
       string comment = OrderComment();
-      if(StringFind(comment, "RECOVERY_") >= 0 || IsFLIPBasketSupportOrder(parentTicket, comment))
+      if(IsAnyRecoveryOrder(parentTicket, comment) || IsFLIPBasketSupportOrder(parentTicket, comment))
          continue;
       if(!InpAllowRecoveryForHorizontalOrders && IsHorizontalLineOrder(parentTicket, comment))
          continue;
@@ -20207,12 +20247,21 @@ void ResetReverse100RuntimeState()
   {
    ArrayResize(g_rev100TriggeredParents, 0);
    ArrayResize(g_rev100SkippedPartialTickets, 0);
-   g_rev100TotalOpened      = 0;
-   g_rev100LastHitTime      = 0;
-   g_rev100LastRecTicket    = 0;
-   g_rev100LastParentTicket = 0;
-   g_rev100LastAdvGap       = 0.0;
-   g_rev100LastRecLots      = 0.0;
+   ArrayResize(g_rev100StepCutRoots, 0);
+   ArrayResize(g_rev100StepCutSteps, 0);
+   g_rev100TotalOpened           = 0;
+   g_rev100LastHitTime           = 0;
+   g_rev100LastRecTicket         = 0;
+   g_rev100LastParentTicket      = 0;
+   g_rev100LastAdvGap            = 0.0;
+   g_rev100LastRecLots           = 0.0;
+   g_rev100StepCutTotalCuts      = 0;
+   g_rev100StepCutTotalLots      = 0.0;
+   g_rev100StepCutLastHitTime    = 0;
+   g_rev100StepCutLastRecTicket  = 0;
+   g_rev100StepCutLastStep       = 0;
+   g_rev100StepCutLastAdvGap     = 0.0;
+   g_rev100StepCutFailLogTime    = 0;
   }
 
 //+------------------------------------------------------------------+
@@ -20666,6 +20715,383 @@ void CheckReverse100OppositeOrders()
                   (bestParentType == OP_BUY ? "BUY" : "SELL"), bestParentTicket, bestRootTicket,
                   DoubleToString(bestParentOpen, Digits), bestAdvDist, minAdvGap, MathAbs(bestLossUSD),
                   nowActiveRev, maxActive, recComment);
+     }
+  }
+
+//+------------------------------------------------------------------+
+//| Reverse100StepGvKey: GV key persisting completed -$100 cut step  |
+//+------------------------------------------------------------------+
+string Reverse100StepGvKey(int rootRevTicket)
+  {
+   return "EA_REV100_LSTEP_" + IntegerToString(MagicNumber) + "_" + Symbol() + "_" + IntegerToString(rootRevTicket);
+  }
+
+//+------------------------------------------------------------------+
+//| GetReverse100AdverseCutStep: Returns highest completed adverse   |
+//| step count (1=$100, 2=$200, 3=$300...) for root _REV order       |
+//+------------------------------------------------------------------+
+int GetReverse100AdverseCutStep(int rootRevTicket)
+  {
+   if(rootRevTicket <= 0)
+      return 0;
+
+   int sz = ArraySize(g_rev100StepCutRoots);
+   for(int i = 0; i < sz; i++)
+     {
+      if(g_rev100StepCutRoots[i] == rootRevTicket)
+         return g_rev100StepCutSteps[i];
+     }
+
+   if(!(IsTesting() || IsOptimization()))
+     {
+      string gvKey = Reverse100StepGvKey(rootRevTicket);
+      if(GlobalVariableCheck(gvKey))
+        {
+         int gvStep = (int)MathRound(GlobalVariableGet(gvKey));
+         if(gvStep > 0)
+           {
+            ArrayResize(g_rev100StepCutRoots, sz + 1);
+            ArrayResize(g_rev100StepCutSteps, sz + 1);
+            g_rev100StepCutRoots[sz] = rootRevTicket;
+            g_rev100StepCutSteps[sz] = gvStep;
+            return gvStep;
+           }
+        }
+     }
+   return 0;
+  }
+
+//+------------------------------------------------------------------+
+//| SetReverse100AdverseCutStep: Records completed adverse cut step  |
+//+------------------------------------------------------------------+
+void SetReverse100AdverseCutStep(int rootRevTicket, int step)
+  {
+   if(rootRevTicket <= 0 || step <= 0)
+      return;
+
+   int sz = ArraySize(g_rev100StepCutRoots);
+   bool updated = false;
+   for(int i = 0; i < sz; i++)
+     {
+      if(g_rev100StepCutRoots[i] == rootRevTicket)
+        {
+         if(step > g_rev100StepCutSteps[i])
+            g_rev100StepCutSteps[i] = step;
+         updated = true;
+         break;
+        }
+     }
+   if(!updated)
+     {
+      ArrayResize(g_rev100StepCutRoots, sz + 1);
+      ArrayResize(g_rev100StepCutSteps, sz + 1);
+      g_rev100StepCutRoots[sz] = rootRevTicket;
+      g_rev100StepCutSteps[sz] = step;
+     }
+
+   if(!(IsTesting() || IsOptimization()))
+      GlobalVariableSet(Reverse100StepGvKey(rootRevTicket), (double)step);
+  }
+
+//+------------------------------------------------------------------+
+//| DrawReverse100StepCutIcon: Marks chart on each _REV $100 step cut|
+//+------------------------------------------------------------------+
+void DrawReverse100StepCutIcon(int closedTicket, int rootRevTicket, int origParentTicket, int orderType, int stepNo, double advGap, double stepTriggerRaw, double cutLots, double remLots, double openPrice, double closePrice, double estPL, datetime hitTime = 0)
+  {
+   if(!InpDrawReverse100StepCutIcon || rootRevTicket <= 0 || stepNo <= 0)
+      return;
+
+   if(hitTime <= 0)
+      hitTime = TimeCurrent();
+
+   datetime barTime  = ((Bars > 0 && Time[0] > 0) ? Time[0] : hitTime);
+   string   baseName = PREFIX + "REV100_CUT_" + IntegerToString(rootRevTicket) + "_S" + IntegerToString(stepNo);
+   string   txtName  = baseName + "_TXT";
+
+   double atr = iATR(Symbol(), Period(), 14, 1);
+   if(atr <= 0.0)
+      atr = 30.0 * Point;
+   if(atr <= 0.0)
+      atr = 1.0;
+
+   bool   isBuyRev    = (orderType == OP_BUY);
+   double markerPrice = isBuyRev ? (((Bars > 0 && Low[0] > 0.0) ? Low[0] : closePrice) - atr * (1.25 + (stepNo % 3) * 0.25))
+                                 : (((Bars > 0 && High[0] > 0.0) ? High[0] : closePrice) + atr * (1.25 + (stepNo % 3) * 0.25));
+   double labelPrice  = isBuyRev ? (markerPrice - atr * 0.30) : (markerPrice + atr * 0.30);
+
+   color  iconColor   = InpReverse100StepCutIconColor;
+   int    arrowCode   = 251;
+   string sideTag     = isBuyRev ? "BUY" : "SELL";
+   string plSign      = (estPL >= 0.0) ? "+" : "-";
+   datetime dubaiDT   = hitTime + (ServerToDubaiOffsetHours * 3600);
+
+   string labelText = StringFormat("REV CUT #%d -$%.0f (-%.2fL)", stepNo, stepTriggerRaw, cutLots);
+   string tooltip   = StringFormat("REV100 STEP#%d PARTIAL CLOSE | _REV #%d (Root #%d, Par #%d, %s) | Cut:%.2fL Rem:%.2fL | Open:%s Close:%s | Adv:$%.1f>=$%.0f | EstPL:%s$%.2f | Dubai:%s",
+                                   stepNo, closedTicket, rootRevTicket, origParentTicket, sideTag,
+                                   cutLots, remLots, DoubleToString(openPrice, Digits), DoubleToString(closePrice, Digits),
+                                   advGap, stepTriggerRaw, plSign, MathAbs(estPL),
+                                   TimeToString(dubaiDT, TIME_DATE|TIME_MINUTES|TIME_SECONDS));
+
+   ObjectCreate(0, baseName, OBJ_ARROW, 0, barTime, markerPrice);
+   ObjectSetInteger(0, baseName, OBJPROP_ARROWCODE, arrowCode);
+   ObjectSetInteger(0, baseName, OBJPROP_COLOR, iconColor);
+   ObjectSetInteger(0, baseName, OBJPROP_WIDTH, 2);
+   ObjectSetInteger(0, baseName, OBJPROP_BACK, false);
+   ObjectSetInteger(0, baseName, OBJPROP_SELECTABLE, false);
+   ObjectSetInteger(0, baseName, OBJPROP_HIDDEN, false);
+   ObjectSetString(0, baseName, OBJPROP_TOOLTIP, tooltip);
+
+   ObjectCreate(0, txtName, OBJ_TEXT, 0, barTime, labelPrice);
+   ObjectSetString(0, txtName, OBJPROP_TEXT, labelText);
+   ObjectSetString(0, txtName, OBJPROP_FONT, "Arial Bold");
+   ObjectSetInteger(0, txtName, OBJPROP_FONTSIZE, 8);
+   ObjectSetInteger(0, txtName, OBJPROP_COLOR, iconColor);
+   ObjectSetInteger(0, txtName, OBJPROP_BACK, false);
+   ObjectSetInteger(0, txtName, OBJPROP_SELECTABLE, false);
+   ObjectSetInteger(0, txtName, OBJPROP_HIDDEN, false);
+   ObjectSetString(0, txtName, OBJPROP_TOOLTIP, tooltip);
+
+   ChartRedraw(0);
+  }
+
+//+------------------------------------------------------------------+
+//| ManageReverse100AdverseStepPartialClose:                         |
+//| Monitors all live RECOVERY_..._REV orders (and their "from #"    |
+//| partial-close children). Whenever price moves in the loss        |
+//| direction by another $100 step ($100, $200, $300...), closes     |
+//| 0.01 lot from that _REV order (progressively reducing exposure). |
+//| - OP_BUY  _REV: adverse move = OpenPrice - Bid >= N * $100       |
+//| - OP_SELL _REV: adverse move = Ask - OpenPrice >= N * $100       |
+//| Tracks completed step N by root _REV ticket across MT4 "from #"  |
+//| child tickets so each $100 milestone executes strictly once.     |
+//+------------------------------------------------------------------+
+void ManageReverse100AdverseStepPartialClose()
+  {
+   if(!InpReverse100EnableAdverseStepClose || !EAStartupComplete)
+      return;
+   if(ServerRecoveryPending || !IsConnected())
+      return;
+
+   double stepRaw  = (InpReverse100AdverseStepRaw > 0.0) ? InpReverse100AdverseStepRaw : 100.0;
+   double stepCfgL = (InpReverse100AdverseStepLots > 0.0) ? InpReverse100AdverseStepLots : 0.01;
+
+   double minLot  = MarketInfo(Symbol(), MODE_MINLOT);
+   double lotStep = MarketInfo(Symbol(), MODE_LOTSTEP);
+   if(minLot <= 0.0)
+      minLot = 0.01;
+   if(lotStep <= 0.0)
+      lotStep = 0.01;
+
+   int    lotDigits = (lotStep >= 1.0) ? 0 : ((lotStep >= 0.1) ? 1 : ((lotStep >= 0.01) ? 2 : 3));
+   double stepLots  = NormalizeDouble(MathRound(stepCfgL / lotStep) * lotStep, lotDigits);
+   if(stepLots < minLot)
+      stepLots = minLot;
+
+   RefreshRates();
+   if(Bid <= 0.0 || Ask <= 0.0)
+      return;
+
+   // Snapshot active _REV tickets first so partial-close ticket replacements never shift loop indices
+   int revTickets[200];
+   ArrayInitialize(revTickets, 0);
+   int revCount = 0;
+
+   for(int i = OrdersTotal() - 1; i >= 0; i--)
+     {
+      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
+         continue;
+      if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber)
+         continue;
+      int oType = OrderType();
+      if(oType != OP_BUY && oType != OP_SELL)
+         continue;
+
+      int    tkt    = OrderTicket();
+      string rawCmt = OrderComment();
+      string effCmt = GetEffectiveOrderComment(tkt, rawCmt);
+      if(StringFind(effCmt, "RECOVERY_") == 0 && StringFind(effCmt, "_REV") >= 0)
+        {
+         if(revCount < 200)
+            revTickets[revCount++] = tkt;
+        }
+     }
+
+   if(revCount == 0)
+      return;
+
+   bool     isTestRun   = (IsTesting() || IsOptimization());
+   datetime nowServer   = TimeCurrent();
+   bool     anyModified = false;
+
+   for(int k = 0; k < revCount; k++)
+     {
+      int curTicket = revTickets[k];
+      if(!OrderSelect(curTicket, SELECT_BY_TICKET, MODE_TRADES))
+         continue;
+      if(OrderCloseTime() != 0 || OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber)
+         continue;
+
+      int oType = OrderType();
+      if(oType != OP_BUY && oType != OP_SELL)
+         continue;
+
+      string rawComment = OrderComment();
+      string effComment = GetEffectiveOrderComment(curTicket, rawComment);
+      if(StringFind(effComment, "RECOVERY_") != 0 || StringFind(effComment, "_REV") < 0)
+         continue;
+
+      int rootRevTicket = ResolveRootTicketFromPartialChain(curTicket, rawComment);
+      if(rootRevTicket <= 0)
+         rootRevTicket = curTicket;
+
+      int origParentTicket = GetRecoveryOrderParentTicket(curTicket, effComment);
+
+      int guardLoops = 0;
+      while(guardLoops < 25)
+        {
+         guardLoops++;
+         if(!OrderSelect(curTicket, SELECT_BY_TICKET, MODE_TRADES))
+            break;
+         if(OrderCloseTime() != 0 || OrderType() != oType)
+            break;
+
+         RefreshRates();
+         double openPrice = OrderOpenPrice();
+         double curPrice  = (oType == OP_BUY) ? Bid : Ask;
+         double curLots   = OrderLots();
+         double curNetPL  = OrderProfit() + OrderSwap() + OrderCommission();
+         if(curPrice <= 0.0 || openPrice <= 0.0 || curLots < minLot - 1e-8)
+            break;
+
+         double adverseDistance = (oType == OP_BUY) ? (openPrice - curPrice) : (curPrice - openPrice);
+         if(adverseDistance + 1e-6 < stepRaw)
+            break;
+
+         int targetStep   = (int)MathFloor((adverseDistance + 1e-6) / stepRaw);
+         int lastDoneStep = GetReverse100AdverseCutStep(rootRevTicket);
+         if(targetStep <= lastDoneStep)
+            break;
+
+         double closeLot = stepLots;
+         if(curLots <= closeLot + 1e-8)
+           {
+            if(!InpReverse100AdverseStepCloseLast)
+               break;
+            closeLot = NormalizeDouble(curLots, lotDigits);
+           }
+         else
+           {
+            double remCheck = NormalizeDouble(curLots - closeLot, lotDigits);
+            if(remCheck > 1e-8 && remCheck < minLot - 1e-8)
+              {
+               double maxAllowedPartial = NormalizeDouble(curLots - minLot, lotDigits);
+               if(maxAllowedPartial >= lotStep - 1e-8)
+                  closeLot = maxAllowedPartial;
+               else if(InpReverse100AdverseStepCloseLast)
+                  closeLot = NormalizeDouble(curLots, lotDigits);
+               else
+                  break;
+              }
+           }
+
+         if(closeLot < minLot - 1e-8)
+            break;
+
+         int    nextStep       = lastDoneStep + 1;
+         double stepTriggerRaw = nextStep * stepRaw;
+         double remAfter       = NormalizeDouble(MathMax(0.0, curLots - closeLot), lotDigits);
+         double estSlicePL     = (curLots > 0.0) ? (curNetPL * (closeLot / curLots)) : curNetPL;
+         color  closeClr       = InpReverse100StepCutIconColor;
+
+         RecordOrderCloseReason(curTicket, StringFormat("REV100_STEP%d_%.0f_PARTIAL", nextStep, stepTriggerRaw));
+
+         ResetLastError();
+         g_eqDdForceCloseBudget = true;
+         bool closedOk = SafeOrderCloseMarket(curTicket, closeLot, Slippage, closeClr);
+         g_eqDdForceCloseBudget = false;
+
+         if(!closedOk)
+           {
+            if(g_rev100StepCutFailLogTime == 0 || (nowServer - g_rev100StepCutFailLogTime) >= 10)
+              {
+               g_rev100StepCutFailLogTime = nowServer;
+               PrintFormat(">>> [REV100 -$%.0f STEP#%d CLOSE FAIL] _REV #%d (Root #%d, Par #%d, %.2fL cut %.2fL) | Adv=$%.2f | Err=%d",
+                           stepRaw, nextStep, curTicket, rootRevTicket, origParentTicket,
+                           curLots, closeLot, adverseDistance, GetLastError());
+              }
+            break;
+           }
+
+         int closedTicket = curTicket;
+         anyModified = true;
+         SetReverse100AdverseCutStep(rootRevTicket, nextStep);
+         g_rev100StepCutTotalCuts++;
+         g_rev100StepCutTotalLots     += closeLot;
+         g_rev100StepCutLastHitTime    = (nowServer > 0 ? nowServer : TimeCurrent());
+         g_rev100StepCutLastRecTicket  = rootRevTicket;
+         g_rev100StepCutLastStep       = nextStep;
+         g_rev100StepCutLastAdvGap     = adverseDistance;
+
+         int nextTicket = -1;
+         if(remAfter >= minLot - 1e-8)
+           {
+            // Locate MT4 "from #<closedTicket>" child ticket and preserve RECOVERY_..._REV comment mapping
+            for(int r = OrdersTotal() - 1; r >= 0; r--)
+              {
+               if(!OrderSelect(r, SELECT_BY_POS, MODE_TRADES))
+                  continue;
+               if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber)
+                  continue;
+               int rType = OrderType();
+               if(rType != OP_BUY && rType != OP_SELL)
+                  continue;
+               int    rTkt  = OrderTicket();
+               string rComm = OrderComment();
+               if(rTkt != closedTicket && StringFind(rComm, "from #" + IntegerToString(closedTicket)) >= 0)
+                 {
+                  RegisterPreservedOrderComment(rTkt, effComment);
+                  nextTicket = rTkt;
+                  break;
+                 }
+              }
+            if(nextTicket <= 0)
+              {
+               if(OrderSelect(closedTicket, SELECT_BY_TICKET, MODE_TRADES) && OrderCloseTime() == 0 && OrderLots() >= minLot - 1e-8)
+                 {
+                  RegisterPreservedOrderComment(closedTicket, effComment);
+                  nextTicket = closedTicket;
+                 }
+              }
+           }
+         else if(!isTestRun)
+           {
+            string gvKey = Reverse100StepGvKey(rootRevTicket);
+            if(GlobalVariableCheck(gvKey))
+               GlobalVariableDel(gvKey);
+           }
+
+         DrawReverse100StepCutIcon(closedTicket, rootRevTicket, origParentTicket, oType, nextStep, adverseDistance, stepTriggerRaw, closeLot, remAfter, openPrice, curPrice, estSlicePL, nowServer);
+
+         PrintFormat(">>> [REV100 -$%.0f STEP#%d PARTIAL CLOSE] _REV %s #%d (Root #%d, Parent #%d) | Lots %.2fL -> Cut %.2fL, Rem %.2fL (Next #%d) | Open=%s Close=%s | AdvGap=$%.2f >= $%.0f | EstPL=%s$%.2f",
+                     stepRaw, nextStep, (oType == OP_BUY ? "BUY" : "SELL"),
+                     closedTicket, rootRevTicket, origParentTicket,
+                     curLots, closeLot, remAfter, MathMax(0, nextTicket),
+                     DoubleToString(openPrice, Digits), DoubleToString(curPrice, Digits),
+                     adverseDistance, stepTriggerRaw,
+                     (estSlicePL >= 0.0 ? "+" : "-"), MathAbs(estSlicePL));
+
+         if(nextTicket <= 0 || remAfter < minLot - 1e-8)
+            break;
+
+         curTicket = nextTicket;
+        }
+     }
+
+   if(anyModified)
+     {
+      InvalidateOrderCache();
+      InvalidateTotalEAOrdersCache();
+      LastDashboardUpdateMs = 0;
      }
   }
 
@@ -22199,7 +22625,7 @@ void CloseAllOrders()
          continue;
 
       // Skip recovery orders if your EA uses them separately
-      if(StringFind(OrderComment(), "RECOVERY_") == 0)
+      if(IsAnyRecoveryOrder(OrderTicket(), OrderComment()))
          continue;
 
       int orderType = OrderType();
@@ -22230,7 +22656,7 @@ void CheckDynamicStepLadder()
          continue;
       if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber)
          continue;
-      if(StringFind(OrderComment(), "RECOVERY_") == 0)
+      if(IsAnyRecoveryOrder(OrderTicket(), OrderComment()))
          continue;
 
       int orderType = OrderType();
@@ -23429,7 +23855,7 @@ void ManagePartialCloses()
       if(orderType != OP_BUY && orderType != OP_SELL)
          continue;
 
-      if(StringFind(OrderComment(), "RECOVERY_") == 0)
+      if(IsAnyRecoveryOrder(OrderTicket(), OrderComment()))
          continue;
 
       double orderLots = OrderLots();
@@ -23659,7 +24085,7 @@ void ManageProfitLadder()
          continue;
       if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber)
          continue;
-      if(StringFind(OrderComment(), "RECOVERY_") == 0)
+      if(IsAnyRecoveryOrder(OrderTicket(), OrderComment()))
          continue;
       int orderType = OrderType();
       if(orderType != OP_BUY && orderType != OP_SELL)
@@ -26686,7 +27112,7 @@ void UpdateLeftLiveOrdersDashboard()
    int revMaxCap   = (InpReverse100MaxActiveOrders > 0) ? InpReverse100MaxActiveOrders : 1;
    int revActCnt   = InpEnableReverse100Order ? CountActiveReverse100Orders() : 0;
    string revBadge = InpEnableReverse100Order
-                     ? StringFormat("   REV100 %d/%d (Hits:%d)", revActCnt, revMaxCap, g_rev100TotalOpened)
+                     ? StringFormat("   REV %d/%d H:%d C:%d", revActCnt, revMaxCap, g_rev100TotalOpened, g_rev100StepCutTotalCuts)
                      : "   REV100 OFF";
    string summaryText = "ORDERS " + IntegerToString(total) + "/" + IntegerToString(MaxOpenOrders) +
                         "   BUY " + IntegerToString(buyCount) +
@@ -27924,7 +28350,7 @@ int GetSmallestLossOrderTicket(int targetType)
       string comm = OrderComment();
 
       // Skip recovery orders, support orders, and horizontal line orders
-      if(StringFind(comm, "RECOVERY_") >= 0 || IsFLIPBasketSupportOrder(tkt, comm))
+      if(IsAnyRecoveryOrder(tkt, comm) || IsFLIPBasketSupportOrder(tkt, comm))
          continue;
       if(!InpAllowRecoveryForHorizontalOrders && IsHorizontalLineOrder(tkt, comm))
          continue;
@@ -28869,10 +29295,10 @@ void ManageHorizontalOrderEndedStopLoss()
       if(oType != OP_BUY && oType != OP_SELL)
          continue;
 
-      string comm = OrderComment();
-      if(StringFind(comm, "RECOVERY_") >= 0)
-         continue; // Recovery orders managed exclusively by ManageRecoveryBasket
       int tkt = OrderTicket();
+      string comm = OrderComment();
+      if(IsAnyRecoveryOrder(tkt, comm))
+         continue; // Recovery orders managed exclusively by ManageRecoveryBasket
       bool isOrderLineEnded = false;
       string lineTypeStr = "";
 
