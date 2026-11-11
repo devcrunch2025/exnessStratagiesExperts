@@ -44,7 +44,7 @@ CheckBasketProfitClose  Total open basket profit
 
 
 
-string glbVersion = "VMULTI-1151- 1H Plan D (1M 31-90%)";
+string glbVersion = "VMULTI-1152- REV100 Skip Partial";
 
 
 
@@ -438,6 +438,7 @@ double InpReverse100StopLossRaw             = 3000.0;// Initial StopLoss raw dis
 double InpReverse100TakeProfitRaw           = 500.0; // Initial TakeProfit raw distance ($500)
 bool   InpReverse100IncludeHorizontal       = true;  // Include Horizontal line orders (EQH / EQL) as qualifying parents
 bool   InpReverse100IncludeFlipSupport      = false; // Exclude internal non-horizontal FLIPBasketSupport orders (default false)
+bool   InpReverse100SkipPartialClosed       = true;  // Do not create _REV recovery orders for partially closed orders (comments like "from #...")
 bool   InpDrawReverse100Icon                = true;  // Draw chart arrow & label when a $100 2X Reverse order opens
 color  InpReverse100BuyIconColor            = clrDeepSkyBlue; // Chart icon & label color for 2X BUY Reverse order
 color  InpReverse100SellIconColor           = clrMagenta;     // Chart icon & label color for 2X SELL Reverse order
@@ -7679,6 +7680,7 @@ double GetType3RequiredEmaDistance(int elapsedMinutes);
 void   CheckTrendShiftHedgeRecoveryOrders();
 int    CountActiveHedgeRecoveryOrders();
 int    ResolveRootTicketFromPartialChain(int ticket, string comment = "");
+bool   IsPartialCloseOrderComment(string comment);
 void   ResetReverse100RuntimeState();
 void   InitReverse100TriggeredRegistry();
 int    CountActiveReverse100Orders();
@@ -20182,6 +20184,7 @@ void CheckTrendShiftHedgeRecoveryOrders()
 
 // ===== $100 ADVERSE OPPOSITE 2X REVERSE ORDER (1-TIME PER ORDER) =====
 int      g_rev100TriggeredParents[];
+int      g_rev100SkippedPartialTickets[];
 int      g_rev100TotalOpened      = 0;
 datetime g_rev100LastHitTime      = 0;
 int      g_rev100LastRecTicket    = 0;
@@ -20203,12 +20206,32 @@ string Reverse100GvKey(int parentTicket)
 void ResetReverse100RuntimeState()
   {
    ArrayResize(g_rev100TriggeredParents, 0);
+   ArrayResize(g_rev100SkippedPartialTickets, 0);
    g_rev100TotalOpened      = 0;
    g_rev100LastHitTime      = 0;
    g_rev100LastRecTicket    = 0;
    g_rev100LastParentTicket = 0;
    g_rev100LastAdvGap       = 0.0;
    g_rev100LastRecLots      = 0.0;
+  }
+
+//+------------------------------------------------------------------+
+//| IsPartialCloseOrderComment: Returns true when MT4 comment marks  |
+//| a partially closed order slice (e.g. "from #12345", "from ...")  |
+//+------------------------------------------------------------------+
+bool IsPartialCloseOrderComment(string comment)
+  {
+   string cmt = comment;
+   StringTrimLeft(cmt);
+   StringTrimRight(cmt);
+   if(cmt == "")
+      return false;
+   StringToLower(cmt);
+   if(StringFind(cmt, "from #") >= 0 || StringFind(cmt, "from#") >= 0)
+      return true;
+   if(StringFind(cmt, "from ") == 0 || StringFind(cmt, " from ") >= 0)
+      return true;
+   return false;
   }
 
 //+------------------------------------------------------------------+
@@ -20458,8 +20481,8 @@ void DrawReverse100OrderIcon(int recTicket, int rootParentTicket, int recType, d
 //| points in the opposite direction:                                |
 //| - BUY parent : (OpenPrice - Bid) > 100.0 & FloatPL < 0 -> 2X SELL|
 //| - SELL parent: (Ask - OpenPrice) > 100.0 & FloatPL < 0 -> 2X BUY |
-//| Runs STRICTLY ONCE per parent order lifetime (including across   |
-//| MT4 "from #" partial closes), never triggers on recovery/reverse |
+//| Runs STRICTLY ONCE per parent order lifetime, skips partially    |
+//| closed orders ("from ..."), never triggers on recovery/reverse   |
 //| child orders, caps simultaneous active _REV orders (default 2),  |
 //| and pairs parent + 2X reverse in ManageRecoveryBasket (+$2.00).  |
 //+------------------------------------------------------------------+
@@ -20518,6 +20541,32 @@ void CheckReverse100OppositeOrders()
       double adverseDistance = (parentType == OP_BUY) ? (parentOpen - Bid) : (Ask - parentOpen);
       if(adverseDistance <= minAdvGap)
          continue;
+
+      // Do not create RECOVERY_..._REV recovery orders for partially closed orders (e.g. "from #12345")
+      if(InpReverse100SkipPartialClosed && IsPartialCloseOrderComment(comment))
+        {
+         bool alreadyLoggedSkip = false;
+         int  skipSz = ArraySize(g_rev100SkippedPartialTickets);
+         for(int s = 0; s < skipSz; s++)
+           {
+            if(g_rev100SkippedPartialTickets[s] == parentTicket)
+              {
+               alreadyLoggedSkip = true;
+               break;
+              }
+           }
+         if(!alreadyLoggedSkip)
+           {
+            if(skipSz < 500)
+              {
+               ArrayResize(g_rev100SkippedPartialTickets, skipSz + 1);
+               g_rev100SkippedPartialTickets[skipSz] = parentTicket;
+              }
+            PrintFormat(">>> [REV100 SKIPPED PARTIAL] Parent %s #%d (%.2fL, AdvGap=$%.2f, FloatPL=-$%.2f) has partial-close comment '%s' -> Do NOT create _REV recovery order.",
+                        (parentType == OP_BUY ? "BUY" : "SELL"), parentTicket, parentLots, adverseDistance, MathAbs(floatNetPL), comment);
+           }
+         continue;
+        }
 
       // Never trigger a reverse order from another recovery or reverse order (prevents 2X -> 4X -> 8X loops)
       if(IsAnyRecoveryOrder(parentTicket, comment))
