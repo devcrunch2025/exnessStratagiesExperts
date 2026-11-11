@@ -1,4 +1,4 @@
-﻿//+------------------------------------------------------------------+
+//+------------------------------------------------------------------+
 //| TESTER & LIVE ORDER LOGGER ENGINE                                |
 //| High-Performance, Zero-Lag Trade Analysis Engine                |
 //| Generates independent Live & Testing logs with loss explanations |
@@ -241,6 +241,8 @@ void MarkOrderAsLogged(int ticket)
 string CategorizeOrderStrategy(int ticket, string comment)
   {
    string effComment = GetRootOrderComment(ticket, comment);
+   if(StringFind(effComment, "_REV") >= 0)
+      return "RECOVERY_REVERSE100";
    if(StringFind(effComment, "_HEDGE") >= 0)
       return "RECOVERY_HEDGE";
    if(StringFind(effComment, "_TYPE3") >= 0)
@@ -708,7 +710,7 @@ void GenerateTesterSummaryReport()
       else if(strat == "RECOVERY_TYPE1")              sIdx = 2;
       else if(strat == "RECOVERY_TYPE2_LSD")          sIdx = 3;
       else if(strat == "RECOVERY_TYPE3")              sIdx = 4;
-      else if(strat == "RECOVERY_HEDGE")              sIdx = 5;
+      else if(strat == "RECOVERY_HEDGE" || strat == "RECOVERY_REVERSE100") sIdx = 5;
       else if(strat == "FLIP_SUPPORT")                sIdx = 6;
 
       stratTotal[sIdx]++;
@@ -761,7 +763,7 @@ void GenerateTesterSummaryReport()
                            "3. Recovery Type 1 Classic ",
                            "4. Recovery Type 2 (LSD)   ",
                            "5. Recovery Type 3 (WeakEMA)",
-                           "6. Recovery Hedge Rescue   ",
+                           "6. Recovery Rev100 / Hedge ",
                            "7. FLIP Basket Support     ",
                            "8. Other / Scalp           "};
    for(int s = 0; s < 8; s++)
@@ -805,7 +807,7 @@ void GenerateTesterSummaryReport()
     WriteReportLineToFile(summaryFileName, StringFormat("2. SELL Basket Profit Closes       : Net=%s$%.2f USD", (g_cumFuncNet_SellBasket >= 0 ? "+" : "-"), MathAbs(g_cumFuncNet_SellBasket)), true);
     WriteReportLineToFile(summaryFileName, StringFormat("3. BUY Basket Profit Closes        : Net=%s$%.2f USD", (g_cumFuncNet_BuyBasket >= 0 ? "+" : "-"), MathAbs(g_cumFuncNet_BuyBasket)), true);
     WriteReportLineToFile(summaryFileName, StringFormat("4. $1 / Combination Profit Closes  : Net=%s$%.2f USD", (g_cumFuncNet_Combination >= 0 ? "+" : "-"), MathAbs(g_cumFuncNet_Combination)), true);
-    WriteReportLineToFile(summaryFileName, StringFormat("5. Recovery Baskets (LSD & Hedge)  : Net=%s$%.2f USD", (g_cumFuncNet_RecoveryBasket >= 0 ? "+" : "-"), MathAbs(g_cumFuncNet_RecoveryBasket)), true);
+    WriteReportLineToFile(summaryFileName, StringFormat("5. Recovery Baskets (LSD & Rev100)  : Net=%s$%.2f USD", (g_cumFuncNet_RecoveryBasket >= 0 ? "+" : "-"), MathAbs(g_cumFuncNet_RecoveryBasket)), true);
     WriteReportLineToFile(summaryFileName, StringFormat("6. Breakeven Step Trailing Stop    : Net=%s$%.2f USD (Protected Trades)", (g_cumFuncNet_BreakevenSL >= 0 ? "+" : "-"), MathAbs(g_cumFuncNet_BreakevenSL)), true);
     WriteReportLineToFile(summaryFileName, StringFormat("7. Stop Loss Hits (Adverse Moves)  : Net=-$%.2f USD", MathAbs(g_cumFuncNet_StopLossHit)), true);
     WriteReportLineToFile(summaryFileName, StringFormat("8. Loss Close Logic (Safety Stops) : Net=-$%.2f USD", MathAbs(g_cumFuncNet_LossCloseLogic)), true);
@@ -815,7 +817,7 @@ void GenerateTesterSummaryReport()
    Print(">>> Mode: ", (IsTesting() ? "STRATEGY TESTER" : "LIVE TRADING"), " | Trades: ", totalOrders,
          " | Effective WinRate: ", DoubleToString(winRate, 1), "% | Net Profit: $", DoubleToString(netTotal, 2),
          " | Profit Factor: ", DoubleToString(profitFactor, 2));
-   Print(">>> Recorders: T1=$", DoubleToString(stratNet[2], 2), " | T2(LSD)=$", DoubleToString(stratNet[3], 2), " | T3(WeakEMA)=$", DoubleToString(stratNet[4], 2), " | Hedge=$", DoubleToString(stratNet[5], 2));
+   Print(">>> Recorders: T1=$", DoubleToString(stratNet[2], 2), " | T2(LSD)=$", DoubleToString(stratNet[3], 2), " | T3(WeakEMA)=$", DoubleToString(stratNet[4], 2), " | Rev100/Hedge=$", DoubleToString(stratNet[5], 2));
    Print(">>> Detailed CSV: ", GetActiveLogFileName(), " | Summary: ", GetActiveSummaryFileName());
    Print(">>> ========================================================================");
   }
