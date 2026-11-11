@@ -44,7 +44,7 @@ CheckBasketProfitClose  Total open basket profit
 
 
 
-string glbVersion = "VMULTI-1154- >0.01L $100 Step 0.01 Cut No rev orders";
+string glbVersion = "VMULTI-1154- Old partial Close is enabled";
 
 
 
@@ -438,11 +438,11 @@ double InpReverse100StopLossRaw             = 3000.0;// Initial StopLoss raw dis
 double InpReverse100TakeProfitRaw           = 500.0; // Initial TakeProfit raw distance ($500)
 bool   InpReverse100IncludeHorizontal       = true;  // Include Horizontal line orders (EQH / EQL) as qualifying parents
 bool   InpReverse100IncludeFlipSupport      = false; // Exclude internal non-horizontal FLIPBasketSupport orders (default false)
-bool   InpReverse100SkipPartialClosed       = true;  // Do not create _REV recovery orders for partially closed orders (comments like "from #...")
-bool   InpReverse100EnableAdverseStepClose  = true;  // Partial-close 0.01 lot every $100 adverse move (loss direction) on orders with LOT > 0.05
+bool   InpReverse100SkipPartialClosed       = false;//true;  // Do not create _REV recovery orders for partially closed orders (comments like "from #...")
+bool   InpReverse100EnableAdverseStepClose  = false;//true;  // Partial-close 0.01 lot every $100 adverse move (loss direction) on orders with LOT > 0.05
 bool   InpAdverseStep100AllOrders           = true;  // Apply $100 step 0.01 partial close to ALL open orders with LOT > 0.05 (false = _REV only)
-double InpReverse100AdverseStepMinLots      = 0.01;  // Keep >0.05L floor: only cut orders with LOT > 0.05 and stop once remaining <= 0.05
-double InpReverse100AdverseStepRaw          = 500;//100.0; // Adverse raw price step per partial close ($100, $200, $300...)
+double InpReverse100AdverseStepMinLots      = 0.02;  // Keep >0.05L floor: only cut orders with LOT > 0.05 and stop once remaining <= 0.05
+double InpReverse100AdverseStepRaw          = 1000;//500;//100.0; // Adverse raw price step per partial close ($100, $200, $300...)
 double InpReverse100AdverseStepLots         = 0.01;  // Fixed lot size to partial-close per adverse $100 step (0.01)
 bool   InpReverse100AdverseStepCloseLast    = false; // Stop at >0.05 floor (false = never close remaining <=0.05L)
 bool   InpDrawReverse100StepCutIcon         = true;  // Draw chart marker & label when a $100 adverse step 0.01 partial close executes
@@ -558,7 +558,7 @@ double   InpDubaiNightMaxEmaAngleDeg         = 1.0;   // Maximum allowed MathAbs
 bool     InpEnableDubaiNightDayProfitClose   = true;  // OR after window start: close ALL open orders once/day if equity profit > 5% vs Dubai opening day equity
 double   InpDubaiNightDayProfitPct           = 5.0;   // Required day profit % on opening day equity (> 5.0%, e.g. $500 -> >$525)
 double   InpDubaiNightPartialCutPct          = 50.0;  // Path B before 11:45PM: partial-close 50% lots per order every 30 min (leaves minLot)
-int      InpDubaiNightCutIntervalMinutes     = 30;    // Path B partial 50% lot cut interval in minutes (30 min)
+int      InpDubaiNightCutIntervalMinutes     = 60;    // Path B partial 50% lot cut interval in minutes (30 min)
 int      g_dubaiNightCloseDayKey             = -1;    // Active Dubai calendar day key (Year*1000 + DayOfYear)
 double   g_dubaiDayOpeningEquity             = 0.0;   // AccountEquity() captured at Dubai day start (00:00)
 datetime g_dubaiNightLastCutTime             = 0;     // Broker TimeCurrent() of last Path B 50% lot cut pass
@@ -12183,7 +12183,7 @@ void OnTick()
    CheckAndCloseOrphanFLIPBasketSupportOrders();
 
    CheckForNewDay();
-   ManageDubaiNightOneSideCloseAll();
+   //ManageDubaiNightOneSideCloseAll();
 
    IsDailyEquityStopReached();
 
@@ -23612,11 +23612,11 @@ void ManagePartialClosesLoss()
          continue;
 
 
-      if(orderType == OP_BUY && GetOpenPL(OP_BUY)>-AccountEquity()/3)
+      if(orderType == OP_BUY && GetOpenPL(OP_BUY)>-(50*balancelomultipler))
          continue;
 
 
-      if(orderType == OP_SELL && GetOpenPL(OP_SELL)>-AccountEquity()/3)
+      if(orderType == OP_SELL && GetOpenPL(OP_SELL)>-(50*balancelomultipler))
          continue;
 
       // Exclude recovery orders from regular scalp partial loss cuts
