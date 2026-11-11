@@ -44,7 +44,7 @@ CheckBasketProfitClose  Total open basket profit
 
 
 
-string glbVersion = "VMULTI-1154- >0.05L $100 Step 0.01 Cut";
+string glbVersion = "VMULTI-1154- >0.05L $100 Step 0.01 Cut No rev orders";
 
 
 
@@ -428,7 +428,7 @@ double InpHedgeRecoveryTakeProfitRaw        = 500.0; // TakeProfit raw points ($
 int    InpHedgeRecoveryMaxActiveOrders      = 1;     // Max simultaneous active Hedge Recovery orders (default 1)
 
 // ===== $100 ADVERSE OPPOSITE 2X REVERSE ORDER (1-TIME PER ORDER) =====
-bool   InpEnableReverse100Order             = true;  // Enable 2X opposite reverse order when any losing order moves > $100 raw opposite (once per order)
+bool   InpEnableReverse100Order             = false;//true;  // Enable 2X opposite reverse order when any losing order moves > $100 raw opposite (once per order)
 double InpReverse100MinAdverseGap           = 100.0; // Strict raw opposite price move required (> 100.0: BUY Open-Bid > 100, SELL Ask-Open > 100)
 double InpReverse100MinLossUSD              = 0.0;   // Minimum floating loss USD (strictly < -MinLossUSD, 0.0 = any negative floating net P/L)
 double InpReverse100LotMultiplier           = 2.0;   // Opposite reverse order lot multiplier (2.0 = 2X parent open lot)
