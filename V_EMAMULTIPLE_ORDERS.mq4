@@ -44,7 +44,7 @@ CheckBasketProfitClose  Total open basket profit
 
 
 
-string glbVersion = "VMULTI-1154- >0.05L $100 Step 0.01 Cut No rev orders";
+string glbVersion = "VMULTI-1154- >0.01L $100 Step 0.01 Cut No rev orders";
 
 
 
@@ -441,7 +441,7 @@ bool   InpReverse100IncludeFlipSupport      = false; // Exclude internal non-hor
 bool   InpReverse100SkipPartialClosed       = true;  // Do not create _REV recovery orders for partially closed orders (comments like "from #...")
 bool   InpReverse100EnableAdverseStepClose  = true;  // Partial-close 0.01 lot every $100 adverse move (loss direction) on orders with LOT > 0.05
 bool   InpAdverseStep100AllOrders           = true;  // Apply $100 step 0.01 partial close to ALL open orders with LOT > 0.05 (false = _REV only)
-double InpReverse100AdverseStepMinLots      = 0.05;  // Keep >0.05L floor: only cut orders with LOT > 0.05 and stop once remaining <= 0.05
+double InpReverse100AdverseStepMinLots      = 0.01;  // Keep >0.05L floor: only cut orders with LOT > 0.05 and stop once remaining <= 0.05
 double InpReverse100AdverseStepRaw          = 500;//100.0; // Adverse raw price step per partial close ($100, $200, $300...)
 double InpReverse100AdverseStepLots         = 0.01;  // Fixed lot size to partial-close per adverse $100 step (0.01)
 bool   InpReverse100AdverseStepCloseLast    = false; // Stop at >0.05 floor (false = never close remaining <=0.05L)
