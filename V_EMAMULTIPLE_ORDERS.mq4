@@ -4938,7 +4938,9 @@ void ManageHourlySideLoss20PctCut()
                              (!InpHourlyPlanCOncePerDay || !g_hourlyPlanCDoneToday) &&
                              dayOpenC > 0.0 &&
                              dayProfPC > planCThr);
-         if(planCHit && MathAbs( GlobalEmaAngle30)>4)
+                             
+                             //15 min//30 min
+         if(planCHit && MathAbs( GlobalEmaAngle30)>4 && !IsEmaWEAKDistanceReduced50PercentFromPeak())
            {
             int remOpenC = 0;
             if(ExecuteHourlyPlanCCloseAll(dayOpenC, curEqC, dayProfUC, dayProfPC, nowServer, remOpenC) && remOpenC == 0)
@@ -5009,7 +5011,9 @@ void ManageHourlySideLoss20PctCut()
                           (!InpHourlyPlanAOncePerDay || !g_hourlyPlanADoneToday) &&
                           dayOpenEq > 0.0 &&
                           dayProfitPct > planAThresh);
-   if(planADayHit)
+                          
+                          //1 hour 
+   if(planADayHit && MathAbs( GlobalEmaAngle30)>4 && !IsEmaWEAKDistanceReduced50PercentFromPeak())
      {
       ExecuteHourlyPlanACloseAll(dayOpenEq, curEquity, dayProfitUSD, dayProfitPct, nowServer);
       return; // Plan A triggered -> OR skips Plan B on this hourly evaluation
