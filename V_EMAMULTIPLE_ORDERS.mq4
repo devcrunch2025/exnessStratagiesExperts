@@ -4938,7 +4938,7 @@ void ManageHourlySideLoss20PctCut()
                              (!InpHourlyPlanCOncePerDay || !g_hourlyPlanCDoneToday) &&
                              dayOpenC > 0.0 &&
                              dayProfPC > planCThr);
-         if(planCHit)
+         if(planCHit && MathAbs( GlobalEmaAngle30)>3)
            {
             int remOpenC = 0;
             if(ExecuteHourlyPlanCCloseAll(dayOpenC, curEqC, dayProfUC, dayProfPC, nowServer, remOpenC) && remOpenC == 0)
