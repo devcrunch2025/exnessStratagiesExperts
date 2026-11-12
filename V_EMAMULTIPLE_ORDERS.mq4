@@ -360,10 +360,10 @@ bool   InpHourlyPlanCOncePerDay           = false;  // Plan C repeat mode: false
 color  InpHourlyPlanCIconColor            = clrGold;// Plan C: Chart icon & label color when 15M Plan C (DayEq >10%) executes
 bool   InpDrawHourlyPlanCIcon             = true;   // Plan C: Draw chart icon & label whenever 15M Plan C (>10% Close All) executes
 int    InpHourlyPlanCIconCode             = 252;    // Plan C: Chart icon Wingdings code (252=checkmark, 171=star, 238=shield)
-bool   InpEnableHourlyPlanDDayProfitClose = true;   // Plan D (Extra): Check every 1 min (1st min >31%, 2nd >32%, ..., 60th >90%); close ALL & reset every 1h
+bool   InpEnableHourlyPlanDDayProfitClose = false;//true;   // Plan D (Extra): Check every 1 min (1st min >31%, 2nd >32%, ..., 60th >90%); close ALL & reset every 1h
 int    InpHourlyPlanDIntervalSeconds      = 60;     // Plan D check interval in seconds (60 = every 1 minute)
 int    InpHourlyPlanDCycleMinutes         = 60;     // Plan D hourly reset cycle in minutes (60 = reset at top of every hour back to min 1)
-double InpHourlyPlanDStartPct             = 15.0;   // Plan D: 1st minute (:00) Day equity profit threshold % (> 21.0%)
+double InpHourlyPlanDStartPct             = 6;//15.0;   // Plan D: 1st minute (:00) Day equity profit threshold % (> 21.0%)
 double InpHourlyPlanDStepPerMinPct        = 1.0;    // Plan D: Minute step increment % (+1.0% per min -> min 2 >32%, ..., min 59 >89%, min 60 >90%)
 double InpHourlyPlanDMaxPct               = 90.0;   // Plan D: Maximum threshold cap % at 60th minute (> 90.0%)
 bool   InpHourlyPlanDOncePerHour          = true;   // Plan D repeat mode (Option 3): true = trigger max 1x/hour then wait for :00 hourly reset (false = repeat inside hour)
