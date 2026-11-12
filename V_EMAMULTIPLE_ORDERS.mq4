@@ -44,7 +44,7 @@ CheckBasketProfitClose  Total open basket profit
 
 
 
-string glbVersion = "VMULTI-1163 - Hourly Profit Close Only (Plan B 1H Side Loss Cut OFF)";
+string glbVersion = "VMULTI-1163 - FINAL - OLD Partial loss ,with $4000 Balance multiplier , Hourly Profit Close Only (Plan B 1H Side Loss Cut OFF)";
 
 
 
