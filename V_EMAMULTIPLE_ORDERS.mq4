@@ -1963,7 +1963,7 @@ void RegisterOrder90PctCut(int ticket)
      {
       g_orders90PctCutTickets[g_orders90PctCutCount++] = ticket;
      }
-   // Persist to terminal GlobalVariable so order is strictly modified ONE TIME ONLY
+// Persist to terminal GlobalVariable so order is strictly modified ONE TIME ONLY
    GlobalVariableSet("EA_90PCT_CUT_" + IntegerToString(ticket), 1.0);
   }
 
@@ -2219,6 +2219,9 @@ string EqDdGvKey(int ticket)
    return "EA_EQDD_T_" + IntegerToString(MagicNumber) + "_" + IntegerToString(ticket);
   }
 
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
 string EqDdDailyGvKey(string suffix)
   {
    return "EA_EQDD_" + suffix + "_" + IntegerToString(MagicNumber) + "_" + Symbol();
@@ -2409,21 +2412,22 @@ void ResetEqDdSideCycleState(int sideType, string reason = "")
       g_eqDdBuyLastReachPct     = 0.0;
       g_eqDdBuyLastReachReason  = "";
      }
-   else if(sideType == OP_SELL)
-     {
-      g_eqDdSellCurrentTier      = 0;
-      g_eqDdSellCurrentPct       = 0.0;
-      g_eqDdSellCurrentUSD       = 0.0;
-      g_eqDdSellPeakPct          = 0.0;
-      g_eqDdSellCloseAllPending  = false;
-      g_eqDdSellLastIconTier     = 0;
-      g_eqDdSellCycleHighestTier = 0;
-      g_eqDdSellLastLoggedTier   = 0;
-      g_eqDdSellLastReachTime    = 0;
-      g_eqDdSellLastReachTier    = 0;
-      g_eqDdSellLastReachPct     = 0.0;
-      g_eqDdSellLastReachReason  = "";
-     }
+   else
+      if(sideType == OP_SELL)
+        {
+         g_eqDdSellCurrentTier      = 0;
+         g_eqDdSellCurrentPct       = 0.0;
+         g_eqDdSellCurrentUSD       = 0.0;
+         g_eqDdSellPeakPct          = 0.0;
+         g_eqDdSellCloseAllPending  = false;
+         g_eqDdSellLastIconTier     = 0;
+         g_eqDdSellCycleHighestTier = 0;
+         g_eqDdSellLastLoggedTier   = 0;
+         g_eqDdSellLastReachTime    = 0;
+         g_eqDdSellLastReachTier    = 0;
+         g_eqDdSellLastReachPct     = 0.0;
+         g_eqDdSellLastReachReason  = "";
+        }
 
    g_eqDdCurrentTier      = MathMax(g_eqDdBuyCurrentTier, g_eqDdSellCurrentTier);
    g_eqDdCurrentPct       = MathMax(g_eqDdBuyCurrentPct, g_eqDdSellCurrentPct);
@@ -2452,33 +2456,35 @@ void ResetEqDdSideCycleState(int sideType, string reason = "")
          g_eqDdLastReachReason = "";
         }
      }
-   else if(sideType == OP_SELL && g_eqDdLastReachSide == "SELL")
-     {
-      if(g_eqDdBuyLastReachTime > 0 && g_eqDdBuyCurrentTier >= g_eqDdBuyLastReachTier)
+   else
+      if(sideType == OP_SELL && g_eqDdLastReachSide == "SELL")
         {
-         g_eqDdLastReachTime   = g_eqDdBuyLastReachTime;
-         g_eqDdLastReachSide   = "BUY";
-         g_eqDdLastReachTier   = g_eqDdBuyLastReachTier;
-         g_eqDdLastReachPct    = g_eqDdBuyLastReachPct;
-         g_eqDdLastReachReason = g_eqDdBuyLastReachReason;
+         if(g_eqDdBuyLastReachTime > 0 && g_eqDdBuyCurrentTier >= g_eqDdBuyLastReachTier)
+           {
+            g_eqDdLastReachTime   = g_eqDdBuyLastReachTime;
+            g_eqDdLastReachSide   = "BUY";
+            g_eqDdLastReachTier   = g_eqDdBuyLastReachTier;
+            g_eqDdLastReachPct    = g_eqDdBuyLastReachPct;
+            g_eqDdLastReachReason = g_eqDdBuyLastReachReason;
+           }
+         else
+           {
+            g_eqDdLastReachTime   = 0;
+            g_eqDdLastReachSide   = "";
+            g_eqDdLastReachTier   = 0;
+            g_eqDdLastReachPct    = 0.0;
+            g_eqDdLastReachReason = "";
+           }
         }
       else
-        {
-         g_eqDdLastReachTime   = 0;
-         g_eqDdLastReachSide   = "";
-         g_eqDdLastReachTier   = 0;
-         g_eqDdLastReachPct    = 0.0;
-         g_eqDdLastReachReason = "";
-        }
-     }
-   else if(g_eqDdCycleHighestTier == 0 && g_eqDdCurrentTier == 0)
-     {
-      g_eqDdLastReachTime   = 0;
-      g_eqDdLastReachSide   = "";
-      g_eqDdLastReachTier   = 0;
-      g_eqDdLastReachPct    = 0.0;
-      g_eqDdLastReachReason = "";
-     }
+         if(g_eqDdCycleHighestTier == 0 && g_eqDdCurrentTier == 0)
+           {
+            g_eqDdLastReachTime   = 0;
+            g_eqDdLastReachSide   = "";
+            g_eqDdLastReachTier   = 0;
+            g_eqDdLastReachPct    = 0.0;
+            g_eqDdLastReachReason = "";
+           }
   }
 
 //+------------------------------------------------------------------+
@@ -2516,11 +2522,12 @@ void CalcEqDdSideDrawdowns(double balance, double &buyNetPLOut, double &buyDdPct
          buyNetPLOut += (OrderProfit() + OrderSwap() + OrderCommission());
          buyCountOut++;
         }
-      else if(ot == OP_SELL)
-        {
-         sellNetPLOut += (OrderProfit() + OrderSwap() + OrderCommission());
-         sellCountOut++;
-        }
+      else
+         if(ot == OP_SELL)
+           {
+            sellNetPLOut += (OrderProfit() + OrderSwap() + OrderCommission());
+            sellCountOut++;
+           }
      }
    if(prevSel > 0)
      {
@@ -2562,11 +2569,31 @@ int ResolveEqDdTierAndCut(double ddPct, double &cutPctOut)
         }
      }
 
-   if((ddPct + 1e-6) >= InpEqDdTier5Pct)      { cutPctOut = InpEqDdTier5CutPct; return 5; }
-   if((ddPct + 1e-6) >= InpEqDdTier4Pct)      { cutPctOut = InpEqDdTier4CutPct; return 4; }
-   if((ddPct + 1e-6) >= InpEqDdTier3Pct)      { cutPctOut = InpEqDdTier3CutPct; return 3; }
-   if((ddPct + 1e-6) >= InpEqDdTier2Pct)      { cutPctOut = InpEqDdTier2CutPct; return 2; }
-   if(InpEqDdEnableTier1 && (ddPct + 1e-6) >= InpEqDdTier1Pct) { cutPctOut = InpEqDdTier1CutPct; return 1; }
+   if((ddPct + 1e-6) >= InpEqDdTier5Pct)
+     {
+      cutPctOut = InpEqDdTier5CutPct;
+      return 5;
+     }
+   if((ddPct + 1e-6) >= InpEqDdTier4Pct)
+     {
+      cutPctOut = InpEqDdTier4CutPct;
+      return 4;
+     }
+   if((ddPct + 1e-6) >= InpEqDdTier3Pct)
+     {
+      cutPctOut = InpEqDdTier3CutPct;
+      return 3;
+     }
+   if((ddPct + 1e-6) >= InpEqDdTier2Pct)
+     {
+      cutPctOut = InpEqDdTier2CutPct;
+      return 2;
+     }
+   if(InpEqDdEnableTier1 && (ddPct + 1e-6) >= InpEqDdTier1Pct)
+     {
+      cutPctOut = InpEqDdTier1CutPct;
+      return 1;
+     }
    return 0;
   }
 
@@ -2575,12 +2602,18 @@ int ResolveEqDdTierAndCut(double ddPct, double &cutPctOut)
 //------------------------------------------------------------------+
 color GetEqDdTierColor(int tier)
   {
-   if(tier >= 6) return clrMagenta;
-   if(tier == 5) return clrRed;
-   if(tier == 4) return clrTomato;
-   if(tier == 3) return clrOrangeRed;
-   if(tier == 2) return clrOrange;
-   if(tier == 1) return clrGold;
+   if(tier >= 6)
+      return clrMagenta;
+   if(tier == 5)
+      return clrRed;
+   if(tier == 4)
+      return clrTomato;
+   if(tier == 3)
+      return clrOrangeRed;
+   if(tier == 2)
+      return clrOrange;
+   if(tier == 1)
+      return clrGold;
    return clrSilver;
   }
 
@@ -2589,15 +2622,23 @@ color GetEqDdTierColor(int tier)
 //------------------------------------------------------------------+
 double GetEqDdTierThresholdPct(int tier)
   {
-   if(tier <= 1) return InpEqDdTier1Pct;
-   if(tier == 2) return InpEqDdTier2Pct;
-   if(tier == 3) return InpEqDdTier3Pct;
-   if(tier == 4) return InpEqDdTier4Pct;
-   if(tier == 5) return InpEqDdTier5Pct;
+   if(tier <= 1)
+      return InpEqDdTier1Pct;
+   if(tier == 2)
+      return InpEqDdTier2Pct;
+   if(tier == 3)
+      return InpEqDdTier3Pct;
+   if(tier == 4)
+      return InpEqDdTier4Pct;
+   if(tier == 5)
+      return InpEqDdTier5Pct;
    double stepSize = (InpEqDdStepPct > 0.0 ? InpEqDdStepPct : 10.0);
    return tier * stepSize;
   }
 
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
 int ResolveNextEqDdTier(int curTier, int doneTier, double &nextThreshOut)
   {
    int firstTier = InpEqDdEnableTier1 ? 1 : 2;
@@ -2613,6 +2654,9 @@ int ResolveNextEqDdTier(int curTier, int doneTier, double &nextThreshOut)
    return nextTier;
   }
 
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
 string FormatDubaiShortDT(datetime serverTime, bool withSeconds = false)
   {
    if(serverTime <= 0)
@@ -2682,7 +2726,7 @@ void DrawEqDdHitIcon(int tier, double ddPct, double ddUSD, double bal, double eq
                                  tierTitle, ddPct, ddUSD, bal, eq, ordersHit, lotsCut,
                                  TimeToString(hitTime, TIME_DATE|TIME_MINUTES|TIME_SECONDS));
 
-   // Prevent duplicate on same bar & tier, unless upgrading threshold-only icon to actual cut icon
+// Prevent duplicate on same bar & tier, unless upgrading threshold-only icon to actual cut icon
    if(ObjectFind(0, baseName) >= 0 || ObjectFind(0, txtName) >= 0)
      {
       if(ordersHit <= 0)
@@ -2704,7 +2748,7 @@ void DrawEqDdHitIcon(int tier, double ddPct, double ddUSD, double bal, double eq
       return;
      }
 
-   // 1. Solid Marker Icon (Wingdings 171 star, 238 shield, 159 dot, or 251 check)
+// 1. Solid Marker Icon (Wingdings 171 star, 238 shield, 159 dot, or 251 check)
    ObjectCreate(0, baseName, OBJ_ARROW, 0, barTime, markerPrice);
    ObjectSetInteger(0, baseName, OBJPROP_ARROWCODE, iconCode);
    ObjectSetInteger(0, baseName, OBJPROP_COLOR, iconColor);
@@ -2714,7 +2758,7 @@ void DrawEqDdHitIcon(int tier, double ddPct, double ddUSD, double bal, double eq
    ObjectSetInteger(0, baseName, OBJPROP_HIDDEN, false);
    ObjectSetString(0, baseName, OBJPROP_TOOLTIP, tooltip);
 
-   // 2. Bold Drawdown % Text Label
+// 2. Bold Drawdown % Text Label
    ObjectCreate(0, txtName, OBJ_TEXT, 0, barTime, labelPrice);
    ObjectSetString(0, txtName, OBJPROP_TEXT, labelText);
    ObjectSetString(0, txtName, OBJPROP_FONT, "Arial Black");
@@ -2784,7 +2828,7 @@ void ManageEquityDrawdownForSide(int sideType)
    int  sideLastLogged      = isBuy ? g_eqDdBuyLastLoggedTier    : g_eqDdSellLastLoggedTier;
    bool sideCloseAllPending = isBuy ? g_eqDdBuyCloseAllPending   : g_eqDdSellCloseAllPending;
 
-   // Side drawdown cleared (Side P/L >= 0 or 0 open orders on this side) -> reset ONLY this side
+// Side drawdown cleared (Side P/L >= 0 or 0 open orders on this side) -> reset ONLY this side
    if(sideOrderCount == 0 || sideNetPL >= 0.0)
      {
       if(sideCurTier > 0 || sideCycleHighest > 0 || sideLastLogged > 0 || sideCloseAllPending || HasEqDdTrackedSide(sideType))
@@ -2811,12 +2855,16 @@ void ManageEquityDrawdownForSide(int sideType)
       activeTier          = maxT + 1;
       activeCutPct        = 100.0;
       sideCloseAllPending = true;
-      if(isBuy) g_eqDdBuyCloseAllPending = true;
-      else      g_eqDdSellCloseAllPending = true;
+      if(isBuy)
+         g_eqDdBuyCloseAllPending = true;
+      else
+         g_eqDdSellCloseAllPending = true;
      }
 
-   if(isBuy) g_eqDdBuyCurrentTier = activeTier;
-   else      g_eqDdSellCurrentTier = activeTier;
+   if(isBuy)
+      g_eqDdBuyCurrentTier = activeTier;
+   else
+      g_eqDdSellCurrentTier = activeTier;
 
    g_eqDdCurrentTier     = MathMax(g_eqDdBuyCurrentTier, g_eqDdSellCurrentTier);
    g_eqDdCloseAllPending = (g_eqDdBuyCloseAllPending || g_eqDdSellCloseAllPending);
@@ -2840,7 +2888,7 @@ void ManageEquityDrawdownForSide(int sideType)
    double eqDdMult        = (balancelomultipler > 0) ? balancelomultipler : 1.0;
    double minOrderLossUSD = InpEqDdMinOrderLossUSD * eqDdMult;
 
-   // Phase 1: Snapshot losing open market orders STRICTLY on sideType (OP_BUY or OP_SELL)
+// Phase 1: Snapshot losing open market orders STRICTLY on sideType (OP_BUY or OP_SELL)
    int    candTickets[500];
    ArrayInitialize(candTickets, 0);
    int    candCount         = 0;
@@ -2903,8 +2951,10 @@ void ManageEquityDrawdownForSide(int sideType)
      {
       if(sideCloseAllPending)
          PrintFormat(">>> [EQ-DD %s CLOSE-ALL COMPLETE] All losing %s orders have been closed.", sideName, sideName);
-      if(isBuy) g_eqDdBuyCloseAllPending = false;
-      else      g_eqDdSellCloseAllPending = false;
+      if(isBuy)
+         g_eqDdBuyCloseAllPending = false;
+      else
+         g_eqDdSellCloseAllPending = false;
       g_eqDdCloseAllPending = (g_eqDdBuyCloseAllPending || g_eqDdSellCloseAllPending);
       return;
      }
@@ -2914,12 +2964,14 @@ void ManageEquityDrawdownForSide(int sideType)
      {
       if(skippedMinLot > 0 && skippedSmallLoss == 0 && skippedAlreadyCut == 0)
          waitReason = StringFormat("MinLot(%d)", skippedMinLot);
-      else if(skippedSmallLoss > 0 && skippedMinLot == 0 && skippedAlreadyCut == 0)
-         waitReason = StringFormat("Loss<$%.0f(%d)", minOrderLossUSD, skippedSmallLoss);
-      else if(skippedAlreadyCut > 0 && skippedMinLot == 0 && skippedSmallLoss == 0)
-         waitReason = StringFormat("CutDone(%d)", skippedAlreadyCut);
       else
-         waitReason = StringFormat("ML:%d <$%.0f:%d Cut:%d", skippedMinLot, minOrderLossUSD, skippedSmallLoss, skippedAlreadyCut);
+         if(skippedSmallLoss > 0 && skippedMinLot == 0 && skippedAlreadyCut == 0)
+            waitReason = StringFormat("Loss<$%.0f(%d)", minOrderLossUSD, skippedSmallLoss);
+         else
+            if(skippedAlreadyCut > 0 && skippedMinLot == 0 && skippedSmallLoss == 0)
+               waitReason = StringFormat("CutDone(%d)", skippedAlreadyCut);
+            else
+               waitReason = StringFormat("ML:%d <$%.0f:%d Cut:%d", skippedMinLot, minOrderLossUSD, skippedSmallLoss, skippedAlreadyCut);
 
       if(isBuy)
         {
@@ -2980,7 +3032,7 @@ void ManageEquityDrawdownForSide(int sideType)
    if(candCount == 0)
       return;
 
-   // Phase 2: Execute tier action ONLY on snapshot candidates of sideType
+// Phase 2: Execute tier action ONLY on snapshot candidates of sideType
    int    remainingClosedFail = 0;
    int    sweepHits           = 0;
    double sweepLotsCut        = 0.0;
@@ -3157,8 +3209,10 @@ void ManageEquityDrawdownForSide(int sideType)
         }
       if(stillLosing == 0)
         {
-         if(isBuy) g_eqDdBuyCloseAllPending = false;
-         else      g_eqDdSellCloseAllPending = false;
+         if(isBuy)
+            g_eqDdBuyCloseAllPending = false;
+         else
+            g_eqDdSellCloseAllPending = false;
          g_eqDdCloseAllPending = (g_eqDdBuyCloseAllPending || g_eqDdSellCloseAllPending);
          PrintFormat(">>> [EQ-DD %s CLOSE-ALL COMPLETE] All losing %s orders closed; latch cleared.", sideName, sideName);
         }
@@ -3176,7 +3230,7 @@ void ExecuteEqDdFreshDayReset(datetime nowServer, datetime dubaiTime, int dubaiD
    g_eqDdPriorDayPeakPct = g_eqDdSessionPeakPct;
    g_eqDdPriorDayLotsCut = g_eqDdTotalLotsReduced;
 
-   // 1. Wipe open-order and "from #parent" ancestor GVs persisted across restarts
+// 1. Wipe open-order and "from #parent" ancestor GVs persisted across restarts
    if(!isTestRun)
      {
       int prevSel = OrderTicket();
@@ -3201,8 +3255,9 @@ void ExecuteEqDdFreshDayReset(datetime nowServer, datetime dubaiTime, int dubaiD
               {
                if(OrderSelect(curTicket, SELECT_BY_TICKET, MODE_TRADES))
                   curComm = OrderComment();
-               else if(OrderSelect(curTicket, SELECT_BY_TICKET, MODE_HISTORY))
-                  curComm = OrderComment();
+               else
+                  if(OrderSelect(curTicket, SELECT_BY_TICKET, MODE_HISTORY))
+                     curComm = OrderComment();
               }
 
             int pos = StringFind(curComm, "from #");
@@ -3224,10 +3279,10 @@ void ExecuteEqDdFreshDayReset(datetime nowServer, datetime dubaiTime, int dubaiD
         }
      }
 
-   // 2. Reset tracked ticket array and BUY/SELL/aggregate cycle state
+// 2. Reset tracked ticket array and BUY/SELL/aggregate cycle state
    ResetEqDdCycleState(triggerReason);
 
-   // 3. Reset all daily/session stats, counters, hit/reset history to fresh start
+// 3. Reset all daily/session stats, counters, hit/reset history to fresh start
    g_eqDdForceCloseBudget    = false;
    g_eqDdSessionPeakPct      = 0.0;
    g_eqDdTotalPartialCuts    = 0;
@@ -3263,7 +3318,7 @@ void ExecuteEqDdFreshDayReset(datetime nowServer, datetime dubaiTime, int dubaiD
    g_eqDdSellLastHitOrders   = 0;
    g_eqDdSellLastHitLots     = 0.0;
 
-   // Reset idle RLF peak tracker if no active relief SLs are protecting open tickets
+// Reset idle RLF peak tracker if no active relief SLs are protecting open tickets
    if(!g_drawdownReliefExecuted && g_drawdownReliefTicketCount == 0 && (g_drawdownReliefPeakUSD > 0.0 || g_drawdownReliefArmed))
       ResetDrawdownReliefCycle("Fresh Dubai Day Start");
 
@@ -3273,7 +3328,7 @@ void ExecuteEqDdFreshDayReset(datetime nowServer, datetime dubaiTime, int dubaiD
    if(!isTestRun)
      {
       GlobalVariableSet(EqDdDailyGvKey("DAYKEY"), (double)dubaiDayKey);
-      GlobalVariableSet(EqDdDailyGvKey("RSTT"),   (double)nowServer);
+      GlobalVariableSet(EqDdDailyGvKey("RSTT"), (double)nowServer);
      }
 
    LastDashboardUpdateMs = 0;
@@ -3585,69 +3640,71 @@ void SyncDubaiDayOpeningState(datetime nowServer = 0)
            }
         }
      }
-   else if(dubaiDayKey != g_dubaiNightCloseDayKey)
-     {
-      bool wasDoneYesterday = g_dubaiNightCloseDoneToday;
-      int  prevCuts         = g_dubaiNightCutCountToday;
-      g_dubaiNightCloseDayKey       = dubaiDayKey;
-      g_dubaiNightCloseDoneToday    = false;
-      g_dubaiNightCloseRetryPending = false;
-      g_dubaiNightLastCutTime       = 0;
-      g_dubaiNightCutCountToday     = 0;
-      g_dubaiDayOpeningEquity       = seedEquity;
-      g_dubaiNightLastCloseTag      = "";
-      g_dubaiNightLastCloseOrders   = 0;
-      g_dubaiNightLastCloseLots     = 0.0;
-      g_dubaiNightLastClosePL       = 0.0;
-      g_dubaiNightLastCutZeroSide   = "";
-      g_dubaiNightLastCutOrders     = 0;
-      g_dubaiNightLastCutLots       = 0.0;
-      g_dubaiNightLastCutPL         = 0.0;
-      g_dubaiNightLastCutSkippedMin = 0;
-      g_dubaiNightLastResetTime     = nowServer;
-      g_hourlyPlanADoneToday        = false;
-      g_hourlyPlanAHitsToday        = 0;
-      g_hourlyPlanCDoneToday        = false;
-      g_hourlyPlanCHitsToday        = 0;
-      g_hourlyPlanDDoneToday        = false;
-      g_hourlyPlanDHitsToday        = 0;
-      g_hourlyPlanDDoneHourSlot     = -1;
-      if(!isTestRun)
+   else
+      if(dubaiDayKey != g_dubaiNightCloseDayKey)
         {
-         if(GlobalVariableCheck(gvKey))
-            GlobalVariableDel(gvKey);
-         if(GlobalVariableCheck(gvLastCutK))
-            GlobalVariableDel(gvLastCutK);
-         if(GlobalVariableCheck(gvCutCntK))
-            GlobalVariableDel(gvCutCntK);
-         if(GlobalVariableCheck(gvPlanADnK))
-            GlobalVariableDel(gvPlanADnK);
-         if(GlobalVariableCheck(gvPlanCDnK))
-            GlobalVariableDel(gvPlanCDnK);
-         if(GlobalVariableCheck(gvPlanDDnK))
-            GlobalVariableDel(gvPlanDDnK);
-         if(GlobalVariableCheck(gvPlanDHrK))
-            GlobalVariableDel(gvPlanDHrK);
-         if(seedEquity > 0.0)
+         bool wasDoneYesterday = g_dubaiNightCloseDoneToday;
+         int  prevCuts         = g_dubaiNightCutCountToday;
+         g_dubaiNightCloseDayKey       = dubaiDayKey;
+         g_dubaiNightCloseDoneToday    = false;
+         g_dubaiNightCloseRetryPending = false;
+         g_dubaiNightLastCutTime       = 0;
+         g_dubaiNightCutCountToday     = 0;
+         g_dubaiDayOpeningEquity       = seedEquity;
+         g_dubaiNightLastCloseTag      = "";
+         g_dubaiNightLastCloseOrders   = 0;
+         g_dubaiNightLastCloseLots     = 0.0;
+         g_dubaiNightLastClosePL       = 0.0;
+         g_dubaiNightLastCutZeroSide   = "";
+         g_dubaiNightLastCutOrders     = 0;
+         g_dubaiNightLastCutLots       = 0.0;
+         g_dubaiNightLastCutPL         = 0.0;
+         g_dubaiNightLastCutSkippedMin = 0;
+         g_dubaiNightLastResetTime     = nowServer;
+         g_hourlyPlanADoneToday        = false;
+         g_hourlyPlanAHitsToday        = 0;
+         g_hourlyPlanCDoneToday        = false;
+         g_hourlyPlanCHitsToday        = 0;
+         g_hourlyPlanDDoneToday        = false;
+         g_hourlyPlanDHitsToday        = 0;
+         g_hourlyPlanDDoneHourSlot     = -1;
+         if(!isTestRun)
            {
-            GlobalVariableSet(gvOpenDayK, (double)dubaiDayKey);
-            GlobalVariableSet(gvOpenEqK,  g_dubaiDayOpeningEquity);
+            if(GlobalVariableCheck(gvKey))
+               GlobalVariableDel(gvKey);
+            if(GlobalVariableCheck(gvLastCutK))
+               GlobalVariableDel(gvLastCutK);
+            if(GlobalVariableCheck(gvCutCntK))
+               GlobalVariableDel(gvCutCntK);
+            if(GlobalVariableCheck(gvPlanADnK))
+               GlobalVariableDel(gvPlanADnK);
+            if(GlobalVariableCheck(gvPlanCDnK))
+               GlobalVariableDel(gvPlanCDnK);
+            if(GlobalVariableCheck(gvPlanDDnK))
+               GlobalVariableDel(gvPlanDDnK);
+            if(GlobalVariableCheck(gvPlanDHrK))
+               GlobalVariableDel(gvPlanDHrK);
+            if(seedEquity > 0.0)
+              {
+               GlobalVariableSet(gvOpenDayK, (double)dubaiDayKey);
+               GlobalVariableSet(gvOpenEqK,  g_dubaiDayOpeningEquity);
+              }
            }
-        }
 
-      PrintFormat(">>> [DUBAI NIGHT CLOSE RESET] Next Day Start | DubaiTime=%s (DayKey=%d) | NewOpeningEq=$%.2f | PrevDone=%s (Cuts=%d) -> Status RESET",
-                  TimeToString(dubaiTime, TIME_DATE|TIME_MINUTES|TIME_SECONDS),
-                  dubaiDayKey, g_dubaiDayOpeningEquity, (wasDoneYesterday ? "YES" : "NO"), prevCuts);
-     }
-   else if(g_dubaiDayOpeningEquity <= 0.0 && seedEquity > 0.0)
-     {
-      g_dubaiDayOpeningEquity = seedEquity;
-      if(!isTestRun)
-        {
-         GlobalVariableSet(gvOpenDayK, (double)dubaiDayKey);
-         GlobalVariableSet(gvOpenEqK,  g_dubaiDayOpeningEquity);
+         PrintFormat(">>> [DUBAI NIGHT CLOSE RESET] Next Day Start | DubaiTime=%s (DayKey=%d) | NewOpeningEq=$%.2f | PrevDone=%s (Cuts=%d) -> Status RESET",
+                     TimeToString(dubaiTime, TIME_DATE|TIME_MINUTES|TIME_SECONDS),
+                     dubaiDayKey, g_dubaiDayOpeningEquity, (wasDoneYesterday ? "YES" : "NO"), prevCuts);
         }
-     }
+      else
+         if(g_dubaiDayOpeningEquity <= 0.0 && seedEquity > 0.0)
+           {
+            g_dubaiDayOpeningEquity = seedEquity;
+            if(!isTestRun)
+              {
+               GlobalVariableSet(gvOpenDayK, (double)dubaiDayKey);
+               GlobalVariableSet(gvOpenEqK,  g_dubaiDayOpeningEquity);
+              }
+           }
   }
 
 //+------------------------------------------------------------------+
@@ -4055,7 +4112,7 @@ void ExecuteHourlySideLossCutForSide(int sideType, double balance, double sideNe
    if(cutFrac > 0.99)
       cutFrac = 0.99;
 
-   // Phase 1: Snapshot losing open market orders strictly on sideType (never mixed with opposite side)
+// Phase 1: Snapshot losing open market orders strictly on sideType (never mixed with opposite side)
    int candTickets[500];
    ArrayInitialize(candTickets, 0);
    int candCount     = 0;
@@ -4101,7 +4158,7 @@ void ExecuteHourlySideLossCutForSide(int sideType, double balance, double sideNe
       return;
      }
 
-   // Phase 2: Partial-close 20% LOT on each snapshotted candidate order (minimum LOT = 0.01)
+// Phase 2: Partial-close 20% LOT on each snapshotted candidate order (minimum LOT = 0.01)
    int    cutHits       = 0;
    int    cutFail       = 0;
    double cutLotsTotal  = 0.0;
@@ -4206,7 +4263,7 @@ bool ExecuteHourlyPlanACloseAll(double dayOpenEq, double curEquity, double dayPr
    datetime dubaiTime = nowServer + (ServerToDubaiOffsetHours * 3600);
    bool     isTestRun = (IsTesting() || IsOptimization());
 
-   // Snapshot all live open market orders (OP_BUY + OP_SELL) for this Symbol & MagicNumber
+// Snapshot all live open market orders (OP_BUY + OP_SELL) for this Symbol & MagicNumber
    int buyCount  = 0;
    int sellCount = 0;
    int openTickets[1000];
@@ -4227,12 +4284,13 @@ bool ExecuteHourlyPlanACloseAll(double dayOpenEq, double curEquity, double dayPr
          if(openCount < 1000)
             openTickets[openCount++] = OrderTicket();
         }
-      else if(oType == OP_SELL)
-        {
-         sellCount++;
-         if(openCount < 1000)
-            openTickets[openCount++] = OrderTicket();
-        }
+      else
+         if(oType == OP_SELL)
+           {
+            sellCount++;
+            if(openCount < 1000)
+               openTickets[openCount++] = OrderTicket();
+           }
      }
 
    double planAThr = (InpHourlyPlanADayProfitPct > 0.0) ? InpHourlyPlanADayProfitPct : 5.0;
@@ -4341,12 +4399,13 @@ bool ExecuteHourlyPlanACloseAll(double dayOpenEq, double curEquity, double dayPr
       if(ShowLeftLiveOrdersDashboard)
          UpdateLeftLiveOrdersDashboard();
      }
-   else if(failCount > 0)
-     {
-      PrintFormat(">>> [1H PLAN-A ATTEMPT FAILED] Dubai=%s | DayEq=+%.2f%% (>%.1f%%) | Open=%d Fail=%d Rem=%d [OR Plan B skipped]",
-                  TimeToString(dubaiTime, TIME_DATE|TIME_MINUTES|TIME_SECONDS),
-                  dayProfitPct, planAThr, openCount, failCount, remainingOpen);
-     }
+   else
+      if(failCount > 0)
+        {
+         PrintFormat(">>> [1H PLAN-A ATTEMPT FAILED] Dubai=%s | DayEq=+%.2f%% (>%.1f%%) | Open=%d Fail=%d Rem=%d [OR Plan B skipped]",
+                     TimeToString(dubaiTime, TIME_DATE|TIME_MINUTES|TIME_SECONDS),
+                     dayProfitPct, planAThr, openCount, failCount, remainingOpen);
+        }
 
    return true;
   }
@@ -4383,12 +4442,13 @@ bool ExecuteHourlyPlanCCloseAll(double dayOpenEq, double curEquity, double dayPr
          if(openCount < 1000)
             openTickets[openCount++] = OrderTicket();
         }
-      else if(oType == OP_SELL)
-        {
-         sellCount++;
-         if(openCount < 1000)
-            openTickets[openCount++] = OrderTicket();
-        }
+      else
+         if(oType == OP_SELL)
+           {
+            sellCount++;
+            if(openCount < 1000)
+               openTickets[openCount++] = OrderTicket();
+           }
      }
 
    if(openCount == 0)
@@ -4489,12 +4549,13 @@ bool ExecuteHourlyPlanCCloseAll(double dayOpenEq, double curEquity, double dayPr
          UpdateLeftLiveOrdersDashboard();
       return true;
      }
-   else if(failCount > 0)
-     {
-      PrintFormat(">>> [1H PLAN-C 15M ATTEMPT FAILED] Dubai=%s | DayEq=+%.2f%% (>%.1f%%) | Open=%d Fail=%d Rem=%d",
-                  TimeToString(dubaiTime, TIME_DATE|TIME_MINUTES|TIME_SECONDS),
-                  dayProfitPct, planCThr, openCount, failCount, remainingOpen);
-     }
+   else
+      if(failCount > 0)
+        {
+         PrintFormat(">>> [1H PLAN-C 15M ATTEMPT FAILED] Dubai=%s | DayEq=+%.2f%% (>%.1f%%) | Open=%d Fail=%d Rem=%d",
+                     TimeToString(dubaiTime, TIME_DATE|TIME_MINUTES|TIME_SECONDS),
+                     dayProfitPct, planCThr, openCount, failCount, remainingOpen);
+        }
 
    return false;
   }
@@ -4533,12 +4594,13 @@ bool ExecuteHourlyPlanDCloseAll(double dayOpenEq, double curEquity, double dayPr
          if(openCount < 1000)
             openTickets[openCount++] = OrderTicket();
         }
-      else if(oType == OP_SELL)
-        {
-         sellCount++;
-         if(openCount < 1000)
-            openTickets[openCount++] = OrderTicket();
-        }
+      else
+         if(oType == OP_SELL)
+           {
+            sellCount++;
+            if(openCount < 1000)
+               openTickets[openCount++] = OrderTicket();
+           }
      }
 
    if(openCount == 0)
@@ -4649,12 +4711,13 @@ bool ExecuteHourlyPlanDCloseAll(double dayOpenEq, double curEquity, double dayPr
          UpdateLeftLiveOrdersDashboard();
       return true;
      }
-   else if(failCount > 0)
-     {
-      PrintFormat(">>> [1M PLAN-D MIN#%d ATTEMPT FAILED] Dubai=%s | DayEq=+%.2f%% (>%.0f%%) | Open=%d Fail=%d Rem=%d",
-                  minInHour, TimeToString(dubaiTime, TIME_DATE|TIME_MINUTES|TIME_SECONDS),
-                  dayProfitPct, planDThr, openCount, failCount, remainingOpen);
-     }
+   else
+      if(failCount > 0)
+        {
+         PrintFormat(">>> [1M PLAN-D MIN#%d ATTEMPT FAILED] Dubai=%s | DayEq=+%.2f%% (>%.0f%%) | Open=%d Fail=%d Rem=%d",
+                     minInHour, TimeToString(dubaiTime, TIME_DATE|TIME_MINUTES|TIME_SECONDS),
+                     dayProfitPct, planDThr, openCount, failCount, remainingOpen);
+        }
 
    return false;
   }
@@ -4681,12 +4744,12 @@ void ManageHourlySideLoss20PctCut()
    if(nowServer <= 0)
       return;
 
-   // Ensure Dubai 00:00 GST opening equity & midnight rollover are synced BEFORE any 1H Plan A/C/D check
+// Ensure Dubai 00:00 GST opening equity & midnight rollover are synced BEFORE any 1H Plan A/C/D check
    SyncDubaiDayOpeningState(nowServer);
 
    bool isTestRun = (IsTesting() || IsOptimization());
 
-   // ===== EXTRA PLAN D: Check every 1 min (Min 1 >31% .. Min 60 >90%, Reset every 1 hour) -> Close ALL =====
+// ===== EXTRA PLAN D: Check every 1 min (Min 1 >31% .. Min 60 >90%, Reset every 1 hour) -> Close ALL =====
    int    intervalDSec = MathMax(1, InpHourlyPlanDIntervalSeconds);
    long   curSlotD     = (long)(((long)nowServer) / intervalDSec);
    int    minInHourD   = 1;
@@ -4792,7 +4855,7 @@ void ManageHourlySideLoss20PctCut()
          if(!isTestRun)
            {
             GlobalVariableSet(gvSlotDK, (double)curSlotD);
-            GlobalVariableSet(gvRunDK,  (double)nowServer);
+            GlobalVariableSet(gvRunDK, (double)nowServer);
            }
 
          double curEqD    = AccountEquity();
@@ -4811,7 +4874,7 @@ void ManageHourlySideLoss20PctCut()
         }
      }
 
-   // ===== EXTRA PLAN C: Check every 15 min -> Day Equity Profit > 10% vs Dubai 00:00 opening equity -> Close ALL =====
+// ===== EXTRA PLAN C: Check every 15 min -> Day Equity Profit > 10% vs Dubai 00:00 opening equity -> Close ALL =====
    int    intervalCSec = MathMax(60, InpHourlyPlanCIntervalMinutes * 60);
    long   curSlotC     = (long)(((long)nowServer) / intervalCSec);
    string gvSlotCK     = "EA_HRLYC_SLOT_" + IntegerToString(MagicNumber) + "_" + Symbol() + "_" + IntegerToString(InpHourlyPlanCIntervalMinutes);
@@ -4858,7 +4921,7 @@ void ManageHourlySideLoss20PctCut()
       if(!isTestRun)
         {
          GlobalVariableSet(gvSlotCK, (double)curSlotC);
-         GlobalVariableSet(gvRunCK,  (double)nowServer);
+         GlobalVariableSet(gvRunCK, (double)nowServer);
         }
 
       if(!planDClosedAllThisTick)
@@ -4881,7 +4944,7 @@ void ManageHourlySideLoss20PctCut()
         }
      }
 
-   // ===== 1-HOUR PLAN A / PLAN B TIMER GATE (60 MIN) =====
+// ===== 1-HOUR PLAN A / PLAN B TIMER GATE (60 MIN) =====
    int    intervalSec = MathMax(60, InpHourlySideLossIntervalMinutes * 60);
    long   curSlot     = (long)(((long)nowServer) / intervalSec);
    string gvSlotK     = "EA_HRLY_LOSS_SLOT_" + IntegerToString(MagicNumber) + "_" + Symbol() + "_" + IntegerToString(InpHourlySideLossIntervalMinutes);
@@ -4926,14 +4989,14 @@ void ManageHourlySideLoss20PctCut()
    if(!isTestRun)
      {
       GlobalVariableSet(gvSlotK, (double)curSlot);
-      GlobalVariableSet(gvRunK,  (double)nowServer);
+      GlobalVariableSet(gvRunK, (double)nowServer);
      }
 
-   // If Plan D or Plan C already closed 100% of open market orders on this tick, avoid duplicate icon/close
+// If Plan D or Plan C already closed 100% of open market orders on this tick, avoid duplicate icon/close
    if(planDClosedAllThisTick || planCClosedAllThisTick)
       return;
 
-   // ===== PLAN A: Day Equity Profit > 5% vs Dubai 00:00 opening equity -> Close ALL open orders =====
+// ===== PLAN A: Day Equity Profit > 5% vs Dubai 00:00 opening equity -> Close ALL open orders =====
    double curEquity    = AccountEquity();
    double dayOpenEq    = g_dubaiDayOpeningEquity;
    double dayProfitUSD = (dayOpenEq > 0.0) ? (curEquity - dayOpenEq) : 0.0;
@@ -4949,7 +5012,7 @@ void ManageHourlySideLoss20PctCut()
       return; // Plan A triggered -> OR skips Plan B on this hourly evaluation
      }
 
-   // ===== OR PLAN B: Per-Side Floating Loss > 20% -> Close 20% LOT (Min 0.01) =====
+// ===== OR PLAN B: Per-Side Floating Loss > 20% -> Close 20% LOT (Min 0.01) =====
    if(!InpEnableHourlyPlanBSideLossCut)
       return;
 
@@ -4965,7 +5028,7 @@ void ManageHourlySideLoss20PctCut()
    double cutPct    = (InpHourlySideLossCutPct > 0.0 && InpHourlySideLossCutPct <= 100.0) ? InpHourlySideLossCutPct : 20.0;
    double minLotCfg = (InpHourlySideLossMinLot > 0.0) ? InpHourlySideLossMinLot : 0.01;
 
-   // Evaluate BUY only and SELL only independently (never combine BUY + SELL floating loss)
+// Evaluate BUY only and SELL only independently (never combine BUY + SELL floating loss)
    if(buyCount > 0 && buyNetPL < 0.0 && buyDdPct > threshPct)
       ExecuteHourlySideLossCutForSide(OP_BUY, balance, buyNetPL, buyDdPct, nowServer, cutPct, minLotCfg);
 
@@ -5040,12 +5103,13 @@ void SyncPriceGapCloseAnchor(double curFlipPrice, bool isTestRun)
                if(savedBarIdx >= 0 && curBarIdx >= 0 && MathAbs(savedBarIdx - curBarIdx) <= 1)
                   sameFlipCycle = true;
               }
-            else if(savedSrcFlip > 0.0)
-              {
-               double tol = MathMax(Point * 10.0, curFlipPrice * 0.001);
-               if(MathAbs(savedSrcFlip - curFlipPrice) <= tol)
-                  sameFlipCycle = true;
-              }
+            else
+               if(savedSrcFlip > 0.0)
+                 {
+                  double tol = MathMax(Point * 10.0, curFlipPrice * 0.001);
+                  if(MathAbs(savedSrcFlip - curFlipPrice) <= tol)
+                     sameFlipCycle = true;
+                 }
            }
 
          if(sameFlipCycle)
@@ -5075,7 +5139,7 @@ void SyncPriceGapCloseAnchor(double curFlipPrice, bool isTestRun)
       return;
      }
 
-   // Detect new EMA flip in runtime (via EmaFlipTime change or active flip price change)
+// Detect new EMA flip in runtime (via EmaFlipTime change or active flip price change)
    bool flipTimeChanged  = (EmaFlipTime > 0 && g_priceGapCloseAnchorFlipT > 0 && EmaFlipTime != g_priceGapCloseAnchorFlipT);
    bool flipPriceChanged = (g_priceGapCloseSourceFlipPx > 0.0 && MathAbs(curFlipPrice - g_priceGapCloseSourceFlipPx) > (Point * 0.5));
    if(flipTimeChanged || flipPriceChanged || g_priceGapCloseAnchorPrice <= 0.0)
@@ -5181,7 +5245,7 @@ void ManagePriceGap1000DayProfit5PctCloseAll()
    if(nowServer <= 0)
       return;
 
-   // Sync Dubai 00:00 GST day opening equity & anchor against active EMA flip cycle
+// Sync Dubai 00:00 GST day opening equity & anchor against active EMA flip cycle
    SyncDubaiDayOpeningState(nowServer);
 
    bool   isTestRun    = (IsTesting() || IsOptimization());
@@ -5192,7 +5256,7 @@ void ManagePriceGap1000DayProfit5PctCloseAll()
 
    RefreshRates();
    double curPrice = (Bid > 0.0 && Ask > 0.0) ? ((Bid + Ask) * 0.5)
-                                              : ((Bars > 0 && Close[0] > 0.0) ? Close[0] : Bid);
+                     : ((Bars > 0 && Close[0] > 0.0) ? Close[0] : Bid);
    if(curPrice <= 0.0)
       return;
 
@@ -5208,7 +5272,7 @@ void ManagePriceGap1000DayProfit5PctCloseAll()
    if(rawGap <= gapReq || dayOpenEq <= 0.0 || dayProfitPct <= eqPctReq)
       return;
 
-   // Snapshot all live open market orders (OP_BUY + OP_SELL) for this Symbol & MagicNumber
+// Snapshot all live open market orders (OP_BUY + OP_SELL) for this Symbol & MagicNumber
    int buyCount  = 0;
    int sellCount = 0;
    int openTickets[1000];
@@ -5229,12 +5293,13 @@ void ManagePriceGap1000DayProfit5PctCloseAll()
          if(openCount < 1000)
             openTickets[openCount++] = OrderTicket();
         }
-      else if(oType == OP_SELL)
-        {
-         sellCount++;
-         if(openCount < 1000)
-            openTickets[openCount++] = OrderTicket();
-        }
+      else
+         if(oType == OP_SELL)
+           {
+            sellCount++;
+            if(openCount < 1000)
+               openTickets[openCount++] = OrderTicket();
+           }
      }
 
    if(openCount == 0)
@@ -5346,16 +5411,17 @@ void ManagePriceGap1000DayProfit5PctCloseAll()
       if(ShowLeftLiveOrdersDashboard)
          UpdateLeftLiveOrdersDashboard();
      }
-   else if(failCount > 0)
-     {
-      if(g_priceGapCloseFailLogTime == 0 || (nowServer - g_priceGapCloseFailLogTime) >= 10)
+   else
+      if(failCount > 0)
         {
-         g_priceGapCloseFailLogTime = nowServer;
-         PrintFormat(">>> [PRICE GAP >%.0f & DAY EQ >%.1f%% ATTEMPT FAILED] Dubai=%s | Gap=$%.2f | DayEq=+%.2f%% | Open=%d Fail=%d Rem=%d",
-                     gapReq, eqPctReq, TimeToString(dubaiTime, TIME_DATE|TIME_MINUTES|TIME_SECONDS),
-                     rawGap, dayProfitPct, openCount, failCount, remainingOpen);
+         if(g_priceGapCloseFailLogTime == 0 || (nowServer - g_priceGapCloseFailLogTime) >= 10)
+           {
+            g_priceGapCloseFailLogTime = nowServer;
+            PrintFormat(">>> [PRICE GAP >%.0f & DAY EQ >%.1f%% ATTEMPT FAILED] Dubai=%s | Gap=$%.2f | DayEq=+%.2f%% | Open=%d Fail=%d Rem=%d",
+                        gapReq, eqPctReq, TimeToString(dubaiTime, TIME_DATE|TIME_MINUTES|TIME_SECONDS),
+                        rawGap, dayProfitPct, openCount, failCount, remainingOpen);
+           }
         }
-     }
   }
 
 // ===== ADVERSE PRICE-CHANGE STEP LOSS CUTTER STATE =====
@@ -5493,7 +5559,7 @@ void ProcessAdversePriceStepCutForSide(int sideType, double balance, double equi
    double minLotCfg  = (InpStepLossMinLot > 0.0) ? InpStepLossMinLot : 0.01;
    double minOrdLoss = (InpStepLossMinOrderLossUSD >= 0.0) ? InpStepLossMinOrderLossUSD : 1.0;
 
-   // Reset side cycle cleanly whenever side has no orders or recovers to net breakeven/profit
+// Reset side cycle cleanly whenever side has no orders or recovers to net breakeven/profit
    if(sideCount <= 0 || sideNetPL >= 0.0)
      {
       if(curAnchor > 0.0 || curSteps > 0)
@@ -5593,8 +5659,8 @@ void ProcessAdversePriceStepCutForSide(int sideType, double balance, double equi
    if(cutFrac > 0.99)
       cutFrac = 0.99;
 
-   // Snapshot splittable (>0.01L) and already-minimum-lot (<=0.01L) losing orders BEFORE cutting,
-   // so an order trimmed down to 0.01L in THIS step waits for the NEXT step before being considered for full close.
+// Snapshot splittable (>0.01L) and already-minimum-lot (<=0.01L) losing orders BEFORE cutting,
+// so an order trimmed down to 0.01L in THIS step waits for the NEXT step before being considered for full close.
    int    splitTickets[500];
    int    minTickets[500];
    double minPLs[500];
@@ -5642,7 +5708,7 @@ void ProcessAdversePriceStepCutForSide(int sideType, double balance, double equi
    if(splitCount == 0 && minCount == 0)
       return;
 
-   // Sort already-0.01L losing orders by deepest loss first (most negative P/L ascending)
+// Sort already-0.01L losing orders by deepest loss first (most negative P/L ascending)
    for(int a = 0; a < minCount - 1; a++)
      {
       int bestIdx = a;
@@ -5670,7 +5736,7 @@ void ProcessAdversePriceStepCutForSide(int sideType, double balance, double equi
    double   estPLTot   = 0.0;
    color    closeClr   = isEmergency ? clrRed : clrOrange;
 
-   // Step Part 1: Partial-close 20% LOT (35% in Emergency) on losing orders > 0.01L
+// Step Part 1: Partial-close 20% LOT (35% in Emergency) on losing orders > 0.01L
    for(int k = 0; k < splitCount; k++)
      {
       int tkt = splitTickets[k];
@@ -5731,7 +5797,7 @@ void ProcessAdversePriceStepCutForSide(int sideType, double balance, double equi
         }
      }
 
-   // Step Part 2: Full-close worst already-0.01L losing order(s) step-by-step (1 Normal / 2 Emergency)
+// Step Part 2: Full-close worst already-0.01L losing order(s) step-by-step (1 Normal / 2 Emergency)
    int fullClosedDone = 0;
    for(int m = 0; m < minCount && fullClosedDone < maxMinClose; m++)
      {
@@ -5837,13 +5903,14 @@ void ProcessAdversePriceStepCutForSide(int sideType, double balance, double equi
       if(ShowLeftLiveOrdersDashboard)
          UpdateLeftLiveOrdersDashboard();
      }
-   else if(failCount > 0)
-     {
-      if(isBuy)
-         g_stepLossBuyFailLogTime = nowServer;
-      else
-         g_stepLossSellFailLogTime = nowServer;
-     }
+   else
+      if(failCount > 0)
+        {
+         if(isBuy)
+            g_stepLossBuyFailLogTime = nowServer;
+         else
+            g_stepLossSellFailLogTime = nowServer;
+        }
   }
 
 //+------------------------------------------------------------------+
@@ -6049,7 +6116,7 @@ void Check50PctDrawdownReliefTightenSL()
    if(currentDrawdown > reliefTargetDrawdown)
       return; // Has not reduced by 50% yet
 
-   // Check 2-hour price difference condition (> $2000 raw price)
+// Check 2-hour price difference condition (> $2000 raw price)
    double priceDiff2h = 0.0;
    if(InpDrawdownReliefMinPriceDiff2Hours > 0.0)
      {
@@ -6061,7 +6128,7 @@ void Check50PctDrawdownReliefTightenSL()
         }
      }
 
-   // Check minimum EMA angle condition (MathAbs(EMAangle) > 6.0)
+// Check minimum EMA angle condition (MathAbs(EMAangle) > 6.0)
    double curEmaAng = (GlobalEmaAngle30 != 0.0) ? GlobalEmaAngle30 : GetEmaAngleDegrees(30);
    if(InpDrawdownReliefMinEmaAngle > 0.0 && MathAbs(curEmaAng) <= InpDrawdownReliefMinEmaAngle)
      {
@@ -6135,7 +6202,10 @@ void Check50PctDrawdownReliefTightenSL()
             if(ok)
               {
                modifiedCount++;
-               if(isWinner) winningModified++; else losingModified++;
+               if(isWinner)
+                  winningModified++;
+               else
+                  losingModified++;
                RegisterDrawdownReliefTicket(tkt);
                if(isWinner)
                  {
@@ -6167,7 +6237,10 @@ void Check50PctDrawdownReliefTightenSL()
                if(ok)
                  {
                   modifiedCount++;
-                  if(isWinner) winningModified++; else losingModified++;
+                  if(isWinner)
+                     winningModified++;
+                  else
+                     losingModified++;
                   RegisterDrawdownReliefTicket(tkt);
                   if(isWinner)
                     {
@@ -6451,10 +6524,12 @@ bool IsFLIPBasketSupportOrder(int ticket, string comment = "")
       int savedTicket = OrderTicket();
       if(OrderTicket() == ticket)
          cmt = OrderComment();
-      else if(OrderSelect(ticket, SELECT_BY_TICKET, MODE_TRADES))
-         cmt = OrderComment();
-      else if(OrderSelect(ticket, SELECT_BY_TICKET, MODE_HISTORY))
-         cmt = OrderComment();
+      else
+         if(OrderSelect(ticket, SELECT_BY_TICKET, MODE_TRADES))
+            cmt = OrderComment();
+         else
+            if(OrderSelect(ticket, SELECT_BY_TICKET, MODE_HISTORY))
+               cmt = OrderComment();
       if(savedTicket > 0 && OrderTicket() != savedTicket)
         {
          if(!OrderSelect(savedTicket, SELECT_BY_TICKET, MODE_TRADES))
@@ -7748,6 +7823,9 @@ int      g_rev100StepCutLastStep      = 0;
 double   g_rev100StepCutLastAdvGap    = 0.0;
 datetime g_rev100StepCutFailLogTime   = 0;
 
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
 string Reverse100StepGvKey(int rootRevTicket);
 int    GetReverse100AdverseCutStep(int rootRevTicket);
 void   SetReverse100AdverseCutStep(int rootRevTicket, int step);
@@ -10126,7 +10204,7 @@ double GetEmaAngleBreakevenBreathingSL(int orderType, double openPrice, double p
    if(openPrice <= 0.0 || proposedSL <= 0.0)
       return proposedSL;
 
-   // Check if proposed SL is equal to order openPrice (Breakeven)
+// Check if proposed SL is equal to order openPrice (Breakeven)
    if(NormalizeDouble(proposedSL, Digits) != NormalizeDouble(openPrice, Digits))
       return proposedSL;
 
@@ -10142,8 +10220,9 @@ double GetEmaAngleBreakevenBreathingSL(int orderType, double openPrice, double p
       double breathingSL = proposedSL;
       if(orderType == OP_BUY)
          breathingSL = NormalizeDouble(openPrice - InpEmaAngleBreakevenBreathingGapRaw, Digits);
-      else if(orderType == OP_SELL)
-         breathingSL = NormalizeDouble(openPrice + InpEmaAngleBreakevenBreathingGapRaw, Digits);
+      else
+         if(orderType == OP_SELL)
+            breathingSL = NormalizeDouble(openPrice + InpEmaAngleBreakevenBreathingGapRaw, Digits);
 
       Print(">>> [EMA ANGLE BREAKEVEN BREATHING] OrderType=", (orderType == OP_BUY ? "BUY" : "SELL"),
             " | OpenPrice=", DoubleToString(openPrice, Digits),
@@ -10251,7 +10330,7 @@ double CalculateProportionalLadderSL(int orderType, double openPrice, double ord
       if(orderType == OP_SELL)
          ladderSL = NormalizeDouble(openPrice - lockedDistance, Digits);
 
-   // USER RULE (VMULTI-1105): When Level 1 is exact Breakeven (lockedDistance <= 0) and MathAbs(EMAangle) > 4, allow extra -50 raw gap breathing SL
+// USER RULE (VMULTI-1105): When Level 1 is exact Breakeven (lockedDistance <= 0) and MathAbs(EMAangle) > 4, allow extra -50 raw gap breathing SL
    if(ladderLevel == 1 && lockedDistance <= 0.0)
      {
       ladderSL = GetEmaAngleBreakevenBreathingSL(orderType, openPrice, ladderSL);
@@ -12240,7 +12319,7 @@ void OnTick()
    CheckAndCloseOrphanFLIPBasketSupportOrders();
 
    CheckForNewDay();
-   //ManageDubaiNightOneSideCloseAll();
+//ManageDubaiNightOneSideCloseAll();
 
    IsDailyEquityStopReached();
 
@@ -12957,10 +13036,10 @@ void OnTickCore()
      }
    if(EnableProfitLadder1 || EnableProfitLadder2)
       ManageProfitLadder();
-      
-      if(InpEnablePartialLossCut)
+
+   if(InpEnablePartialLossCut)
       ManagePartialClosesLoss();
-      
+
    if(TradeOperationFailedThisTick)
      {
       UpdateDashboardsThrottled(dailyState);
@@ -14377,8 +14456,9 @@ void DrawDubaiNightCloseIcon(string eventKind, int cutSeq, string zeroSide, int 
    double offsetMult = 0.70;
    if(eventKind == "CUT")
       offsetMult = 0.70 + ((MathMax(1, cutSeq) - 1) % 3) * 0.55;
-   else if(eventKind == "FINAL")
-      offsetMult = 1.30;
+   else
+      if(eventKind == "FINAL")
+         offsetMult = 1.30;
 
    double markerPrice = (hitPrice > 0.0 ? hitPrice : baseLow) - (atr * offsetMult);
    double labelPrice  = markerPrice - (atr * 0.45);
@@ -14392,21 +14472,22 @@ void DrawDubaiNightCloseIcon(string eventKind, int cutSeq, string zeroSide, int 
       labelText = StringFormat("NIGHT DAY>%.0f%% ALL (x%d -%.2fL)", InpDubaiNightDayProfitPct, ordersHit, lotsCut);
       titleTag  = StringFormat("PATH-A DAY EQUITY >%.0f%% CLOSE ALL", InpDubaiNightDayProfitPct);
      }
-   else if(eventKind == "FINAL")
-     {
-      iconColor = clrTomato;
-      labelText = StringFormat("NIGHT %02d:%02d ALL (x%d -%.2fL)", InpDubaiNightForceCloseHour, InpDubaiNightForceCloseMinute, ordersHit, lotsCut);
-      titleTag  = StringFormat("%02d:%02d FINAL FORCE CLOSE ALL", InpDubaiNightForceCloseHour, InpDubaiNightForceCloseMinute);
-     }
    else
-     {
-      iconColor = clrMagenta;
-      string zeroTag = (zeroSide != "" ? (zeroSide + "=0 | ") : "");
-      labelText = StringFormat("N-CUT#%d %s-%.2fL (x%d)", MathMax(1, cutSeq), zeroTag, lotsCut, ordersHit);
-      titleTag  = StringFormat("PATH-B -%.0f%%/%dm PARTIAL CUT #%d (%s=0)",
-                               InpDubaiNightPartialCutPct, InpDubaiNightCutIntervalMinutes,
-                               MathMax(1, cutSeq), (zeroSide != "" ? zeroSide : "1-SIDE"));
-     }
+      if(eventKind == "FINAL")
+        {
+         iconColor = clrTomato;
+         labelText = StringFormat("NIGHT %02d:%02d ALL (x%d -%.2fL)", InpDubaiNightForceCloseHour, InpDubaiNightForceCloseMinute, ordersHit, lotsCut);
+         titleTag  = StringFormat("%02d:%02d FINAL FORCE CLOSE ALL", InpDubaiNightForceCloseHour, InpDubaiNightForceCloseMinute);
+        }
+      else
+        {
+         iconColor = clrMagenta;
+         string zeroTag = (zeroSide != "" ? (zeroSide + "=0 | ") : "");
+         labelText = StringFormat("N-CUT#%d %s-%.2fL (x%d)", MathMax(1, cutSeq), zeroTag, lotsCut, ordersHit);
+         titleTag  = StringFormat("PATH-B -%.0f%%/%dm PARTIAL CUT #%d (%s=0)",
+                                  InpDubaiNightPartialCutPct, InpDubaiNightCutIntervalMinutes,
+                                  MathMax(1, cutSeq), (zeroSide != "" ? zeroSide : "1-SIDE"));
+        }
 
    datetime dubaiDT = hitTime + (ServerToDubaiOffsetHours * 3600);
    string   plSign  = (estPL >= 0.0) ? "+" : "-";
@@ -14490,7 +14571,7 @@ void ManageDubaiNightOneSideCloseAll()
    string   gvCutCntK   = "EA_DUBAI_CUT_CNT_"  + IntegerToString(MagicNumber) + "_" + Symbol();
    double   curEquity   = AccountEquity();
 
-   // Ensure Dubai opening day equity & rollover state are initialized / synced
+// Ensure Dubai opening day equity & rollover state are initialized / synced
    SyncDubaiDayOpeningState(nowServer);
 
    if(!InpEnableDubaiNightOneSideCloseAll)
@@ -14499,17 +14580,18 @@ void ManageDubaiNightOneSideCloseAll()
    if(g_dubaiNightCloseDoneToday)
       return;
 
-   // Check Dubai window
+// Check Dubai window
    int  startMod      = InpDubaiNightCloseStartHour * 60;
    int  endMod        = InpDubaiNightCloseEndHour   * 60;
    int  forceMod      = InpDubaiNightForceCloseHour * 60 + InpDubaiNightForceCloseMinute;
    bool inDubaiWindow = false;
    if(InpDubaiNightCloseStartHour < InpDubaiNightCloseEndHour)
       inDubaiWindow = (dubaiHour >= InpDubaiNightCloseStartHour && dubaiHour < InpDubaiNightCloseEndHour);
-   else if(InpDubaiNightCloseStartHour > InpDubaiNightCloseEndHour)
-      inDubaiWindow = (dubaiHour >= InpDubaiNightCloseStartHour || dubaiHour < InpDubaiNightCloseEndHour);
    else
-      inDubaiWindow = (dubaiHour == InpDubaiNightCloseStartHour);
+      if(InpDubaiNightCloseStartHour > InpDubaiNightCloseEndHour)
+         inDubaiWindow = (dubaiHour >= InpDubaiNightCloseStartHour || dubaiHour < InpDubaiNightCloseEndHour);
+      else
+         inDubaiWindow = (dubaiHour == InpDubaiNightCloseStartHour);
 
    if(!inDubaiWindow)
      {
@@ -14517,14 +14599,14 @@ void ManageDubaiNightOneSideCloseAll()
       return;
      }
 
-   // Path A (OR): Day Equity Profit > 5% vs Dubai Opening Day Equity -> immediate full close-all
+// Path A (OR): Day Equity Profit > 5% vs Dubai Opening Day Equity -> immediate full close-all
    double dayProfitUSD = (g_dubaiDayOpeningEquity > 0.0) ? (curEquity - g_dubaiDayOpeningEquity) : 0.0;
    double dayProfitPct = (g_dubaiDayOpeningEquity > 0.0) ? ((dayProfitUSD / g_dubaiDayOpeningEquity) * 100.0) : 0.0;
    bool   isDayProfitTriggered = (InpEnableDubaiNightDayProfitClose &&
                                   g_dubaiDayOpeningEquity > 0.0 &&
                                   dayProfitPct > InpDubaiNightDayProfitPct);
 
-   // Path B: Fresh live EMA30 angle gate (MathAbs(EMAangle) in [0.0, 1.0])
+// Path B: Fresh live EMA30 angle gate (MathAbs(EMAangle) in [0.0, 1.0])
    double curEmaAngle  = GetEmaAngleDegrees(30);
    GlobalEmaAngle30    = curEmaAngle;
    double absEmaAngle  = MathAbs(curEmaAngle);
@@ -14539,13 +14621,14 @@ void ManageDubaiNightOneSideCloseAll()
      {
       if(startMod <= endMod)
          isForceCloseTime = (dubaiMod >= forceMod);
-      else if(forceMod >= startMod)
-         isForceCloseTime = (dubaiMod >= forceMod || dubaiMod < endMod);
       else
-         isForceCloseTime = (dubaiMod >= forceMod && dubaiMod < endMod);
+         if(forceMod >= startMod)
+            isForceCloseTime = (dubaiMod >= forceMod || dubaiMod < endMod);
+         else
+            isForceCloseTime = (dubaiMod >= forceMod && dubaiMod < endMod);
      }
 
-   // Snapshot live open market orders for this Symbol & MagicNumber
+// Snapshot live open market orders for this Symbol & MagicNumber
    int buyCount  = 0;
    int sellCount = 0;
    int openTickets[1000];
@@ -14566,15 +14649,16 @@ void ManageDubaiNightOneSideCloseAll()
          if(openCount < 1000)
             openTickets[openCount++] = OrderTicket();
         }
-      else if(oType == OP_SELL)
-        {
-         sellCount++;
-         if(openCount < 1000)
-            openTickets[openCount++] = OrderTicket();
-        }
+      else
+         if(oType == OP_SELL)
+           {
+            sellCount++;
+            if(openCount < 1000)
+               openTickets[openCount++] = OrderTicket();
+           }
      }
 
-   // Must have at least 1 open order
+// Must have at least 1 open order
    if(openCount == 0)
      {
       if(g_dubaiNightCloseRetryPending)
@@ -14583,7 +14667,7 @@ void ManageDubaiNightOneSideCloseAll()
          g_dubaiNightCloseDoneToday    = true;
          g_dubaiNightCloseLastHitTime  = nowServer;
          g_dubaiNightLastCloseTag      = isDayProfitTriggered ? StringFormat("DAY>%.0f%%", InpDubaiNightDayProfitPct)
-                                                                : StringFormat("%02d:%02d ALL", InpDubaiNightForceCloseHour, InpDubaiNightForceCloseMinute);
+                                         : StringFormat("%02d:%02d ALL", InpDubaiNightForceCloseHour, InpDubaiNightForceCloseMinute);
          if(!isTestRun)
             GlobalVariableSet(gvKey, (double)dubaiDayKey);
         }
@@ -14596,7 +14680,7 @@ void ManageDubaiNightOneSideCloseAll()
    string zeroSideName   = (buyCount == 0) ? "BUY" : "SELL";
    string activeSideName = (buyCount > 0) ? ((sellCount > 0) ? "BUY+SELL" : "BUY") : "SELL";
 
-   // ===== BRANCH 1: FULL CLOSE ALL OPEN ORDERS (Path A Day Equity > 5% OR Path B >= 11:45 PM) =====
+// ===== BRANCH 1: FULL CLOSE ALL OPEN ORDERS (Path A Day Equity > 5% OR Path B >= 11:45 PM) =====
    if(doFullClose)
      {
       RefreshRates();
@@ -14683,7 +14767,7 @@ void ManageDubaiNightOneSideCloseAll()
          g_dubaiNightCloseDoneToday    = true;
          g_dubaiNightCloseLastHitTime  = nowServer;
          g_dubaiNightLastCloseTag      = isDayProfitTriggered ? StringFormat("DAY>%.0f%%", InpDubaiNightDayProfitPct)
-                                                                : StringFormat("%02d:%02d ALL", InpDubaiNightForceCloseHour, InpDubaiNightForceCloseMinute);
+                                         : StringFormat("%02d:%02d ALL", InpDubaiNightForceCloseHour, InpDubaiNightForceCloseMinute);
          g_dubaiNightLastCloseOrders   = closedCount;
          g_dubaiNightLastCloseLots     = closedLots;
          g_dubaiNightLastClosePL       = closedPL;
@@ -14705,18 +14789,19 @@ void ManageDubaiNightOneSideCloseAll()
          if(ShowLeftLiveOrdersDashboard)
             UpdateLeftLiveOrdersDashboard();
         }
-      else if(closedCount > 0 && remainingOpen > 0)
-        {
-         g_dubaiNightCloseRetryPending = true;
-         PrintFormat(">>> [DUBAI NIGHT PARTIAL PASS] Closed=%d Fail=%d RemainingOpen=%d | Retry armed",
-                     closedCount, failCount, remainingOpen);
-         DrawDubaiNightCloseIcon((isDayProfitTriggered ? "PATH_A" : "FINAL"), g_dubaiNightCutCountToday, activeSideName,
-                                 closedCount, closedLots, closedPL, dayProfitPct, curEmaAngle, nowServer, 0.0);
-        }
+      else
+         if(closedCount > 0 && remainingOpen > 0)
+           {
+            g_dubaiNightCloseRetryPending = true;
+            PrintFormat(">>> [DUBAI NIGHT PARTIAL PASS] Closed=%d Fail=%d RemainingOpen=%d | Retry armed",
+                        closedCount, failCount, remainingOpen);
+            DrawDubaiNightCloseIcon((isDayProfitTriggered ? "PATH_A" : "FINAL"), g_dubaiNightCutCountToday, activeSideName,
+                                    closedCount, closedLots, closedPL, dayProfitPct, curEmaAngle, nowServer, 0.0);
+           }
       return;
      }
 
-   // ===== BRANCH 2: PATH B BEFORE 11:45 PM -> SLOW 50% LOT CUT EVERY 30 MIN WHEN ONE SIDE == 0 & |EMAang| 0..1 =====
+// ===== BRANCH 2: PATH B BEFORE 11:45 PM -> SLOW 50% LOT CUT EVERY 30 MIN WHEN ONE SIDE == 0 & |EMAang| 0..1 =====
    if(!angleInRange || !oneSideZero)
       return;
 
@@ -14817,7 +14902,7 @@ void ManageDubaiNightOneSideCloseAll()
       if(!isTestRun)
         {
          GlobalVariableSet(gvLastCutK, (double)g_dubaiNightLastCutTime);
-         GlobalVariableSet(gvCutCntK,  (double)g_dubaiNightCutCountToday);
+         GlobalVariableSet(gvCutCntK, (double)g_dubaiNightCutCountToday);
         }
 
       PrintFormat(">>> [DUBAI PATH-B -%.0f%% CUT #%d (%dm)] DubaiTime=%s (Broker=%s) | %s Open=0 | EMAang=%.2f | Cut %d Order(s) (-%.2fL, EstPL=%s$%.2f, MinLotKept:%d, Fail:%d) | Next Cut in %dm or Final Close @ %02d:%02d",
@@ -15189,11 +15274,14 @@ bool IsBlockedByActiveHorizontalLines(int orderType, double reqPrice, string ord
    static datetime s_lastActiveRedBuyBlockLog    = 0;
    static datetime s_lastActiveGreenSellBlockLog = 0;
    datetime nowLineBlockT = TimeCurrent();
-   if(nowLineBlockT < s_lastBothLinesBlockLog)       s_lastBothLinesBlockLog = 0;
-   if(nowLineBlockT < s_lastActiveRedBuyBlockLog)    s_lastActiveRedBuyBlockLog = 0;
-   if(nowLineBlockT < s_lastActiveGreenSellBlockLog) s_lastActiveGreenSellBlockLog = 0;
+   if(nowLineBlockT < s_lastBothLinesBlockLog)
+      s_lastBothLinesBlockLog = 0;
+   if(nowLineBlockT < s_lastActiveRedBuyBlockLog)
+      s_lastActiveRedBuyBlockLog = 0;
+   if(nowLineBlockT < s_lastActiveGreenSellBlockLog)
+      s_lastActiveGreenSellBlockLog = 0;
 
-   // Rule 1: Both Red (EQH-R) AND Green (EQH-G) active simultaneously -> block ALL orders
+// Rule 1: Both Red (EQH-R) AND Green (EQH-G) active simultaneously -> block ALL orders
    if(InpBlockAllOrdersWhenBothHorizontalLinesActive && hasActiveRed && hasActiveGreen)
      {
       if(s_lastBothLinesBlockLog == 0 || (nowLineBlockT - s_lastBothLinesBlockLog) >= 30)
@@ -15207,7 +15295,7 @@ bool IsBlockedByActiveHorizontalLines(int orderType, double reqPrice, string ord
       return true;
      }
 
-   // Rule 2: Single active line -> block opposite-direction orders (at any distance if InpBlockAllOppositeWhenLineActive, else within range)
+// Rule 2: Single active line -> block opposite-direction orders (at any distance if InpBlockAllOppositeWhenLineActive, else within range)
    double lineBlockRange = InpActiveLineOppositeBlockRangeRaw;
    if(!InpBlockAllOppositeWhenLineActive && lineBlockRange <= 0.0)
       return false;
@@ -15401,7 +15489,7 @@ void ActivateSweepOppositeBlockOnSweep(string sweepSig, datetime sweepBarTime)
    g_sweepOppositeBlockInitEqHStart   = g_lastEqHighLineStart;
    g_sweepOppositeBlockInitEqLStart   = g_lastEqLowLineStart;
    g_sweepOppositeBlockBannedEqHStart = MathMax(g_lastEqHighLineStart, (sweepSig == "BSLS" ? g_lastSweptEqHighLineStart : 0));
-   g_sweepOppositeBlockBannedEqLStart = MathMax(g_lastEqLowLineStart,  (sweepSig == "SSLS" ? g_lastSweptEqLowLineStart  : 0));
+   g_sweepOppositeBlockBannedEqLStart = MathMax(g_lastEqLowLineStart, (sweepSig == "SSLS" ? g_lastSweptEqLowLineStart  : 0));
 
    PrintFormat(">>> [SWEEP OPPOSITE BLOCK ARMED] '%s' triggered (SweepBar=%s) -> Blocking %s orders in SafeOrderSend() for %d min (until %s, or reset on new horizontal line / EMA flip)",
                sweepSig,
@@ -15543,6 +15631,17 @@ int SafeOrderSend(string symbol,int orderType,double lots,double price,int slipp
 
    if(MathAbs(Get30MinutePriceDifference())<100)
       ignoreFlipTime = true;
+
+
+
+   if(GetTotalSellOrders()==0 && EMADirection==1 && requestedDirection==-1)
+      return -1;
+
+
+   if(GetTotalBuyOrders()==0 && EMADirection==-1 && requestedDirection==1)
+      return -1;
+
+
 
    /*
       if(EMADirection != requestedDirection && MathAbs(GlobalEmaAngle30)>2)
@@ -15782,7 +15881,7 @@ int SafeOrderSend(string symbol,int orderType,double lots,double price,int slipp
       return -1;
      }
 
-   // Physical Gate: Both-lines confusion block + single active Red/Green line $50 opposite-order block
+// Physical Gate: Both-lines confusion block + single active Red/Green line $50 opposite-order block
    if(IsBlockedByActiveHorizontalLines(orderType, price, comment))
       return -1;
 
@@ -18922,17 +19021,17 @@ void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep,s
 
 // if(Lots==0.01)
    Lots=0.02;//MaxRecoveryLot;
-   
-   
+
+
    datetime dubaiTime = TimeCurrent() + (ServerToDubaiOffsetHours * 3600);
    int currentHour = TimeHour(dubaiTime);
 
-   
-   //if(MathAbs(GlobalEmaAngle30)>4 && MathAbs(GlobalEmaAngle30)<8)
-   {
-   
-   Lots=0.04;
-   }
+
+//if(MathAbs(GlobalEmaAngle30)>4 && MathAbs(GlobalEmaAngle30)<8)
+     {
+
+      Lots=0.04;
+     }
 
 // Lots=0.05;//
 // Print("Closed Orders Since EMA Flip: ", closedCount, " | Cycle Step: ", cycleStep, " | Calculated Lots: ", Lots);
@@ -20854,7 +20953,7 @@ void DrawReverse100OrderIcon(int recTicket, int rootParentTicket, int recType, d
 
    bool   isBuyRev    = (recType == OP_BUY);
    double markerPrice = isBuyRev ? (((Bars > 0 && Low[0] > 0.0) ? Low[0] : recPrice) - atr * 0.90)
-                                 : (((Bars > 0 && High[0] > 0.0) ? High[0] : recPrice) + atr * 0.90);
+                        : (((Bars > 0 && High[0] > 0.0) ? High[0] : recPrice) + atr * 0.90);
    double labelPrice  = isBuyRev ? (markerPrice - atr * 0.35) : (markerPrice + atr * 0.35);
 
    color  iconColor   = isBuyRev ? InpReverse100BuyIconColor : InpReverse100SellIconColor;
@@ -21023,12 +21122,14 @@ void CheckReverse100OppositeOrders()
       bool isBetterCandidate = false;
       if(bestParentTicket < 0)
          isBetterCandidate = true;
-      else if(floatNetPL < bestLossUSD - 1e-6)
-         isBetterCandidate = true;
-      else if(MathAbs(floatNetPL - bestLossUSD) <= 1e-6 &&
-              (adverseDistance > bestAdvDist + 1e-6 ||
-               (MathAbs(adverseDistance - bestAdvDist) <= 1e-6 && parentTime < bestParentTime)))
-         isBetterCandidate = true;
+      else
+         if(floatNetPL < bestLossUSD - 1e-6)
+            isBetterCandidate = true;
+         else
+            if(MathAbs(floatNetPL - bestLossUSD) <= 1e-6 &&
+               (adverseDistance > bestAdvDist + 1e-6 ||
+                (MathAbs(adverseDistance - bestAdvDist) <= 1e-6 && parentTime < bestParentTime)))
+               isBetterCandidate = true;
 
       if(isBetterCandidate)
         {
@@ -21186,7 +21287,7 @@ void DrawReverse100StepCutIcon(int closedTicket, int rootRevTicket, int origPare
 
    bool   isBuyOrd    = (orderType == OP_BUY);
    double markerPrice = isBuyOrd ? (((Bars > 0 && Low[0] > 0.0) ? Low[0] : closePrice) - atr * (1.25 + (stepNo % 3) * 0.25))
-                                 : (((Bars > 0 && High[0] > 0.0) ? High[0] : closePrice) + atr * (1.25 + (stepNo % 3) * 0.25));
+                        : (((Bars > 0 && High[0] > 0.0) ? High[0] : closePrice) + atr * (1.25 + (stepNo % 3) * 0.25));
    double labelPrice  = isBuyOrd ? (markerPrice - atr * 0.30) : (markerPrice + atr * 0.30);
 
    color  iconColor   = InpReverse100StepCutIconColor;
@@ -21266,7 +21367,7 @@ void ManageReverse100AdverseStepPartialClose()
    if(Bid <= 0.0 || Ask <= 0.0)
       return;
 
-   // Snapshot qualifying open market tickets (>0.05L) first so partial-close replacements never shift loop indices
+// Snapshot qualifying open market tickets (>0.05L) first so partial-close replacements never shift loop indices
    int candTickets[500];
    ArrayInitialize(candTickets, 0);
    int candCount = 0;
@@ -21444,12 +21545,13 @@ void ManageReverse100AdverseStepPartialClose()
                  }
               }
            }
-         else if(!isTestRun)
-           {
-            string gvKey = Reverse100StepGvKey(rootTicket);
-            if(GlobalVariableCheck(gvKey))
-               GlobalVariableDel(gvKey);
-           }
+         else
+            if(!isTestRun)
+              {
+               string gvKey = Reverse100StepGvKey(rootTicket);
+               if(GlobalVariableCheck(gvKey))
+                  GlobalVariableDel(gvKey);
+              }
 
          DrawReverse100StepCutIcon(closedTicket, rootTicket, origParentTicket, oType, nextStep, adverseDistance, stepTriggerRaw, closeLot, remAfter, openPrice, curPrice, estSlicePL, isRevOrder, nowServer);
 
@@ -23140,7 +23242,7 @@ void DrawEquityProfitLadder5HitIcon(int step, double curEquity, double lowestEqu
    datetime barTime = (Time[0] > 0 ? Time[0] : hitTime);
    string baseName = PREFIX + "EQL5_STEP_" + IntegerToString(step) + "_" + IntegerToString((int)barTime);
 
-   // Prevent duplicate icon on same bar for the same step
+// Prevent duplicate icon on same bar for the same step
    if(ObjectFind(0, baseName) >= 0 || ObjectFind(0, baseName + "_TXT") >= 0)
       return;
 
@@ -23183,7 +23285,7 @@ void DrawEquityProfitLadder5HitIcon(int step, double curEquity, double lowestEqu
                                    step, curEquity, lowestEquity, gainFromLow, targetVal,
                                    TimeToString(hitTime, TIME_DATE|TIME_MINUTES|TIME_SECONDS));
 
-   // 1. Solid Marker Icon (Wingdings 159 dot, 171 star, 251 check, etc.)
+// 1. Solid Marker Icon (Wingdings 159 dot, 171 star, 251 check, etc.)
    ObjectCreate(0, baseName, OBJ_ARROW, 0, barTime, markerPrice);
    ObjectSetInteger(0, baseName, OBJPROP_ARROWCODE, iconCode);
    ObjectSetInteger(0, baseName, OBJPROP_COLOR, iconColor);
@@ -23193,7 +23295,7 @@ void DrawEquityProfitLadder5HitIcon(int step, double curEquity, double lowestEqu
    ObjectSetInteger(0, baseName, OBJPROP_HIDDEN, false);
    ObjectSetString(0, baseName, OBJPROP_TOOLTIP, tooltip);
 
-   // 2. Bold Text Label
+// 2. Bold Text Label
    ObjectCreate(0, txtName, OBJ_TEXT, 0, barTime, labelPrice);
    ObjectSetString(0, txtName, OBJPROP_TEXT, labelText);
    ObjectSetString(0, txtName, OBJPROP_FONT, "Arial Black");
@@ -24217,7 +24319,7 @@ void ManagePartialClosesLossOld()
 //+------------------------------------------------------------------+
 void ManagePartialCloses()
   {
-   
+
 
    if(!InpEnablePartialProfitClose)
       return;
@@ -25599,26 +25701,28 @@ void UpdateDashboard(DailyProtectionState &state)
       wdNote = StringFormat("[Cushion < $%.0f]", safeWorkingBuffer);
       wdColor = clrSilver;
      }
-   else if(effectiveCap >= (safeWorkingBuffer * 2.0) && maxSafeWithdraw >= safeWorkingBuffer)
-     {
-      recWithdraw = safeWorkingBuffer;
-      wdNote = isFlatAccount ? "[RECOUP SEED: READY]" : "[RECOUP SEED: WAIT]";
-      wdColor = isFlatAccount ? clrLime : clrGold;
-     }
-   else if(maxSafeWithdraw >= 50.0)
-     {
-      recWithdraw = MathFloor(maxSafeWithdraw / 25.0) * 25.0;
-      if(recWithdraw < 25.0)
-         recWithdraw = maxSafeWithdraw;
-      wdNote = isFlatAccount ? "[HARVEST: READY]" : "[HARVEST: WAIT]";
-      wdColor = isFlatAccount ? clrLime : clrGold;
-     }
    else
-     {
-      recWithdraw = maxSafeWithdraw;
-      wdNote = isFlatAccount ? "[PROFIT W/D: READY]" : "[PROFIT W/D: WAIT]";
-      wdColor = isFlatAccount ? clrLime : clrGold;
-     }
+      if(effectiveCap >= (safeWorkingBuffer * 2.0) && maxSafeWithdraw >= safeWorkingBuffer)
+        {
+         recWithdraw = safeWorkingBuffer;
+         wdNote = isFlatAccount ? "[RECOUP SEED: READY]" : "[RECOUP SEED: WAIT]";
+         wdColor = isFlatAccount ? clrLime : clrGold;
+        }
+      else
+         if(maxSafeWithdraw >= 50.0)
+           {
+            recWithdraw = MathFloor(maxSafeWithdraw / 25.0) * 25.0;
+            if(recWithdraw < 25.0)
+               recWithdraw = maxSafeWithdraw;
+            wdNote = isFlatAccount ? "[HARVEST: READY]" : "[HARVEST: WAIT]";
+            wdColor = isFlatAccount ? clrLime : clrGold;
+           }
+         else
+           {
+            recWithdraw = maxSafeWithdraw;
+            wdNote = isFlatAccount ? "[PROFIT W/D: READY]" : "[PROFIT W/D: WAIT]";
+            wdColor = isFlatAccount ? clrLime : clrGold;
+           }
 
    string withdrawStr = "";
    if(recWithdraw > 0.0)
@@ -25664,7 +25768,7 @@ void UpdateDashboard(DailyProtectionState &state)
    CreateDashboardPanel(DASH_PREFIX+"SEC_SIG", x, y+218, w, 18, C'28,38,50');
    CreateDashboardLabel(DASH_PREFIX+"SIG_H", "--- TREND & SIGNALS ---", tx, y+220, 8, clrAqua);
 
-   // 1. Trend & SSL Direction + Strength + Angle
+// 1. Trend & SSL Direction + Strength + Angle
    string emaShortDir = (EMADirection == 1) ? "BULL (+1)" : (EMADirection == -1 ? "BEAR (-1)" : "FLAT (0)");
    bool isEmaWeak = IsEmaWEAKDistanceReduced50PercentFromPeak();
    string emaStrength = isEmaWeak ? "WEAK" : "STRONG";
@@ -25673,7 +25777,7 @@ void UpdateDashboard(DailyProtectionState &state)
    string trendStr = StringFormat("TREND & SSL : EMA: %s [%s, %+.1f deg] | SSL: %s", emaShortDir, emaStrength, GlobalEmaAngle30, sslShortDir);
    CreateDashboardLabel(DASH_PREFIX+"TREND", trendStr, tx, y+238, 8, trendColor);
 
-   // 2. EMA Distances: Live, Current Peak, Previous Peak
+// 2. EMA Distances: Live, Current Peak, Previous Peak
    if(g_prevEmaHighestDistance <= 0.0)
      {
       InitializePreviousEmaCycleValues();
@@ -25682,10 +25786,11 @@ void UpdateDashboard(DailyProtectionState &state)
    double currHighestDist = 0.0;
    if(EMADirection == 1)
       currHighestDist = GetHighestEmaDistanceSinceEmaFlip();
-   else if(EMADirection == -1)
-      currHighestDist = GetLowestEmaDistanceSinceEmaFlip();
    else
-      currHighestDist = MathMax(GetHighestEmaDistanceSinceEmaFlip(), GetLowestEmaDistanceSinceEmaFlip());
+      if(EMADirection == -1)
+         currHighestDist = GetLowestEmaDistanceSinceEmaFlip();
+      else
+         currHighestDist = MathMax(GetHighestEmaDistanceSinceEmaFlip(), GetLowestEmaDistanceSinceEmaFlip());
 
    double liveEmaVal = iMA(Symbol(), Period(), InpEMA200Period, InpEMAPriceShift, MODE_EMA, PRICE_CLOSE, 0);
    double liveEmaDist = (liveEmaVal > 0.0) ? MathAbs(Bid - liveEmaVal) : 0.0;
@@ -25702,7 +25807,7 @@ void UpdateDashboard(DailyProtectionState &state)
    string emaDistStr = StringFormat("EMA DISTANCE: Live: $%.1f | Peak: $%.1f | Prev: $%.1f", liveEmaDist, currHighestDist, g_prevEmaHighestDistance);
    CreateDashboardLabel(DASH_PREFIX+"EMA_DIST", emaDistStr, tx, y+254, 8, clrWhite);
 
-   // 3. LSD Sweep Summary
+// 3. LSD Sweep Summary
    bool hasRedLine = IsLsdSweepRedLinePresent();
    bool hasGreenLine = IsLsdSweepGreenLinePresent();
    string lsdSigName = (g_rememberedSweepSignal != "" ? g_rememberedSweepSignal : (g_lastSweepType != "" ? g_lastSweepType : "NONE"));
@@ -25712,8 +25817,9 @@ void UpdateDashboard(DailyProtectionState &state)
    string gapAdvice = "1X";
    if(actSweep == -1)
       gapAdvice = "BUY 2X Guard";
-   else if(actSweep == 1)
-      gapAdvice = "SELL 2X Guard";
+   else
+      if(actSweep == 1)
+         gapAdvice = "SELL 2X Guard";
    string lsdSummary = StringFormat("LSD SWEEP   : %s | Line: %s | %s", lsdSigName, lineDesc, gapAdvice);
    CreateDashboardLabel(DASH_PREFIX+"SWEEP", lsdSummary, tx, y+270, 8, lsdClr);
 
@@ -25723,7 +25829,7 @@ void UpdateDashboard(DailyProtectionState &state)
    CreateDashboardPanel(DASH_PREFIX+"SEC_RSK", x, y+290, w, 18, C'28,38,50');
    CreateDashboardLabel(DASH_PREFIX+"RSK_H", "--- SPECIAL ORDERS & RISK ---", tx, y+292, 8, clrAqua);
 
-   // Dynamic Special Orders: Pending / Recovery / Flip Support
+// Dynamic Special Orders: Pending / Recovery / Flip Support
    string spcSummary = "";
    color spcColor = clrSilver;
    if(recCount > 0)
@@ -25731,34 +25837,38 @@ void UpdateDashboard(DailyProtectionState &state)
       spcSummary = StringFormat("RECOVERY #%d (%s %.2fL) %s$%.2f", recTicket, (recType == OP_BUY ? "BUY" : "SELL"), recLots, (recPL >= 0 ? "+" : "-"), MathAbs(recPL));
       spcColor = (recPL >= 0 ? clrLime : clrTomato);
      }
-   else if(flipCount > 0)
-     {
-      spcSummary = StringFormat("FLIP SUPPORT #%d (%.2fL) %s$%.2f", flipTicket, flipLots, (flipPL >= 0 ? "+" : "-"), MathAbs(flipPL));
-      spcColor = (flipPL >= 0 ? clrLime : clrGold);
-     }
-   else if(pendingBuyCount > 0 && pendingSellCount > 0)
-     {
-      spcSummary = StringFormat("BUY & SELL STOPS Active ($%.0f Gap)", SSLLongShortPendingGapRaw);
-      spcColor = clrGold;
-     }
-   else if(pendingBuyCount > 0)
-     {
-      spcSummary = StringFormat("BUY STOP @ %." + IntegerToString(Digits) + "f ($%.0f Gap)", pendingBuyPrice, SSLLongShortPendingGapRaw);
-      spcColor = clrDeepSkyBlue;
-     }
-   else if(pendingSellCount > 0)
-     {
-      spcSummary = StringFormat("SELL STOP @ %." + IntegerToString(Digits) + "f ($%.0f Gap)", pendingSellPrice, SSLLongShortPendingGapRaw);
-      spcColor = clrTomato;
-     }
    else
-     {
-      spcSummary = "NONE (Market Active)";
-      spcColor = clrSilver;
-     }
+      if(flipCount > 0)
+        {
+         spcSummary = StringFormat("FLIP SUPPORT #%d (%.2fL) %s$%.2f", flipTicket, flipLots, (flipPL >= 0 ? "+" : "-"), MathAbs(flipPL));
+         spcColor = (flipPL >= 0 ? clrLime : clrGold);
+        }
+      else
+         if(pendingBuyCount > 0 && pendingSellCount > 0)
+           {
+            spcSummary = StringFormat("BUY & SELL STOPS Active ($%.0f Gap)", SSLLongShortPendingGapRaw);
+            spcColor = clrGold;
+           }
+         else
+            if(pendingBuyCount > 0)
+              {
+               spcSummary = StringFormat("BUY STOP @ %." + IntegerToString(Digits) + "f ($%.0f Gap)", pendingBuyPrice, SSLLongShortPendingGapRaw);
+               spcColor = clrDeepSkyBlue;
+              }
+            else
+               if(pendingSellCount > 0)
+                 {
+                  spcSummary = StringFormat("SELL STOP @ %." + IntegerToString(Digits) + "f ($%.0f Gap)", pendingSellPrice, SSLLongShortPendingGapRaw);
+                  spcColor = clrTomato;
+                 }
+               else
+                 {
+                  spcSummary = "NONE (Market Active)";
+                  spcColor = clrSilver;
+                 }
    CreateDashboardLabel(DASH_PREFIX+"SPECIAL_ORD", "SPECIAL ORDS: " + spcSummary, tx, y+310, 8, spcColor);
 
-   // Day Risk Line
+// Day Risk Line
    string dayRiskStr = StringFormat("DAY RISK    : Stop $%.0f | Floor $%.2f | Room $%.2f [%s]", DailyEquityStopUSD * balancelomultipler, DayProfitLadderProtectionEquity, riskRemaining, (HasBasketNewOrderLossLimit() ? "LOCKED" : "OK"));
    color dayRiskClr = HasBasketNewOrderLossLimit() ? clrTomato : clrLime;
    CreateDashboardLabel(DASH_PREFIX+"DAY_RISK", dayRiskStr, tx, y+326, 8, dayRiskClr);
@@ -25769,7 +25879,7 @@ void UpdateDashboard(DailyProtectionState &state)
    CreateDashboardPanel(DASH_PREFIX+"SEC_RLF_EQL", x, y+346, w, 18, C'28,38,50');
    CreateDashboardLabel(DASH_PREFIX+"RLF_EQL_H", "--- RLF (RELIEF SL) & EQL (EQUITY LADDER) ---", tx, y+348, 8, clrAqua);
 
-   // --- RLF Status Line ---
+// --- RLF Status Line ---
    double curDD = MathMax(0.0, AccountBalance() - AccountEquity());
    double rlfMult = (balancelomultipler > 0) ? balancelomultipler : 1.0;
    double rlfMinPeak = InpDrawdownReliefMinPeakUSD * rlfMult;
@@ -25781,31 +25891,34 @@ void UpdateDashboard(DailyProtectionState &state)
       rlfState = "DISABLED";
       rlfClr = clrSilver;
      }
-   else if(g_drawdownReliefExecuted)
-     {
-      rlfState = StringFormat("ACTIVE [SL Set, Hits: %d]", g_drawdownReliefHitSuccessCount);
-      rlfClr = clrLime;
-     }
-   else if(g_drawdownReliefArmed)
-     {
-      rlfState = StringFormat("ARMED [Need DD <= $%.0f]", rlfTargetDD);
-      rlfClr = clrGold;
-     }
-   else if(g_drawdownReliefPeakUSD > 0.0)
-     {
-      rlfState = StringFormat("TRACKING [Peak $%.0f < $%.0f]", g_drawdownReliefPeakUSD, rlfMinPeak);
-      rlfClr = clrDeepSkyBlue;
-     }
    else
-     {
-      rlfState = StringFormat("IDLE [DD: $%.1f / Req $%.0f]", curDD, rlfMinPeak);
-      rlfClr = clrLightGray;
-     }
+      if(g_drawdownReliefExecuted)
+        {
+         rlfState = StringFormat("ACTIVE [SL Set, Hits: %d]", g_drawdownReliefHitSuccessCount);
+         rlfClr = clrLime;
+        }
+      else
+         if(g_drawdownReliefArmed)
+           {
+            rlfState = StringFormat("ARMED [Need DD <= $%.0f]", rlfTargetDD);
+            rlfClr = clrGold;
+           }
+         else
+            if(g_drawdownReliefPeakUSD > 0.0)
+              {
+               rlfState = StringFormat("TRACKING [Peak $%.0f < $%.0f]", g_drawdownReliefPeakUSD, rlfMinPeak);
+               rlfClr = clrDeepSkyBlue;
+              }
+            else
+              {
+               rlfState = StringFormat("IDLE [DD: $%.1f / Req $%.0f]", curDD, rlfMinPeak);
+               rlfClr = clrLightGray;
+              }
 
    string rlfLine1 = StringFormat("RLF RELIEF  : %s", rlfState);
    CreateDashboardLabel(DASH_PREFIX+"RLF_LINE1", rlfLine1, tx, y+366, 8, rlfClr);
 
-   // --- RLF Metrics & 2H Gate ---
+// --- RLF Metrics & 2H Gate ---
    double live2hDiff = Get2HourPriceDifferenceRaw();
    string rlfGate2h = (InpDrawdownReliefMinPriceDiff2Hours > 0.0) ?
                       StringFormat("2H: $%.0f/$%.0f", live2hDiff, InpDrawdownReliefMinPriceDiff2Hours) : "2H: OFF";
@@ -25813,7 +25926,7 @@ void UpdateDashboard(DailyProtectionState &state)
                                   g_drawdownReliefPeakUSD, curDD, rlfGate2h, g_drawdownReliefAppliedCount);
    CreateDashboardLabel(DASH_PREFIX+"RLF_LINE2", rlfLine2, tx, y+382, 8, clrWhite);
 
-   // --- EQL Status Line ---
+// --- EQL Status Line ---
    double eqlStep = InpEquityProfitLadderStepUSD * (InpEquityLadderUseMultiplier && balancelomultipler > 0 ? balancelomultipler : 1.0);
    string eqlState = "";
    color eqlClr = clrSilver;
@@ -25822,31 +25935,32 @@ void UpdateDashboard(DailyProtectionState &state)
       eqlState = "DISABLED";
       eqlClr = clrSilver;
      }
-   else if(LowestEquity <= 0.0)
-     {
-      eqlState = StringFormat("SCANNING [Step $%.0f | SL: -$%.0f raw]", eqlStep, InpEquityLadderSLDistanceRaw);
-      eqlClr = clrDeepSkyBlue;
-     }
    else
-     {
-      datetime minNextAllowed = g_lastEquityLadderHitTime + (datetime)(InpEquityLadderMinGapHours * 3600.0);
-      if(InpEquityLadderMinGapHours > 0.0 && g_lastEquityLadderHitTime > 0 && TimeCurrent() < minNextAllowed)
+      if(LowestEquity <= 0.0)
         {
-         double remHours = (double)(minNextAllowed - TimeCurrent()) / 3600.0;
-         eqlState = StringFormat("COOLING [Wait %.1fh | Hits: #%d]", remHours, g_equityLadderStepCounter);
-         eqlClr = clrGold;
+         eqlState = StringFormat("SCANNING [Step $%.0f | SL: -$%.0f raw]", eqlStep, InpEquityLadderSLDistanceRaw);
+         eqlClr = clrDeepSkyBlue;
         }
       else
         {
-         double toTgt = g_equityLadderNextTarget - AccountEquity();
-         eqlState = StringFormat("ACTIVE [Tgt $%.0f (+$%.0f) | Step #%d]", g_equityLadderNextTarget, MathMax(0.0, toTgt), g_equityLadderStepCounter);
-         eqlClr = (toTgt <= 0.0) ? clrLime : clrAqua;
+         datetime minNextAllowed = g_lastEquityLadderHitTime + (datetime)(InpEquityLadderMinGapHours * 3600.0);
+         if(InpEquityLadderMinGapHours > 0.0 && g_lastEquityLadderHitTime > 0 && TimeCurrent() < minNextAllowed)
+           {
+            double remHours = (double)(minNextAllowed - TimeCurrent()) / 3600.0;
+            eqlState = StringFormat("COOLING [Wait %.1fh | Hits: #%d]", remHours, g_equityLadderStepCounter);
+            eqlClr = clrGold;
+           }
+         else
+           {
+            double toTgt = g_equityLadderNextTarget - AccountEquity();
+            eqlState = StringFormat("ACTIVE [Tgt $%.0f (+$%.0f) | Step #%d]", g_equityLadderNextTarget, MathMax(0.0, toTgt), g_equityLadderStepCounter);
+            eqlClr = (toTgt <= 0.0) ? clrLime : clrAqua;
+           }
         }
-     }
    string eqlLine1 = StringFormat("EQL LADDER  : %s", eqlState);
    CreateDashboardLabel(DASH_PREFIX+"EQL_LINE1", eqlLine1, tx, y+398, 8, eqlClr);
 
-   // --- EQL Metrics & 2H Gate ---
+// --- EQL Metrics & 2H Gate ---
    string eqlGate2h = (InpEquityLadderMinPriceDiff2Hours > 0.0) ?
                       StringFormat("2H: $%.0f/$%.0f", live2hDiff, InpEquityLadderMinPriceDiff2Hours) : "2H: OFF";
    string eqlEmaStr = isEmaWeak ? "WEAK" : "STRONG";
@@ -25854,7 +25968,7 @@ void UpdateDashboard(DailyProtectionState &state)
                                   LowestEquity, eqlStep, eqlGate2h, eqlEmaStr);
    CreateDashboardLabel(DASH_PREFIX+"EQL_LINE2", eqlLine2, tx, y+414, 8, clrWhite);
 
-   // --- EQ-DD Pure Per-Side (BUY / SELL) Current Status & Latest Chronological Event ---
+// --- EQ-DD Pure Per-Side (BUY / SELL) Current Status & Latest Chronological Event ---
    double dashBal = AccountBalance();
    double dashBuyPL = 0.0, dashBuyDdPct = 0.0, dashSellPL = 0.0, dashSellDdPct = 0.0;
    int    dashBuyCnt = 0, dashSellCnt = 0;
@@ -25875,8 +25989,8 @@ void UpdateDashboard(DailyProtectionState &state)
                         ? TimeToString(g_hourlySideLossNextRunTime + (ServerToDubaiOffsetHours * 3600), TIME_MINUTES)
                         : "--:--";
    string dashHrlyCNxt = (g_hourlyPlanCNextRunTime > 0)
-                        ? TimeToString(g_hourlyPlanCNextRunTime + (ServerToDubaiOffsetHours * 3600), TIME_MINUTES)
-                        : "--:--";
+                         ? TimeToString(g_hourlyPlanCNextRunTime + (ServerToDubaiOffsetHours * 3600), TIME_MINUTES)
+                         : "--:--";
    datetime hrlyDashNow   = TimeCurrent();
    datetime hrlyDashDub   = (hrlyDashNow > 0) ? (hrlyDashNow + (ServerToDubaiOffsetHours * 3600)) : 0;
    int      hrlyDashDay   = (hrlyDashDub > 0) ? (TimeYear(hrlyDashDub) * 1000 + TimeDayOfYear(hrlyDashDub)) : -1;
@@ -25910,21 +26024,21 @@ void UpdateDashboard(DailyProtectionState &state)
       if(InpEnableHourlySideLossCut)
         {
          string hPlanStr = hrlyDashPlanD ? StringFormat("D%d>%.0f!", hrlyDashDMin, hrlyDashDThr)
-                         : (hrlyDashPlanC ? "C:15M"
-                         : (hrlyDashPlanA ? "A:ALL"
-                         : (dashHrlyBreach ? "B:CUT"
-                         : (InpEnableHourlyPlanDDayProfitClose
-                            ? (hrlyDashDLock ? StringFormat("D%dL", hrlyDashDMin) : StringFormat("D%d>%.0f", hrlyDashDMin, hrlyDashDThr))
-                            : "OK"))));
+                           : (hrlyDashPlanC ? "C:15M"
+                              : (hrlyDashPlanA ? "A:ALL"
+                                 : (dashHrlyBreach ? "B:CUT"
+                                    : (InpEnableHourlyPlanDDayProfitClose
+                                       ? (hrlyDashDLock ? StringFormat("D%dL", hrlyDashDMin) : StringFormat("D%d>%.0f", hrlyDashDMin, hrlyDashDThr))
+                                       : "OK"))));
          eqDdState = StringFormat("1H %s %s%.1f%% %d/%d/%d/%d",
                                   hPlanStr, hrlyDashSign, hrlyDashEqPct,
                                   g_hourlyPlanATotalSweeps, g_hourlySideLossTotalCuts,
                                   g_hourlyPlanCTotalSweeps, g_hourlyPlanDTotalSweeps);
          eqDdClr = hrlyDashPlanD ? clrDeepSkyBlue
-                 : (hrlyDashPlanC ? clrGold
-                 : (hrlyDashPlanA ? clrLime
-                 : (dashHrlyBreach ? clrOrangeRed
-                 : ((g_hourlyPlanATotalSweeps > 0 || g_hourlyPlanCTotalSweeps > 0 || g_hourlyPlanDTotalSweeps > 0 || g_hourlySideLossTotalCuts > 0) ? clrGold : clrSilver))));
+                   : (hrlyDashPlanC ? clrGold
+                      : (hrlyDashPlanA ? clrLime
+                         : (dashHrlyBreach ? clrOrangeRed
+                            : ((g_hourlyPlanATotalSweeps > 0 || g_hourlyPlanCTotalSweeps > 0 || g_hourlyPlanDTotalSweeps > 0 || g_hourlySideLossTotalCuts > 0) ? clrGold : clrSilver))));
         }
       else
         {
@@ -25932,45 +26046,48 @@ void UpdateDashboard(DailyProtectionState &state)
          eqDdClr = clrSilver;
         }
      }
-   else if(g_eqDdCloseAllPending)
-     {
-      eqDdState = StringFormat("CLOSE-ALL PENDING | Cuts:%d", g_eqDdTotalPartialCuts);
-      eqDdClr = clrRed;
-     }
-   else if(dashPending)
-     {
-      bool   pickWaitBuy = (dashWaitBuy && (!dashWaitSell || dashTierB > dashTierS || (dashTierB == dashTierS && dashBuyDdPct >= dashSellDdPct)));
-      string wSideCh = pickWaitBuy ? "B" : "S";
-      int    wTier   = pickWaitBuy ? dashTierB : dashTierS;
-      string wReason = pickWaitBuy ? g_eqDdBuyLastReachReason : g_eqDdSellLastReachReason;
-      eqDdState = StringFormat("%s-T%d WAIT (%s) | Pk:%.1f%%", wSideCh, wTier, wReason, g_eqDdSessionPeakPct);
-      eqDdClr   = GetEqDdTierColor(wTier);
-     }
-   else if(dashMaxTier >= 1 || (InpEqDdOneShotPerTier && dashMaxDone >= 1))
-     {
-      bool   pickBuy  = (MathMax(dashTierB, g_eqDdBuyCycleHighestTier) > MathMax(dashTierS, g_eqDdSellCycleHighestTier)) ||
-                        (MathMax(dashTierB, g_eqDdBuyCycleHighestTier) == MathMax(dashTierS, g_eqDdSellCycleHighestTier) && dashBuyDdPct >= dashSellDdPct);
-      string sideCh   = pickBuy ? "B" : "S";
-      int    curSideT = pickBuy ? dashTierB : dashTierS;
-      int    doneSide = pickBuy ? g_eqDdBuyCycleHighestTier : g_eqDdSellCycleHighestTier;
-      int    effTier  = (curSideT > doneSide) ? curSideT : doneSide;
-      double nextThresh = 0.0;
-      ResolveNextEqDdTier(curSideT, doneSide, nextThresh);
-      if(curSideT == 0 && doneSide >= 1)
-         eqDdState = StringFormat("%s-RECOV (T%d Next:%.0f%%) | Cuts:%d", sideCh, doneSide, nextThresh, g_eqDdTotalPartialCuts);
-      else
-        {
-         string doneTag = (InpEqDdOneShotPerTier && doneSide >= effTier) ? " DONE" : "";
-         eqDdState = StringFormat("%s-T%d%s Next:%.0f%% | Cuts:%d", sideCh, effTier, doneTag, nextThresh, g_eqDdTotalPartialCuts);
-        }
-      eqDdClr   = GetEqDdTierColor(effTier);
-     }
    else
-     {
-      double firstThresh = InpEqDdEnableTier1 ? InpEqDdTier1Pct : InpEqDdTier2Pct;
-      eqDdState = StringFormat("OK [Pk:%.1f%% Next:%.0f%%] | Cuts:%d", g_eqDdSessionPeakPct, firstThresh, g_eqDdTotalPartialCuts);
-      eqDdClr = clrLightGray;
-     }
+      if(g_eqDdCloseAllPending)
+        {
+         eqDdState = StringFormat("CLOSE-ALL PENDING | Cuts:%d", g_eqDdTotalPartialCuts);
+         eqDdClr = clrRed;
+        }
+      else
+         if(dashPending)
+           {
+            bool   pickWaitBuy = (dashWaitBuy && (!dashWaitSell || dashTierB > dashTierS || (dashTierB == dashTierS && dashBuyDdPct >= dashSellDdPct)));
+            string wSideCh = pickWaitBuy ? "B" : "S";
+            int    wTier   = pickWaitBuy ? dashTierB : dashTierS;
+            string wReason = pickWaitBuy ? g_eqDdBuyLastReachReason : g_eqDdSellLastReachReason;
+            eqDdState = StringFormat("%s-T%d WAIT (%s) | Pk:%.1f%%", wSideCh, wTier, wReason, g_eqDdSessionPeakPct);
+            eqDdClr   = GetEqDdTierColor(wTier);
+           }
+         else
+            if(dashMaxTier >= 1 || (InpEqDdOneShotPerTier && dashMaxDone >= 1))
+              {
+               bool   pickBuy  = (MathMax(dashTierB, g_eqDdBuyCycleHighestTier) > MathMax(dashTierS, g_eqDdSellCycleHighestTier)) ||
+                                 (MathMax(dashTierB, g_eqDdBuyCycleHighestTier) == MathMax(dashTierS, g_eqDdSellCycleHighestTier) && dashBuyDdPct >= dashSellDdPct);
+               string sideCh   = pickBuy ? "B" : "S";
+               int    curSideT = pickBuy ? dashTierB : dashTierS;
+               int    doneSide = pickBuy ? g_eqDdBuyCycleHighestTier : g_eqDdSellCycleHighestTier;
+               int    effTier  = (curSideT > doneSide) ? curSideT : doneSide;
+               double nextThresh = 0.0;
+               ResolveNextEqDdTier(curSideT, doneSide, nextThresh);
+               if(curSideT == 0 && doneSide >= 1)
+                  eqDdState = StringFormat("%s-RECOV (T%d Next:%.0f%%) | Cuts:%d", sideCh, doneSide, nextThresh, g_eqDdTotalPartialCuts);
+               else
+                 {
+                  string doneTag = (InpEqDdOneShotPerTier && doneSide >= effTier) ? " DONE" : "";
+                  eqDdState = StringFormat("%s-T%d%s Next:%.0f%% | Cuts:%d", sideCh, effTier, doneTag, nextThresh, g_eqDdTotalPartialCuts);
+                 }
+               eqDdClr   = GetEqDdTierColor(effTier);
+              }
+            else
+              {
+               double firstThresh = InpEqDdEnableTier1 ? InpEqDdTier1Pct : InpEqDdTier2Pct;
+               eqDdState = StringFormat("OK [Pk:%.1f%% Next:%.0f%%] | Cuts:%d", g_eqDdSessionPeakPct, firstThresh, g_eqDdTotalPartialCuts);
+               eqDdClr = clrLightGray;
+              }
    string eqDdLine = StringFormat("EQ-DD SIDE  : B:%.1f%% S:%.1f%% | %s", dashBuyDdPct, dashSellDdPct, eqDdState);
    CreateDashboardLabel(DASH_PREFIX+"EQDD_LINE", eqDdLine, tx, y+430, 8, eqDdClr);
 
@@ -25979,10 +26096,12 @@ void UpdateDashboard(DailyProtectionState &state)
    datetime dashPendTime = 0;
    if(dashWaitBuy && dashWaitSell)
       dashPendTime = MathMax(g_eqDdBuyLastReachTime, g_eqDdSellLastReachTime);
-   else if(dashWaitBuy)
-      dashPendTime = g_eqDdBuyLastReachTime;
-   else if(dashWaitSell)
-      dashPendTime = g_eqDdSellLastReachTime;
+   else
+      if(dashWaitBuy)
+         dashPendTime = g_eqDdBuyLastReachTime;
+      else
+         if(dashWaitSell)
+            dashPendTime = g_eqDdSellLastReachTime;
 
    if(!InpEnableEqDdLotReduction)
      {
@@ -25997,38 +26116,41 @@ void UpdateDashboard(DailyProtectionState &state)
                                        g_hourlyPlanDLastOrders, g_hourlyPlanDLastLots);
             eqDdHitClr  = clrDeepSkyBlue;
            }
-         else if(g_hourlyPlanCLastHitTime > 0 && g_hourlyPlanCLastHitTime >= g_hourlyPlanALastHitTime && g_hourlyPlanCLastHitTime >= g_hourlySideLossLastHitTime)
-           {
-            eqDdHitLine = StringFormat("1H LATEST   : PLAN-C +%.1f%% ALL @ %s x%d (-%.2fL)",
-                                       g_hourlyPlanCLastPct,
-                                       FormatDubaiShortDT(g_hourlyPlanCLastHitTime, false),
-                                       g_hourlyPlanCLastOrders, g_hourlyPlanCLastLots);
-            eqDdHitClr  = clrGold;
-           }
-         else if(g_hourlyPlanALastHitTime > 0 && g_hourlyPlanALastHitTime >= g_hourlySideLossLastHitTime)
-           {
-            eqDdHitLine = StringFormat("1H LATEST   : PLAN-A +%.1f%% ALL @ %s x%d (-%.2fL)",
-                                       g_hourlyPlanALastPct,
-                                       FormatDubaiShortDT(g_hourlyPlanALastHitTime, false),
-                                       g_hourlyPlanALastOrders, g_hourlyPlanALastLots);
-            eqDdHitClr  = clrLime;
-           }
-         else if(g_hourlySideLossLastHitTime > 0)
-           {
-            eqDdHitLine = StringFormat("1H LATEST   : PLAN-B %s %.1f%% (-%.0f%%L) @ %s x%d (-%.2fL)",
-                                       g_hourlySideLossLastHitSide, g_hourlySideLossLastHitPct, InpHourlySideLossCutPct,
-                                       FormatDubaiShortDT(g_hourlySideLossLastHitTime, false),
-                                       g_hourlySideLossLastHitOrders, g_hourlySideLossLastHitLots);
-            eqDdHitClr  = clrOrangeRed;
-           }
          else
-           {
-            string bDashTag = InpEnableHourlyPlanBSideLossCut ? StringFormat("B>%.0f", InpHourlySideLossThresholdPct) : "B:OFF";
-            eqDdHitLine = StringFormat("1H LATEST   : A>%.0f %s C>%.0f D:m%d>%.0f%s (%s)",
-                                       hrlyDashAThr, bDashTag, hrlyDashCThr,
-                                       hrlyDashDMin, hrlyDashDThr, (hrlyDashDLock ? "L" : "%"), dashHrlyCNxt);
-            eqDdHitClr  = hrlyDashPlanD ? clrDeepSkyBlue : (hrlyDashPlanC ? clrGold : (hrlyDashPlanA ? clrLime : (dashHrlyBreach ? clrOrangeRed : clrSilver)));
-           }
+            if(g_hourlyPlanCLastHitTime > 0 && g_hourlyPlanCLastHitTime >= g_hourlyPlanALastHitTime && g_hourlyPlanCLastHitTime >= g_hourlySideLossLastHitTime)
+              {
+               eqDdHitLine = StringFormat("1H LATEST   : PLAN-C +%.1f%% ALL @ %s x%d (-%.2fL)",
+                                          g_hourlyPlanCLastPct,
+                                          FormatDubaiShortDT(g_hourlyPlanCLastHitTime, false),
+                                          g_hourlyPlanCLastOrders, g_hourlyPlanCLastLots);
+               eqDdHitClr  = clrGold;
+              }
+            else
+               if(g_hourlyPlanALastHitTime > 0 && g_hourlyPlanALastHitTime >= g_hourlySideLossLastHitTime)
+                 {
+                  eqDdHitLine = StringFormat("1H LATEST   : PLAN-A +%.1f%% ALL @ %s x%d (-%.2fL)",
+                                             g_hourlyPlanALastPct,
+                                             FormatDubaiShortDT(g_hourlyPlanALastHitTime, false),
+                                             g_hourlyPlanALastOrders, g_hourlyPlanALastLots);
+                  eqDdHitClr  = clrLime;
+                 }
+               else
+                  if(g_hourlySideLossLastHitTime > 0)
+                    {
+                     eqDdHitLine = StringFormat("1H LATEST   : PLAN-B %s %.1f%% (-%.0f%%L) @ %s x%d (-%.2fL)",
+                                                g_hourlySideLossLastHitSide, g_hourlySideLossLastHitPct, InpHourlySideLossCutPct,
+                                                FormatDubaiShortDT(g_hourlySideLossLastHitTime, false),
+                                                g_hourlySideLossLastHitOrders, g_hourlySideLossLastHitLots);
+                     eqDdHitClr  = clrOrangeRed;
+                    }
+                  else
+                    {
+                     string bDashTag = InpEnableHourlyPlanBSideLossCut ? StringFormat("B>%.0f", InpHourlySideLossThresholdPct) : "B:OFF";
+                     eqDdHitLine = StringFormat("1H LATEST   : A>%.0f %s C>%.0f D:m%d>%.0f%s (%s)",
+                                                hrlyDashAThr, bDashTag, hrlyDashCThr,
+                                                hrlyDashDMin, hrlyDashDThr, (hrlyDashDLock ? "L" : "%"), dashHrlyCNxt);
+                     eqDdHitClr  = hrlyDashPlanD ? clrDeepSkyBlue : (hrlyDashPlanC ? clrGold : (hrlyDashPlanA ? clrLime : (dashHrlyBreach ? clrOrangeRed : clrSilver)));
+                    }
         }
       else
         {
@@ -26036,58 +26158,65 @@ void UpdateDashboard(DailyProtectionState &state)
          eqDdHitClr  = clrSilver;
         }
      }
-   else if(dashPendTime > 0 && dashPendTime >= g_eqDdLastHitTime && dashPendTime >= g_eqDdLastResetTime)
-     {
-      bool   pickWaitBuy = (dashWaitBuy && (!dashWaitSell || g_eqDdBuyLastReachTime >= g_eqDdSellLastReachTime));
-      string pCh     = pickWaitBuy ? "B" : "S";
-      int    pTier   = pickWaitBuy ? dashTierB : dashTierS;
-      double pPct    = pickWaitBuy ? dashBuyDdPct : dashSellDdPct;
-      string pReason = pickWaitBuy ? g_eqDdBuyLastReachReason : g_eqDdSellLastReachReason;
-      eqDdHitLine = StringFormat("DD LATEST   : %s-T%d WAIT %.1f%% @ %s GST (%s)",
-                                 pCh, pTier, pPct, FormatDubaiShortDT(dashPendTime, false), pReason);
-      eqDdHitClr  = GetEqDdTierColor(pTier);
-     }
-   else if(g_eqDdLastResetTime > 0 && g_eqDdLastResetTime > g_eqDdLastHitTime)
-     {
-      eqDdHitLine = StringFormat("DD LATEST   : %s CLEARED (T%d->OK) @ %s GST",
-                                 g_eqDdLastResetSide, g_eqDdLastResetTier,
-                                 FormatDubaiShortDT(g_eqDdLastResetTime, false));
-      eqDdHitClr  = clrLime;
-     }
-   else if(g_eqDdLastHitTime > 0)
-     {
-      string hitSideCh = (g_eqDdLastHitSide != "" ? StringSubstr(g_eqDdLastHitSide, 0, 1) : "?");
-      string hitOkTag  = (dashMaxDone == 0 && dashMaxTier == 0) ? " [OK]" : "";
-      eqDdHitLine = StringFormat("DD LATEST   : %s-T%d %.1f%% (-%.0f%%L) @ %s GST x%d%s",
-                                 hitSideCh, g_eqDdLastHitTier, g_eqDdLastHitPct, g_eqDdLastHitCutPct,
-                                 FormatDubaiShortDT(g_eqDdLastHitTime, false),
-                                 g_eqDdLastHitOrders, hitOkTag);
-      eqDdHitClr  = (dashMaxDone == 0 && dashMaxTier == 0) ? clrGold : GetEqDdTierColor(g_eqDdLastHitTier);
-     }
-   else if(g_eqDdLastReachTime > 0)
-     {
-      string rSideCh = (g_eqDdLastReachSide != "" ? StringSubstr(g_eqDdLastReachSide, 0, 1) : "?");
-      eqDdHitLine = StringFormat("DD LATEST   : %s-T%d REACH %.1f%% @ %s GST",
-                                 rSideCh, g_eqDdLastReachTier, g_eqDdLastReachPct,
-                                 FormatDubaiShortDT(g_eqDdLastReachTime, false));
-      eqDdHitClr  = GetEqDdTierColor(g_eqDdLastReachTier);
-     }
-   else if(g_drawdownReliefExecuted || g_drawdownReliefArmed)
-     {
-      eqDdHitLine = StringFormat("DD LATEST   : NONE YET | RLF Pk:$%.0f DD:$%.0f", g_drawdownReliefPeakUSD, curDD);
-      eqDdHitClr  = g_drawdownReliefExecuted ? clrLime : clrGold;
-     }
-   else if(g_eqDdDailyResetTime > 0)
-     {
-      eqDdHitLine = StringFormat("DD LATEST   : DAY RESET @ %s GST [OK]",
-                                 FormatDubaiShortDT(g_eqDdDailyResetTime, false));
-      eqDdHitClr  = clrLime;
-     }
-   else if(g_drawdownReliefPeakUSD > 0.0)
-     {
-      eqDdHitLine = StringFormat("DD LATEST   : NONE YET | RLF Pk:$%.0f DD:$%.0f", g_drawdownReliefPeakUSD, curDD);
-      eqDdHitClr  = clrDeepSkyBlue;
-     }
+   else
+      if(dashPendTime > 0 && dashPendTime >= g_eqDdLastHitTime && dashPendTime >= g_eqDdLastResetTime)
+        {
+         bool   pickWaitBuy = (dashWaitBuy && (!dashWaitSell || g_eqDdBuyLastReachTime >= g_eqDdSellLastReachTime));
+         string pCh     = pickWaitBuy ? "B" : "S";
+         int    pTier   = pickWaitBuy ? dashTierB : dashTierS;
+         double pPct    = pickWaitBuy ? dashBuyDdPct : dashSellDdPct;
+         string pReason = pickWaitBuy ? g_eqDdBuyLastReachReason : g_eqDdSellLastReachReason;
+         eqDdHitLine = StringFormat("DD LATEST   : %s-T%d WAIT %.1f%% @ %s GST (%s)",
+                                    pCh, pTier, pPct, FormatDubaiShortDT(dashPendTime, false), pReason);
+         eqDdHitClr  = GetEqDdTierColor(pTier);
+        }
+      else
+         if(g_eqDdLastResetTime > 0 && g_eqDdLastResetTime > g_eqDdLastHitTime)
+           {
+            eqDdHitLine = StringFormat("DD LATEST   : %s CLEARED (T%d->OK) @ %s GST",
+                                       g_eqDdLastResetSide, g_eqDdLastResetTier,
+                                       FormatDubaiShortDT(g_eqDdLastResetTime, false));
+            eqDdHitClr  = clrLime;
+           }
+         else
+            if(g_eqDdLastHitTime > 0)
+              {
+               string hitSideCh = (g_eqDdLastHitSide != "" ? StringSubstr(g_eqDdLastHitSide, 0, 1) : "?");
+               string hitOkTag  = (dashMaxDone == 0 && dashMaxTier == 0) ? " [OK]" : "";
+               eqDdHitLine = StringFormat("DD LATEST   : %s-T%d %.1f%% (-%.0f%%L) @ %s GST x%d%s",
+                                          hitSideCh, g_eqDdLastHitTier, g_eqDdLastHitPct, g_eqDdLastHitCutPct,
+                                          FormatDubaiShortDT(g_eqDdLastHitTime, false),
+                                          g_eqDdLastHitOrders, hitOkTag);
+               eqDdHitClr  = (dashMaxDone == 0 && dashMaxTier == 0) ? clrGold : GetEqDdTierColor(g_eqDdLastHitTier);
+              }
+            else
+               if(g_eqDdLastReachTime > 0)
+                 {
+                  string rSideCh = (g_eqDdLastReachSide != "" ? StringSubstr(g_eqDdLastReachSide, 0, 1) : "?");
+                  eqDdHitLine = StringFormat("DD LATEST   : %s-T%d REACH %.1f%% @ %s GST",
+                                             rSideCh, g_eqDdLastReachTier, g_eqDdLastReachPct,
+                                             FormatDubaiShortDT(g_eqDdLastReachTime, false));
+                  eqDdHitClr  = GetEqDdTierColor(g_eqDdLastReachTier);
+                 }
+               else
+                  if(g_drawdownReliefExecuted || g_drawdownReliefArmed)
+                    {
+                     eqDdHitLine = StringFormat("DD LATEST   : NONE YET | RLF Pk:$%.0f DD:$%.0f", g_drawdownReliefPeakUSD, curDD);
+                     eqDdHitClr  = g_drawdownReliefExecuted ? clrLime : clrGold;
+                    }
+                  else
+                     if(g_eqDdDailyResetTime > 0)
+                       {
+                        eqDdHitLine = StringFormat("DD LATEST   : DAY RESET @ %s GST [OK]",
+                                                   FormatDubaiShortDT(g_eqDdDailyResetTime, false));
+                        eqDdHitClr  = clrLime;
+                       }
+                     else
+                        if(g_drawdownReliefPeakUSD > 0.0)
+                          {
+                           eqDdHitLine = StringFormat("DD LATEST   : NONE YET | RLF Pk:$%.0f DD:$%.0f", g_drawdownReliefPeakUSD, curDD);
+                           eqDdHitClr  = clrDeepSkyBlue;
+                          }
    CreateDashboardLabel(DASH_PREFIX+"EQDD_HIT", eqDdHitLine, tx, y+446, 8, eqDdHitClr);
 
    datetime dashNowServer = TimeCurrent();
@@ -26102,10 +26231,11 @@ void UpdateDashboard(DailyProtectionState &state)
    bool     dashInNightWin = false;
    if(InpDubaiNightCloseStartHour < InpDubaiNightCloseEndHour)
       dashInNightWin = (dashDubaiHour >= InpDubaiNightCloseStartHour && dashDubaiHour < InpDubaiNightCloseEndHour);
-   else if(InpDubaiNightCloseStartHour > InpDubaiNightCloseEndHour)
-      dashInNightWin = (dashDubaiHour >= InpDubaiNightCloseStartHour || dashDubaiHour < InpDubaiNightCloseEndHour);
    else
-      dashInNightWin = (dashDubaiHour == InpDubaiNightCloseStartHour);
+      if(InpDubaiNightCloseStartHour > InpDubaiNightCloseEndHour)
+         dashInNightWin = (dashDubaiHour >= InpDubaiNightCloseStartHour || dashDubaiHour < InpDubaiNightCloseEndHour);
+      else
+         dashInNightWin = (dashDubaiHour == InpDubaiNightCloseStartHour);
 
    bool dashInForceWin = false;
    bool dashForceInWindow = false;
@@ -26113,19 +26243,21 @@ void UpdateDashboard(DailyProtectionState &state)
      {
       if(dashStartMod < dashEndMod)
          dashForceInWindow = (dashForceMod >= dashStartMod && dashForceMod < dashEndMod);
-      else if(dashStartMod > dashEndMod)
-         dashForceInWindow = (dashForceMod >= dashStartMod || dashForceMod < dashEndMod);
       else
-         dashForceInWindow = (InpDubaiNightForceCloseHour == InpDubaiNightCloseStartHour);
+         if(dashStartMod > dashEndMod)
+            dashForceInWindow = (dashForceMod >= dashStartMod || dashForceMod < dashEndMod);
+         else
+            dashForceInWindow = (InpDubaiNightForceCloseHour == InpDubaiNightCloseStartHour);
      }
    if(dashInNightWin && InpEnableDubaiNightForceCloseAll)
      {
       if(dashStartMod <= dashEndMod)
          dashInForceWin = (dashDubaiMod >= dashForceMod);
-      else if(dashForceMod >= dashStartMod)
-         dashInForceWin = (dashDubaiMod >= dashForceMod || dashDubaiMod < dashEndMod);
       else
-         dashInForceWin = (dashDubaiMod >= dashForceMod && dashDubaiMod < dashEndMod);
+         if(dashForceMod >= dashStartMod)
+            dashInForceWin = (dashDubaiMod >= dashForceMod || dashDubaiMod < dashEndMod);
+         else
+            dashInForceWin = (dashDubaiMod >= dashForceMod && dashDubaiMod < dashEndMod);
      }
 
    double   dashAbsAng    = MathAbs((GlobalEmaAngle30 != 0.0) ? GlobalEmaAngle30 : GetEmaAngleDegrees(30));
@@ -26147,89 +26279,94 @@ void UpdateDashboard(DailyProtectionState &state)
                                    TimeToString(dashDubaiTime, TIME_MINUTES));
       dubaiCloseClr = clrSilver;
      }
-   else if(g_dubaiNightCloseDoneToday && g_dubaiNightCloseDayKey == dashDubaiDay)
-     {
-      string hitClock = (g_dubaiNightCloseLastHitTime > 0)
-                        ? TimeToString(g_dubaiNightCloseLastHitTime + (ServerToDubaiOffsetHours * 3600), TIME_MINUTES)
-                        : "--:--";
-      dubaiCloseTxt = StringFormat("DUBAI %02d-%02d : DONE @ %s (EqDay:%s%.1f%% | Reset 00:00)",
-                                   InpDubaiNightCloseStartHour, InpDubaiNightCloseEndHour,
-                                   hitClock, dashDayEqSign, dashDayEqPct);
-      dubaiCloseClr = clrGold;
-     }
-   else if(dashInNightWin && dashDayEqHit)
-     {
-      dubaiCloseTxt = StringFormat("DUBAI %02d-%02d : EQ DAY %s%.2f%%>%.0f%% -> CLOSE ALL",
-                                   InpDubaiNightCloseStartHour, InpDubaiNightCloseEndHour,
-                                   dashDayEqSign, dashDayEqPct, InpDubaiNightDayProfitPct);
-      dubaiCloseClr = clrLime;
-     }
-   else if(dashInForceWin)
-     {
-      if(dashAngOk)
-        {
-         dubaiCloseTxt = StringFormat("DUBAI %02d-%02d : FORCE %s (Close ALL | Cuts:%d | Eq:%s%.1f%%)",
-                                      InpDubaiNightCloseStartHour, InpDubaiNightCloseEndHour,
-                                      TimeToString(dashDubaiTime, TIME_MINUTES), g_dubaiNightCutCountToday,
-                                      dashDayEqSign, dashDayEqPct);
-         dubaiCloseClr = clrTomato;
-        }
-      else
-        {
-         dubaiCloseTxt = StringFormat("DUBAI %02d-%02d : WAIT ANG %s (|%.2f|>%.1f | Eq:%s%.1f%%/%.0f%%)",
-                                      InpDubaiNightCloseStartHour, InpDubaiNightCloseEndHour,
-                                      TimeToString(dashDubaiTime, TIME_MINUTES), dashAbsAng,
-                                      InpDubaiNightMaxEmaAngleDeg, dashDayEqSign, dashDayEqPct, InpDubaiNightDayProfitPct);
-         dubaiCloseClr = clrSilver;
-        }
-     }
-   else if(dashInNightWin)
-     {
-      int dashCooldownSec = MathMax(60, InpDubaiNightCutIntervalMinutes * 60);
-      if(g_dubaiNightLastCutTime > 0 && (dashNowServer - g_dubaiNightLastCutTime) < dashCooldownSec)
-        {
-         int remMin = (int)MathCeil((double)(dashCooldownSec - (int)(dashNowServer - g_dubaiNightLastCutTime)) / 60.0);
-         dubaiCloseTxt = StringFormat("DUBAI %02d-%02d : CUT#%d %s (Next:%dm | Eq:%s%.1f%%)",
-                                      InpDubaiNightCloseStartHour, InpDubaiNightCloseEndHour,
-                                      g_dubaiNightCutCountToday, TimeToString(dashDubaiTime, TIME_MINUTES),
-                                      remMin, dashDayEqSign, dashDayEqPct);
-         dubaiCloseClr = clrDeepSkyBlue;
-        }
-      else if(!dashAngOk)
-        {
-         dubaiCloseTxt = StringFormat("DUBAI %02d-%02d : HOLD %s (|%.2f|>%.1f | Eq:%s%.1f%%/%.0f%%)",
-                                      InpDubaiNightCloseStartHour, InpDubaiNightCloseEndHour,
-                                      TimeToString(dashDubaiTime, TIME_MINUTES), dashAbsAng,
-                                      InpDubaiNightMaxEmaAngleDeg, dashDayEqSign, dashDayEqPct, InpDubaiNightDayProfitPct);
-         dubaiCloseClr = clrSilver;
-        }
-      else
-        {
-         dubaiCloseTxt = dashForceInWindow
-                         ? StringFormat("DUBAI %02d-%02d : ARMED %s (-50%%/%dm | %02d:%02d All | Eq:%s%.1f%%)",
-                                        InpDubaiNightCloseStartHour, InpDubaiNightCloseEndHour,
-                                        TimeToString(dashDubaiTime, TIME_MINUTES), InpDubaiNightCutIntervalMinutes,
-                                        InpDubaiNightForceCloseHour, InpDubaiNightForceCloseMinute,
-                                        dashDayEqSign, dashDayEqPct)
-                         : StringFormat("DUBAI %02d-%02d : ARMED %s (-50%%/%dm | End %02d:00 | Eq:%s%.1f%%)",
-                                        InpDubaiNightCloseStartHour, InpDubaiNightCloseEndHour,
-                                        TimeToString(dashDubaiTime, TIME_MINUTES), InpDubaiNightCutIntervalMinutes,
-                                        InpDubaiNightCloseEndHour, dashDayEqSign, dashDayEqPct);
-         dubaiCloseClr = clrOrange;
-        }
-     }
    else
-     {
-      dubaiCloseTxt = StringFormat("DUBAI %02d-%02d : READY (%s | -50%%/%dm | EqDay:%s%.1f%%/%.0f%%)",
-                                   InpDubaiNightCloseStartHour, InpDubaiNightCloseEndHour,
-                                   TimeToString(dashDubaiTime, TIME_MINUTES), InpDubaiNightCutIntervalMinutes,
-                                   dashDayEqSign, dashDayEqPct, InpDubaiNightDayProfitPct);
-      dubaiCloseClr = clrLightGray;
-     }
+      if(g_dubaiNightCloseDoneToday && g_dubaiNightCloseDayKey == dashDubaiDay)
+        {
+         string hitClock = (g_dubaiNightCloseLastHitTime > 0)
+                           ? TimeToString(g_dubaiNightCloseLastHitTime + (ServerToDubaiOffsetHours * 3600), TIME_MINUTES)
+                           : "--:--";
+         dubaiCloseTxt = StringFormat("DUBAI %02d-%02d : DONE @ %s (EqDay:%s%.1f%% | Reset 00:00)",
+                                      InpDubaiNightCloseStartHour, InpDubaiNightCloseEndHour,
+                                      hitClock, dashDayEqSign, dashDayEqPct);
+         dubaiCloseClr = clrGold;
+        }
+      else
+         if(dashInNightWin && dashDayEqHit)
+           {
+            dubaiCloseTxt = StringFormat("DUBAI %02d-%02d : EQ DAY %s%.2f%%>%.0f%% -> CLOSE ALL",
+                                         InpDubaiNightCloseStartHour, InpDubaiNightCloseEndHour,
+                                         dashDayEqSign, dashDayEqPct, InpDubaiNightDayProfitPct);
+            dubaiCloseClr = clrLime;
+           }
+         else
+            if(dashInForceWin)
+              {
+               if(dashAngOk)
+                 {
+                  dubaiCloseTxt = StringFormat("DUBAI %02d-%02d : FORCE %s (Close ALL | Cuts:%d | Eq:%s%.1f%%)",
+                                               InpDubaiNightCloseStartHour, InpDubaiNightCloseEndHour,
+                                               TimeToString(dashDubaiTime, TIME_MINUTES), g_dubaiNightCutCountToday,
+                                               dashDayEqSign, dashDayEqPct);
+                  dubaiCloseClr = clrTomato;
+                 }
+               else
+                 {
+                  dubaiCloseTxt = StringFormat("DUBAI %02d-%02d : WAIT ANG %s (|%.2f|>%.1f | Eq:%s%.1f%%/%.0f%%)",
+                                               InpDubaiNightCloseStartHour, InpDubaiNightCloseEndHour,
+                                               TimeToString(dashDubaiTime, TIME_MINUTES), dashAbsAng,
+                                               InpDubaiNightMaxEmaAngleDeg, dashDayEqSign, dashDayEqPct, InpDubaiNightDayProfitPct);
+                  dubaiCloseClr = clrSilver;
+                 }
+              }
+            else
+               if(dashInNightWin)
+                 {
+                  int dashCooldownSec = MathMax(60, InpDubaiNightCutIntervalMinutes * 60);
+                  if(g_dubaiNightLastCutTime > 0 && (dashNowServer - g_dubaiNightLastCutTime) < dashCooldownSec)
+                    {
+                     int remMin = (int)MathCeil((double)(dashCooldownSec - (int)(dashNowServer - g_dubaiNightLastCutTime)) / 60.0);
+                     dubaiCloseTxt = StringFormat("DUBAI %02d-%02d : CUT#%d %s (Next:%dm | Eq:%s%.1f%%)",
+                                                  InpDubaiNightCloseStartHour, InpDubaiNightCloseEndHour,
+                                                  g_dubaiNightCutCountToday, TimeToString(dashDubaiTime, TIME_MINUTES),
+                                                  remMin, dashDayEqSign, dashDayEqPct);
+                     dubaiCloseClr = clrDeepSkyBlue;
+                    }
+                  else
+                     if(!dashAngOk)
+                       {
+                        dubaiCloseTxt = StringFormat("DUBAI %02d-%02d : HOLD %s (|%.2f|>%.1f | Eq:%s%.1f%%/%.0f%%)",
+                                                     InpDubaiNightCloseStartHour, InpDubaiNightCloseEndHour,
+                                                     TimeToString(dashDubaiTime, TIME_MINUTES), dashAbsAng,
+                                                     InpDubaiNightMaxEmaAngleDeg, dashDayEqSign, dashDayEqPct, InpDubaiNightDayProfitPct);
+                        dubaiCloseClr = clrSilver;
+                       }
+                     else
+                       {
+                        dubaiCloseTxt = dashForceInWindow
+                                        ? StringFormat("DUBAI %02d-%02d : ARMED %s (-50%%/%dm | %02d:%02d All | Eq:%s%.1f%%)",
+                                                       InpDubaiNightCloseStartHour, InpDubaiNightCloseEndHour,
+                                                       TimeToString(dashDubaiTime, TIME_MINUTES), InpDubaiNightCutIntervalMinutes,
+                                                       InpDubaiNightForceCloseHour, InpDubaiNightForceCloseMinute,
+                                                       dashDayEqSign, dashDayEqPct)
+                                        : StringFormat("DUBAI %02d-%02d : ARMED %s (-50%%/%dm | End %02d:00 | Eq:%s%.1f%%)",
+                                                       InpDubaiNightCloseStartHour, InpDubaiNightCloseEndHour,
+                                                       TimeToString(dashDubaiTime, TIME_MINUTES), InpDubaiNightCutIntervalMinutes,
+                                                       InpDubaiNightCloseEndHour, dashDayEqSign, dashDayEqPct);
+                        dubaiCloseClr = clrOrange;
+                       }
+                 }
+               else
+                 {
+                  dubaiCloseTxt = StringFormat("DUBAI %02d-%02d : READY (%s | -50%%/%dm | EqDay:%s%.1f%%/%.0f%%)",
+                                               InpDubaiNightCloseStartHour, InpDubaiNightCloseEndHour,
+                                               TimeToString(dashDubaiTime, TIME_MINUTES), InpDubaiNightCutIntervalMinutes,
+                                               dashDayEqSign, dashDayEqPct, InpDubaiNightDayProfitPct);
+                  dubaiCloseClr = clrLightGray;
+                 }
    CreateDashboardLabel(DASH_PREFIX+"DUBAI_CLOSE", dubaiCloseTxt, tx, y+462, 8, dubaiCloseClr);
 
    double pGapDashMid   = (Bid > 0.0 && Ask > 0.0) ? ((Bid + Ask) * 0.5)
-                                                   : ((Bars > 0 && Close[0] > 0.0) ? Close[0] : Bid);
+                          : ((Bars > 0 && Close[0] > 0.0) ? Close[0] : Bid);
    double pGapDashRef   = (g_priceGapCloseAnchorPrice > 0.0) ? g_priceGapCloseAnchorPrice : GetEmaFlipPrice();
    double pGapDashRaw   = (pGapDashRef > 0.0 && pGapDashMid > 0.0) ? MathAbs(pGapDashMid - pGapDashRef) : 0.0;
    double pGapDashReq   = (InpPriceGapCloseRawGap > 0.0) ? InpPriceGapCloseRawGap : 1000.0;
@@ -26243,29 +26380,31 @@ void UpdateDashboard(DailyProtectionState &state)
       pGapDashTxt = "GAP CLOSE   : DISABLED";
       pGapDashClr = clrSilver;
      }
-   else if(pGapDashArmed)
-     {
-      pGapDashTxt = StringFormat("GAP>%.0f+%.0f%% : ARMED %.0f/%.0f Eq:%s%.1f%% (Hits:%d)",
-                                 pGapDashReq, pGapDashPctRq, pGapDashRaw, pGapDashReq,
-                                 dashDayEqSign, dashDayEqPct, g_priceGapCloseTotalSweeps);
-      pGapDashClr = clrLime;
-     }
-   else if(g_priceGapCloseLastHitTime > 0)
-     {
-      pGapDashTxt = StringFormat("GAP>%.0f+%.0f%% : %.0f/%.0f Eq:%s%.1f%% | Hit#%d x%d @%s",
-                                 pGapDashReq, pGapDashPctRq, pGapDashRaw, pGapDashReq,
-                                 dashDayEqSign, dashDayEqPct, g_priceGapCloseTotalSweeps,
-                                 g_priceGapCloseLastOrders, FormatDubaiShortDT(g_priceGapCloseLastHitTime, false));
-      pGapDashClr = clrAqua;
-     }
    else
-     {
-      pGapDashTxt = StringFormat("GAP>%.0f+%.0f%% : %.0f/%.0f | Eq:%s%.1f%%/%.0f%% | Anc:%s",
-                                 pGapDashReq, pGapDashPctRq, pGapDashRaw, pGapDashReq,
-                                 dashDayEqSign, dashDayEqPct, pGapDashPctRq,
-                                 DoubleToString(pGapDashRef, Digits));
-      pGapDashClr = (pGapDashRaw > pGapDashReq || dashDayEqPct > pGapDashPctRq) ? clrGold : clrLightGray;
-     }
+      if(pGapDashArmed)
+        {
+         pGapDashTxt = StringFormat("GAP>%.0f+%.0f%% : ARMED %.0f/%.0f Eq:%s%.1f%% (Hits:%d)",
+                                    pGapDashReq, pGapDashPctRq, pGapDashRaw, pGapDashReq,
+                                    dashDayEqSign, dashDayEqPct, g_priceGapCloseTotalSweeps);
+         pGapDashClr = clrLime;
+        }
+      else
+         if(g_priceGapCloseLastHitTime > 0)
+           {
+            pGapDashTxt = StringFormat("GAP>%.0f+%.0f%% : %.0f/%.0f Eq:%s%.1f%% | Hit#%d x%d @%s",
+                                       pGapDashReq, pGapDashPctRq, pGapDashRaw, pGapDashReq,
+                                       dashDayEqSign, dashDayEqPct, g_priceGapCloseTotalSweeps,
+                                       g_priceGapCloseLastOrders, FormatDubaiShortDT(g_priceGapCloseLastHitTime, false));
+            pGapDashClr = clrAqua;
+           }
+         else
+           {
+            pGapDashTxt = StringFormat("GAP>%.0f+%.0f%% : %.0f/%.0f | Eq:%s%.1f%%/%.0f%% | Anc:%s",
+                                       pGapDashReq, pGapDashPctRq, pGapDashRaw, pGapDashReq,
+                                       dashDayEqSign, dashDayEqPct, pGapDashPctRq,
+                                       DoubleToString(pGapDashRef, Digits));
+            pGapDashClr = (pGapDashRaw > pGapDashReq || dashDayEqPct > pGapDashPctRq) ? clrGold : clrLightGray;
+           }
    CreateDashboardLabel(DASH_PREFIX+"PGAP_CLOSE", pGapDashTxt, tx, y+478, 8, pGapDashClr);
 
    double sLossDashEqDd  = (dashBal > 0.0 && curEq < dashBal) ? (((dashBal - curEq) / dashBal) * 100.0) : 0.0;
@@ -26282,38 +26421,41 @@ void UpdateDashboard(DailyProtectionState &state)
       sLossDashTxt = "STEP LOSS   : DISABLED";
       sLossDashClr = clrSilver;
      }
-   else if(sLossDashEmerg)
-     {
-      sLossDashTxt = StringFormat("STEP LOSS   : EMERG DD %.1f%%>%.0f%% | B:%.0f/%.0f S:%.0f/%.0f (-%.0f%%L)",
-                                  sLossDashEqDd, sLossEmergReq,
-                                  g_stepLossLastBuyAdv, g_stepLossLastReqBuyGap,
-                                  g_stepLossLastSellAdv, g_stepLossLastReqSellGap,
-                                  InpStepLossEmergencyCutPct);
-      sLossDashClr = clrRed;
-     }
-   else if(g_stepLossLastHitTime > 0)
-     {
-      string slSideCh = (g_stepLossLastHitSide != "" ? StringSubstr(g_stepLossLastHitSide, 0, 1) : "?");
-      sLossDashTxt = StringFormat("STEP LOSS   : %s#%d P%d/F%d (-%.2fL) @%s | B:%.0f S:%.0f",
-                                  slSideCh, g_stepLossTotalSweeps,
-                                  g_stepLossTotalPartialCuts, g_stepLossTotalFullCloses, g_stepLossTotalLotsCut,
-                                  FormatDubaiShortDT(g_stepLossLastHitTime, false),
-                                  g_stepLossLastBuyAdv, g_stepLossLastSellAdv);
-      sLossDashClr = clrOrange;
-     }
-   else if(sLossDashAct)
-     {
-      sLossDashTxt = StringFormat("STEP LOSS   : ARMED >%.0f%% | B:%.0f/%.0f S:%.0f/%.0f",
-                                  sLossActReq, g_stepLossLastBuyAdv, g_stepLossLastReqBuyGap,
-                                  g_stepLossLastSellAdv, g_stepLossLastReqSellGap);
-      sLossDashClr = clrGold;
-     }
    else
-     {
-      sLossDashTxt = StringFormat("STEP LOSS   : READY (>%.0f%%/%.0f | Emerg >%.0f%% DD/%.0f)",
-                                  sLossActReq, sLossNormGap, sLossEmergReq, InpStepLossEmergencyRawGap);
-      sLossDashClr = clrLightGray;
-     }
+      if(sLossDashEmerg)
+        {
+         sLossDashTxt = StringFormat("STEP LOSS   : EMERG DD %.1f%%>%.0f%% | B:%.0f/%.0f S:%.0f/%.0f (-%.0f%%L)",
+                                     sLossDashEqDd, sLossEmergReq,
+                                     g_stepLossLastBuyAdv, g_stepLossLastReqBuyGap,
+                                     g_stepLossLastSellAdv, g_stepLossLastReqSellGap,
+                                     InpStepLossEmergencyCutPct);
+         sLossDashClr = clrRed;
+        }
+      else
+         if(g_stepLossLastHitTime > 0)
+           {
+            string slSideCh = (g_stepLossLastHitSide != "" ? StringSubstr(g_stepLossLastHitSide, 0, 1) : "?");
+            sLossDashTxt = StringFormat("STEP LOSS   : %s#%d P%d/F%d (-%.2fL) @%s | B:%.0f S:%.0f",
+                                        slSideCh, g_stepLossTotalSweeps,
+                                        g_stepLossTotalPartialCuts, g_stepLossTotalFullCloses, g_stepLossTotalLotsCut,
+                                        FormatDubaiShortDT(g_stepLossLastHitTime, false),
+                                        g_stepLossLastBuyAdv, g_stepLossLastSellAdv);
+            sLossDashClr = clrOrange;
+           }
+         else
+            if(sLossDashAct)
+              {
+               sLossDashTxt = StringFormat("STEP LOSS   : ARMED >%.0f%% | B:%.0f/%.0f S:%.0f/%.0f",
+                                           sLossActReq, g_stepLossLastBuyAdv, g_stepLossLastReqBuyGap,
+                                           g_stepLossLastSellAdv, g_stepLossLastReqSellGap);
+               sLossDashClr = clrGold;
+              }
+            else
+              {
+               sLossDashTxt = StringFormat("STEP LOSS   : READY (>%.0f%%/%.0f | Emerg >%.0f%% DD/%.0f)",
+                                           sLossActReq, sLossNormGap, sLossEmergReq, InpStepLossEmergencyRawGap);
+               sLossDashClr = clrLightGray;
+              }
    CreateDashboardLabel(DASH_PREFIX+"STEP_LOSS", sLossDashTxt, tx, y+494, 8, sLossDashClr);
 
    ChartRedraw(0);
@@ -26651,59 +26793,71 @@ void UpdateLeftLiveOrdersDashboard()
          else
             hitTag = StringFormat(" [%s:T%d]", domCh, leftTier);
         }
-      else if(hrlyPlanDArmed)
-         hitTag = StringFormat(" [1M-D:m%d +%.1f%%]", liveHrlyDMin, liveHrlyEqPct);
-      else if(hrlyPlanCArmed)
-         hitTag = StringFormat(" [15M-C +%.1f%%]", liveHrlyEqPct);
-      else if(hrlyPlanAArmed)
-         hitTag = StringFormat(" [1H-A +%.1f%%]", liveHrlyEqPct);
-      else if(hrlyBreachAny)
-         hitTag = StringFormat(" [1H-B >%.0f%%L]", InpHourlySideLossThresholdPct);
-      else if(InpEnableEqDdLotReduction && g_eqDdSessionPeakPct > 0.0)
-         hitTag = StringFormat(" | Pk:%.1f%%", g_eqDdSessionPeakPct);
+      else
+         if(hrlyPlanDArmed)
+            hitTag = StringFormat(" [1M-D:m%d +%.1f%%]", liveHrlyDMin, liveHrlyEqPct);
+         else
+            if(hrlyPlanCArmed)
+               hitTag = StringFormat(" [15M-C +%.1f%%]", liveHrlyEqPct);
+            else
+               if(hrlyPlanAArmed)
+                  hitTag = StringFormat(" [1H-A +%.1f%%]", liveHrlyEqPct);
+               else
+                  if(hrlyBreachAny)
+                     hitTag = StringFormat(" [1H-B >%.0f%%L]", InpHourlySideLossThresholdPct);
+                  else
+                     if(InpEnableEqDdLotReduction && g_eqDdSessionPeakPct > 0.0)
+                        hitTag = StringFormat(" | Pk:%.1f%%", g_eqDdSessionPeakPct);
       eqBadgeClr = (leftTier >= 1) ? GetEqDdTierColor(leftTier) : (hrlyPlanDArmed ? clrDeepSkyBlue : (hrlyPlanCArmed ? clrGold : (hrlyPlanAArmed ? clrLime : (hrlyBreachAny ? clrOrangeRed : clrTomato))));
       eqBadgeTxt = StringFormat("DD B:%.1f%% S:%.1f%%%s", liveBuyDdPct, liveSellDdPct, hitTag);
      }
-   else if(maxSideDdPct > 0.0)
-     {
-      string absLossStr = (maxSideDdUSD >= 1000.0) ? DoubleToString(maxSideDdUSD, 0) : DoubleToString(maxSideDdUSD, 2);
-      string tierTag    = "";
-      int    domDoneT   = buyDom ? g_eqDdBuyCycleHighestTier : g_eqDdSellCycleHighestTier;
-      double domCutPct  = buyDom ? tmpCutB : tmpCutS;
-      if(leftTier >= 1)
-         tierTag = StringFormat(" [T%d -%.0f%%L]", leftTier, domCutPct);
-      else if(InpEnableEqDdLotReduction && domDoneT >= 1)
-         tierTag = StringFormat(" [T%d Done]", domDoneT);
-      else if(hrlyPlanDArmed)
-         tierTag = StringFormat(" [1M-D:m%d +%.1f%%]", liveHrlyDMin, liveHrlyEqPct);
-      else if(hrlyPlanCArmed)
-         tierTag = StringFormat(" [15M-C +%.1f%%]", liveHrlyEqPct);
-      else if(hrlyPlanAArmed)
-         tierTag = StringFormat(" [1H-A +%.1f%%]", liveHrlyEqPct);
-      else if(hrlyBreachAny)
-         tierTag = StringFormat(" [1H-B >%.0f%%L]", InpHourlySideLossThresholdPct);
-      else if(InpEnableEqDdLotReduction && g_eqDdSessionPeakPct > 0.0)
-         tierTag = StringFormat(" | Pk:%.1f%%", g_eqDdSessionPeakPct);
-      eqBadgeClr = (leftTier >= 1) ? GetEqDdTierColor(leftTier) : (hrlyPlanDArmed ? clrDeepSkyBlue : (hrlyPlanCArmed ? clrGold : (hrlyPlanAArmed ? clrLime : (hrlyBreachAny ? clrOrangeRed : clrTomato))));
-      eqBadgeTxt = StringFormat("%s DD: %.1f%% (-$%s)%s", maxSideName, maxSideDdPct, absLossStr, tierTag);
-     }
    else
-     {
-      string gainStr = (eqDiffUSD >= 1000.0) ? DoubleToString(eqDiffUSD, 0) : DoubleToString(eqDiffUSD, 2);
-      string pkTag   = (InpEnableEqDdLotReduction && g_eqDdSessionPeakPct > 0.0)
-                       ? StringFormat(" | Pk:%.1f%%", g_eqDdSessionPeakPct)
-                       : ((!InpEnableEqDdLotReduction && InpEnableHourlySideLossCut)
-                          ? StringFormat(" | D:m%d>%.0f%s %d/%d/%d/%d", liveHrlyDMin, liveHrlyDThr, (hrlyDLockedH ? "L" : "%"),
-                                         g_hourlyPlanATotalSweeps, g_hourlySideLossTotalCuts, g_hourlyPlanCTotalSweeps, g_hourlyPlanDTotalSweeps)
-                          : "");
-      eqBadgeClr = hrlyPlanDArmed ? clrDeepSkyBlue : ((eqDiffUSD > 0.0) ? clrLime : clrSilver);
-      eqBadgeTxt = StringFormat("SIDE DD: 0.0%% (+$%s)%s", gainStr, pkTag);
-     }
+      if(maxSideDdPct > 0.0)
+        {
+         string absLossStr = (maxSideDdUSD >= 1000.0) ? DoubleToString(maxSideDdUSD, 0) : DoubleToString(maxSideDdUSD, 2);
+         string tierTag    = "";
+         int    domDoneT   = buyDom ? g_eqDdBuyCycleHighestTier : g_eqDdSellCycleHighestTier;
+         double domCutPct  = buyDom ? tmpCutB : tmpCutS;
+         if(leftTier >= 1)
+            tierTag = StringFormat(" [T%d -%.0f%%L]", leftTier, domCutPct);
+         else
+            if(InpEnableEqDdLotReduction && domDoneT >= 1)
+               tierTag = StringFormat(" [T%d Done]", domDoneT);
+            else
+               if(hrlyPlanDArmed)
+                  tierTag = StringFormat(" [1M-D:m%d +%.1f%%]", liveHrlyDMin, liveHrlyEqPct);
+               else
+                  if(hrlyPlanCArmed)
+                     tierTag = StringFormat(" [15M-C +%.1f%%]", liveHrlyEqPct);
+                  else
+                     if(hrlyPlanAArmed)
+                        tierTag = StringFormat(" [1H-A +%.1f%%]", liveHrlyEqPct);
+                     else
+                        if(hrlyBreachAny)
+                           tierTag = StringFormat(" [1H-B >%.0f%%L]", InpHourlySideLossThresholdPct);
+                        else
+                           if(InpEnableEqDdLotReduction && g_eqDdSessionPeakPct > 0.0)
+                              tierTag = StringFormat(" | Pk:%.1f%%", g_eqDdSessionPeakPct);
+         eqBadgeClr = (leftTier >= 1) ? GetEqDdTierColor(leftTier) : (hrlyPlanDArmed ? clrDeepSkyBlue : (hrlyPlanCArmed ? clrGold : (hrlyPlanAArmed ? clrLime : (hrlyBreachAny ? clrOrangeRed : clrTomato))));
+         eqBadgeTxt = StringFormat("%s DD: %.1f%% (-$%s)%s", maxSideName, maxSideDdPct, absLossStr, tierTag);
+        }
+      else
+        {
+         string gainStr = (eqDiffUSD >= 1000.0) ? DoubleToString(eqDiffUSD, 0) : DoubleToString(eqDiffUSD, 2);
+         string pkTag   = (InpEnableEqDdLotReduction && g_eqDdSessionPeakPct > 0.0)
+                          ? StringFormat(" | Pk:%.1f%%", g_eqDdSessionPeakPct)
+                          : ((!InpEnableEqDdLotReduction && InpEnableHourlySideLossCut)
+                             ? StringFormat(" | D:m%d>%.0f%s %d/%d/%d/%d", liveHrlyDMin, liveHrlyDThr, (hrlyDLockedH ? "L" : "%"),
+                                            g_hourlyPlanATotalSweeps, g_hourlySideLossTotalCuts, g_hourlyPlanCTotalSweeps, g_hourlyPlanDTotalSweeps)
+                             : "");
+         eqBadgeClr = hrlyPlanDArmed ? clrDeepSkyBlue : ((eqDiffUSD > 0.0) ? clrLime : clrSilver);
+         eqBadgeTxt = StringFormat("SIDE DD: 0.0%% (+$%s)%s", gainStr, pkTag);
+        }
    CreateLeftLivePanel(LEFT_LIVE_PREFIX+"EQDD_BG", x+206, y+6, width-314, 26, C'14,18,26');
    CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"EQDD_TXT", eqBadgeTxt, x+214, y+11, 9, eqBadgeClr);
    CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"SYMBOL", Symbol()+"  |  "+TimeframeToString(Period()), x+width-102, y+10, 8, clrLightGray);
 
-   // Row 2 (y+38): Live Current DD Status Bar (Per-Side % / Active Tier / Wait / Next Trigger)
+// Row 2 (y+38): Live Current DD Status Bar (Per-Side % / Active Tier / Wait / Next Trigger)
    bool leftWaitBuy  = (InpEnableEqDdLotReduction && buyTier  > 0 && g_eqDdBuyLastReachTime  > 0 && buyTier  >= g_eqDdBuyLastReachTier  && g_eqDdBuyLastReachTime  > g_eqDdBuyLastHitTime  && g_eqDdBuyLastReachReason  != "");
    bool leftWaitSell = (InpEnableEqDdLotReduction && sellTier > 0 && g_eqDdSellLastReachTime > 0 && sellTier >= g_eqDdSellLastReachTier && g_eqDdSellLastReachTime > g_eqDdSellLastHitTime && g_eqDdSellLastReachReason != "");
    bool leftPending  = (leftWaitBuy || leftWaitSell);
@@ -26722,8 +26876,8 @@ void UpdateLeftLiveOrdersDashboard()
                            ? TimeToString(g_hourlySideLossNextRunTime + (ServerToDubaiOffsetHours * 3600), TIME_MINUTES)
                            : "--:--";
          string nxt15mClk = (g_hourlyPlanCNextRunTime > 0)
-                           ? TimeToString(g_hourlyPlanCNextRunTime + (ServerToDubaiOffsetHours * 3600), TIME_MINUTES)
-                           : "--:--";
+                            ? TimeToString(g_hourlyPlanCNextRunTime + (ServerToDubaiOffsetHours * 3600), TIME_MINUTES)
+                            : "--:--";
          string nxt1mClk = (g_hourlyPlanDNextRunTime > 0)
                            ? TimeToString(g_hourlyPlanDNextRunTime + (ServerToDubaiOffsetHours * 3600), TIME_MINUTES)
                            : "--:--";
@@ -26733,35 +26887,38 @@ void UpdateLeftLiveOrdersDashboard()
                                          liveHrlyDMin, liveHrlySign, liveHrlyEqPct, liveHrlyDThr, nxt1mClk);
             ddStatLeftClr = clrDeepSkyBlue;
            }
-         else if(hrlyPlanCArmed)
-           {
-            ddStatLeftTxt = StringFormat("15M PLAN-C : DAY %s%.1f%%>%.0f%% WAIT %s -> CLOSE ALL",
-                                         liveHrlySign, liveHrlyEqPct, liveHrlyCThr, nxt15mClk);
-            ddStatLeftClr = clrGold;
-           }
-         else if(hrlyPlanAArmed)
-           {
-            ddStatLeftTxt = StringFormat("1H PLAN-A  : DAY %s%.1f%%>%.0f%% WAIT %s -> CLOSE ALL",
-                                         liveHrlySign, liveHrlyEqPct, liveHrlyAThr, nxt1hClk);
-            ddStatLeftClr = clrLime;
-           }
-         else if(hrlyBreachAny)
-           {
-            ddStatLeftTxt = StringFormat("1H PLAN-B  : B:%.1f%% S:%.1f%% (>%.0f%% WAIT %s)",
-                                         liveBuyDdPct, liveSellDdPct, InpHourlySideLossThresholdPct, nxt1hClk);
-            ddStatLeftClr = clrOrangeRed;
-           }
          else
-           {
-            string dStateTag = !InpEnableHourlyPlanDDayProfitClose ? "Off"
-                               : (hrlyDLockedH ? StringFormat("m%dLOCK", liveHrlyDMin)
-                               : StringFormat("m%d>%.0f%%", liveHrlyDMin, liveHrlyDThr));
-            ddStatLeftTxt = StringFormat("1H %s : Eq:%s%.1f%% (D:%s) | B:%.1f%% S:%.1f%%",
-                                         (InpEnableHourlyPlanBSideLossCut ? "A/B/C/D" : "A/C/D  "),
-                                         liveHrlySign, liveHrlyEqPct, dStateTag,
-                                         liveBuyDdPct, liveSellDdPct);
-            ddStatLeftClr = (maxSideDdPct > 0.0) ? clrWhite : clrLime;
-           }
+            if(hrlyPlanCArmed)
+              {
+               ddStatLeftTxt = StringFormat("15M PLAN-C : DAY %s%.1f%%>%.0f%% WAIT %s -> CLOSE ALL",
+                                            liveHrlySign, liveHrlyEqPct, liveHrlyCThr, nxt15mClk);
+               ddStatLeftClr = clrGold;
+              }
+            else
+               if(hrlyPlanAArmed)
+                 {
+                  ddStatLeftTxt = StringFormat("1H PLAN-A  : DAY %s%.1f%%>%.0f%% WAIT %s -> CLOSE ALL",
+                                               liveHrlySign, liveHrlyEqPct, liveHrlyAThr, nxt1hClk);
+                  ddStatLeftClr = clrLime;
+                 }
+               else
+                  if(hrlyBreachAny)
+                    {
+                     ddStatLeftTxt = StringFormat("1H PLAN-B  : B:%.1f%% S:%.1f%% (>%.0f%% WAIT %s)",
+                                                  liveBuyDdPct, liveSellDdPct, InpHourlySideLossThresholdPct, nxt1hClk);
+                     ddStatLeftClr = clrOrangeRed;
+                    }
+                  else
+                    {
+                     string dStateTag = !InpEnableHourlyPlanDDayProfitClose ? "Off"
+                                        : (hrlyDLockedH ? StringFormat("m%dLOCK", liveHrlyDMin)
+                                           : StringFormat("m%d>%.0f%%", liveHrlyDMin, liveHrlyDThr));
+                     ddStatLeftTxt = StringFormat("1H %s : Eq:%s%.1f%% (D:%s) | B:%.1f%% S:%.1f%%",
+                                                  (InpEnableHourlyPlanBSideLossCut ? "A/B/C/D" : "A/C/D  "),
+                                                  liveHrlySign, liveHrlyEqPct, dStateTag,
+                                                  liveBuyDdPct, liveSellDdPct);
+                     ddStatLeftClr = (maxSideDdPct > 0.0) ? clrWhite : clrLime;
+                    }
          ddStatRightTxt = StringFormat("1H:%s 15M:%s | %d/%d/%d/%d", nxt1hClk, nxt15mClk, g_hourlyPlanATotalSweeps, g_hourlySideLossTotalCuts, g_hourlyPlanCTotalSweeps, g_hourlyPlanDTotalSweeps);
          ddStatRightClr = (g_hourlyPlanATotalSweeps > 0 || g_hourlyPlanCTotalSweeps > 0 || g_hourlyPlanDTotalSweeps > 0 || g_hourlySideLossTotalCuts > 0 || hrlyPlanDArmed || hrlyPlanCArmed || hrlyPlanAArmed || hrlyBreachAny) ? clrGold : clrLightGray;
         }
@@ -26792,52 +26949,57 @@ void UpdateLeftLiveOrdersDashboard()
          ddStatLeftTxt = StringFormat("DD STATUS  : CLOSE-ALL | B:%.1f%% S:%.1f%% | Pk:%.1f%%", liveBuyDdPct, liveSellDdPct, g_eqDdSessionPeakPct);
          ddStatLeftClr = clrRed;
         }
-      else if(leftPending)
-        {
-         bool   pickWBuy = (leftWaitBuy && (!leftWaitSell || buyTier > sellTier || (buyTier == sellTier && liveBuyDdPct >= liveSellDdPct)));
-         string wSCh     = pickWBuy ? "B" : "S";
-         int    wT       = pickWBuy ? buyTier : sellTier;
-         string wRsn     = pickWBuy ? g_eqDdBuyLastReachReason : g_eqDdSellLastReachReason;
-         double wPct     = pickWBuy ? liveBuyDdPct : liveSellDdPct;
-         ddStatLeftTxt = StringFormat("DD STATUS  : %s-T%d WAIT (%s) | B:%.1f%% S:%.1f%% | Pk:%.1f%%",
-                                      wSCh, wT, wRsn, liveBuyDdPct, liveSellDdPct, g_eqDdSessionPeakPct);
-         if(StringLen(ddStatLeftTxt) > 61)
-            ddStatLeftTxt = StringFormat("DD STATUS  : %s-T%d WAIT (%s) | %.1f%% | Pk:%.1f%%", wSCh, wT, wRsn, wPct, g_eqDdSessionPeakPct);
-         ddStatLeftClr = GetEqDdTierColor(wT);
-        }
-      else if(leftTier >= 1)
-        {
-         ddStatLeftTxt = StringFormat("DD STATUS  : %s-T%d ACTIVE (-%.0f%%L) | B:%.1f%% S:%.1f%% | Pk:%.1f%%",
-                                      statSideCh, leftTier, statCutPct, liveBuyDdPct, liveSellDdPct, g_eqDdSessionPeakPct);
-         ddStatLeftClr = GetEqDdTierColor(leftTier);
-        }
-      else if(anySideDone)
-        {
-         ddStatLeftTxt = StringFormat("DD STATUS  : %s-RECOV (T%d Done) | B:%.1f%% S:%.1f%% | Pk:%.1f%%",
-                                      statSideCh, statDoneT, liveBuyDdPct, liveSellDdPct, g_eqDdSessionPeakPct);
-         ddStatLeftClr = clrGold;
-        }
       else
-        {
-         ddStatLeftTxt = StringFormat("DD STATUS  : OK | B:%.1f%% S:%.1f%% | AcctDD:$%.0f | Pk:%.1f%%",
-                                      liveBuyDdPct, liveSellDdPct, curAcctDdUSD, g_eqDdSessionPeakPct);
-         ddStatLeftClr = (maxSideDdPct > 0.0) ? clrWhite : clrLime;
-        }
+         if(leftPending)
+           {
+            bool   pickWBuy = (leftWaitBuy && (!leftWaitSell || buyTier > sellTier || (buyTier == sellTier && liveBuyDdPct >= liveSellDdPct)));
+            string wSCh     = pickWBuy ? "B" : "S";
+            int    wT       = pickWBuy ? buyTier : sellTier;
+            string wRsn     = pickWBuy ? g_eqDdBuyLastReachReason : g_eqDdSellLastReachReason;
+            double wPct     = pickWBuy ? liveBuyDdPct : liveSellDdPct;
+            ddStatLeftTxt = StringFormat("DD STATUS  : %s-T%d WAIT (%s) | B:%.1f%% S:%.1f%% | Pk:%.1f%%",
+                                         wSCh, wT, wRsn, liveBuyDdPct, liveSellDdPct, g_eqDdSessionPeakPct);
+            if(StringLen(ddStatLeftTxt) > 61)
+               ddStatLeftTxt = StringFormat("DD STATUS  : %s-T%d WAIT (%s) | %.1f%% | Pk:%.1f%%", wSCh, wT, wRsn, wPct, g_eqDdSessionPeakPct);
+            ddStatLeftClr = GetEqDdTierColor(wT);
+           }
+         else
+            if(leftTier >= 1)
+              {
+               ddStatLeftTxt = StringFormat("DD STATUS  : %s-T%d ACTIVE (-%.0f%%L) | B:%.1f%% S:%.1f%% | Pk:%.1f%%",
+                                            statSideCh, leftTier, statCutPct, liveBuyDdPct, liveSellDdPct, g_eqDdSessionPeakPct);
+               ddStatLeftClr = GetEqDdTierColor(leftTier);
+              }
+            else
+               if(anySideDone)
+                 {
+                  ddStatLeftTxt = StringFormat("DD STATUS  : %s-RECOV (T%d Done) | B:%.1f%% S:%.1f%% | Pk:%.1f%%",
+                                               statSideCh, statDoneT, liveBuyDdPct, liveSellDdPct, g_eqDdSessionPeakPct);
+                  ddStatLeftClr = clrGold;
+                 }
+               else
+                 {
+                  ddStatLeftTxt = StringFormat("DD STATUS  : OK | B:%.1f%% S:%.1f%% | AcctDD:$%.0f | Pk:%.1f%%",
+                                               liveBuyDdPct, liveSellDdPct, curAcctDdUSD, g_eqDdSessionPeakPct);
+                  ddStatLeftClr = (maxSideDdPct > 0.0) ? clrWhite : clrLime;
+                 }
      }
    CreateLeftLivePanel(LEFT_LIVE_PREFIX+"DD_STATBAR", x, y+38, width, 22, C'18,24,34');
    CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"DD_STAT_L", ddStatLeftTxt, tx, y+43, 8, ddStatLeftClr);
    CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"DD_STAT_R", ddStatRightTxt, x+width-186, y+43, 8, ddStatRightClr);
 
-   // Row 3 (y+60): Chronological Latest DD Event Banner (Hit / Wait / Cleared in Dubai Time)
+// Row 3 (y+60): Chronological Latest DD Event Banner (Hit / Wait / Cleared in Dubai Time)
    string ddBannerTxt = "DD LATEST  : NONE YET";
    color  ddBannerClr = clrSilver;
    datetime leftPendTime = 0;
    if(leftWaitBuy && leftWaitSell)
       leftPendTime = MathMax(g_eqDdBuyLastReachTime, g_eqDdSellLastReachTime);
-   else if(leftWaitBuy)
-      leftPendTime = g_eqDdBuyLastReachTime;
-   else if(leftWaitSell)
-      leftPendTime = g_eqDdSellLastReachTime;
+   else
+      if(leftWaitBuy)
+         leftPendTime = g_eqDdBuyLastReachTime;
+      else
+         if(leftWaitSell)
+            leftPendTime = g_eqDdSellLastReachTime;
 
    if(!InpEnableEqDdLotReduction)
      {
@@ -26854,45 +27016,48 @@ void UpdateLeftLiveOrdersDashboard()
                                        dPlSign, MathAbs(g_hourlyPlanDLastPL));
             ddBannerClr = clrDeepSkyBlue;
            }
-         else if(g_hourlyPlanCLastHitTime > 0 && g_hourlyPlanCLastHitTime >= g_hourlyPlanALastHitTime && g_hourlyPlanCLastHitTime >= g_hourlySideLossLastHitTime)
-           {
-            string cPlSign = (g_hourlyPlanCLastPL >= 0.0) ? "+" : "-";
-            ddBannerTxt = StringFormat("15M PLAN-C : +%.1f%% ALL @ %s x%d (-%.2fL %s$%.1f)",
-                                       g_hourlyPlanCLastPct,
-                                       FormatDubaiShortDT(g_hourlyPlanCLastHitTime, true),
-                                       g_hourlyPlanCLastOrders, g_hourlyPlanCLastLots,
-                                       cPlSign, MathAbs(g_hourlyPlanCLastPL));
-            ddBannerClr = clrGold;
-           }
-         else if(g_hourlyPlanALastHitTime > 0 && g_hourlyPlanALastHitTime >= g_hourlySideLossLastHitTime)
-           {
-            string aPlSign = (g_hourlyPlanALastPL >= 0.0) ? "+" : "-";
-            ddBannerTxt = StringFormat("1H PLAN-A  : DAY +%.2f%% ALL @ %s GST | x%d (-%.2fL %s$%.1f)",
-                                       g_hourlyPlanALastPct,
-                                       FormatDubaiShortDT(g_hourlyPlanALastHitTime, true),
-                                       g_hourlyPlanALastOrders, g_hourlyPlanALastLots,
-                                       aPlSign, MathAbs(g_hourlyPlanALastPL));
-            ddBannerClr = clrLime;
-           }
-         else if(g_hourlySideLossLastHitTime > 0)
-           {
-            string hPlSign = (g_hourlySideLossLastHitPL >= 0.0) ? "+" : "-";
-            ddBannerTxt = StringFormat("1H PLAN-B  : %s %.1f%% (-%.0f%%L) @ %s GST | x%d (-%.2fL %s$%.1f)",
-                                       g_hourlySideLossLastHitSide, g_hourlySideLossLastHitPct, InpHourlySideLossCutPct,
-                                       FormatDubaiShortDT(g_hourlySideLossLastHitTime, true),
-                                       g_hourlySideLossLastHitOrders, g_hourlySideLossLastHitLots,
-                                       hPlSign, MathAbs(g_hourlySideLossLastHitPL));
-            ddBannerClr = clrOrangeRed;
-           }
          else
-           {
-            string bLeftTag = InpEnableHourlyPlanBSideLossCut ? StringFormat("B>%.0f", InpHourlySideLossThresholdPct) : "B:OFF";
-            ddBannerTxt = StringFormat("1H A-D     : NONE | A>%.0f %s C>%.0f D:m%d>%.0f%s Chk:%d/%d/%d",
-                                       liveHrlyAThr, bLeftTag,
-                                       liveHrlyCThr, liveHrlyDMin, liveHrlyDThr, (hrlyDLockedH ? "L" : "%"),
-                                       g_hourlySideLossCheckCount, g_hourlyPlanCCheckCount, g_hourlyPlanDCheckCount);
-            ddBannerClr = hrlyPlanDArmed ? clrDeepSkyBlue : (hrlyPlanCArmed ? clrGold : (hrlyPlanAArmed ? clrLime : (hrlyBreachAny ? clrOrangeRed : clrSilver)));
-           }
+            if(g_hourlyPlanCLastHitTime > 0 && g_hourlyPlanCLastHitTime >= g_hourlyPlanALastHitTime && g_hourlyPlanCLastHitTime >= g_hourlySideLossLastHitTime)
+              {
+               string cPlSign = (g_hourlyPlanCLastPL >= 0.0) ? "+" : "-";
+               ddBannerTxt = StringFormat("15M PLAN-C : +%.1f%% ALL @ %s x%d (-%.2fL %s$%.1f)",
+                                          g_hourlyPlanCLastPct,
+                                          FormatDubaiShortDT(g_hourlyPlanCLastHitTime, true),
+                                          g_hourlyPlanCLastOrders, g_hourlyPlanCLastLots,
+                                          cPlSign, MathAbs(g_hourlyPlanCLastPL));
+               ddBannerClr = clrGold;
+              }
+            else
+               if(g_hourlyPlanALastHitTime > 0 && g_hourlyPlanALastHitTime >= g_hourlySideLossLastHitTime)
+                 {
+                  string aPlSign = (g_hourlyPlanALastPL >= 0.0) ? "+" : "-";
+                  ddBannerTxt = StringFormat("1H PLAN-A  : DAY +%.2f%% ALL @ %s GST | x%d (-%.2fL %s$%.1f)",
+                                             g_hourlyPlanALastPct,
+                                             FormatDubaiShortDT(g_hourlyPlanALastHitTime, true),
+                                             g_hourlyPlanALastOrders, g_hourlyPlanALastLots,
+                                             aPlSign, MathAbs(g_hourlyPlanALastPL));
+                  ddBannerClr = clrLime;
+                 }
+               else
+                  if(g_hourlySideLossLastHitTime > 0)
+                    {
+                     string hPlSign = (g_hourlySideLossLastHitPL >= 0.0) ? "+" : "-";
+                     ddBannerTxt = StringFormat("1H PLAN-B  : %s %.1f%% (-%.0f%%L) @ %s GST | x%d (-%.2fL %s$%.1f)",
+                                                g_hourlySideLossLastHitSide, g_hourlySideLossLastHitPct, InpHourlySideLossCutPct,
+                                                FormatDubaiShortDT(g_hourlySideLossLastHitTime, true),
+                                                g_hourlySideLossLastHitOrders, g_hourlySideLossLastHitLots,
+                                                hPlSign, MathAbs(g_hourlySideLossLastHitPL));
+                     ddBannerClr = clrOrangeRed;
+                    }
+                  else
+                    {
+                     string bLeftTag = InpEnableHourlyPlanBSideLossCut ? StringFormat("B>%.0f", InpHourlySideLossThresholdPct) : "B:OFF";
+                     ddBannerTxt = StringFormat("1H A-D     : NONE | A>%.0f %s C>%.0f D:m%d>%.0f%s Chk:%d/%d/%d",
+                                                liveHrlyAThr, bLeftTag,
+                                                liveHrlyCThr, liveHrlyDMin, liveHrlyDThr, (hrlyDLockedH ? "L" : "%"),
+                                                g_hourlySideLossCheckCount, g_hourlyPlanCCheckCount, g_hourlyPlanDCheckCount);
+                     ddBannerClr = hrlyPlanDArmed ? clrDeepSkyBlue : (hrlyPlanCArmed ? clrGold : (hrlyPlanAArmed ? clrLime : (hrlyBreachAny ? clrOrangeRed : clrSilver)));
+                    }
         }
       else
         {
@@ -26900,94 +27065,101 @@ void UpdateLeftLiveOrdersDashboard()
          ddBannerClr = clrSilver;
         }
      }
-   else if(leftPendTime > 0 && leftPendTime >= g_eqDdLastHitTime && leftPendTime >= g_eqDdLastResetTime)
-     {
-      bool   pickWBuy = (leftWaitBuy && (!leftWaitSell || g_eqDdBuyLastReachTime >= g_eqDdSellLastReachTime));
-      string wSide    = pickWBuy ? "BUY" : "SELL";
-      int    wT       = pickWBuy ? buyTier : sellTier;
-      double wPct     = pickWBuy ? liveBuyDdPct : liveSellDdPct;
-      double wUsd     = pickWBuy ? liveBuyDdUSD : liveSellDdUSD;
-      string wRsn     = pickWBuy ? g_eqDdBuyLastReachReason : g_eqDdSellLastReachReason;
-      ddBannerTxt = StringFormat("DD LATEST  : %s T%d WAIT @ %s GST | %.1f%% (-$%.1f) | %s",
-                                 wSide, wT, FormatDubaiShortDT(leftPendTime, true), wPct, wUsd, wRsn);
-      ddBannerClr = GetEqDdTierColor(wT);
-     }
-   else if(g_eqDdLastResetTime > 0 && g_eqDdLastResetTime > g_eqDdLastHitTime)
-     {
-      if(g_eqDdLastHitTime > 0)
+   else
+      if(leftPendTime > 0 && leftPendTime >= g_eqDdLastHitTime && leftPendTime >= g_eqDdLastResetTime)
         {
-         string hCh = (g_eqDdLastHitSide != "" ? StringSubstr(g_eqDdLastHitSide, 0, 1) : "?");
-         ddBannerTxt = StringFormat("DD LATEST  : %s CLEARED (T%d->OK) @ %s GST | Last:%s-T%d x%d(-%.2fL)",
-                                    g_eqDdLastResetSide, g_eqDdLastResetTier, FormatDubaiShortDT(g_eqDdLastResetTime, false),
-                                    hCh, g_eqDdLastHitTier, g_eqDdLastHitOrders, g_eqDdLastHitLots);
+         bool   pickWBuy = (leftWaitBuy && (!leftWaitSell || g_eqDdBuyLastReachTime >= g_eqDdSellLastReachTime));
+         string wSide    = pickWBuy ? "BUY" : "SELL";
+         int    wT       = pickWBuy ? buyTier : sellTier;
+         double wPct     = pickWBuy ? liveBuyDdPct : liveSellDdPct;
+         double wUsd     = pickWBuy ? liveBuyDdUSD : liveSellDdUSD;
+         string wRsn     = pickWBuy ? g_eqDdBuyLastReachReason : g_eqDdSellLastReachReason;
+         ddBannerTxt = StringFormat("DD LATEST  : %s T%d WAIT @ %s GST | %.1f%% (-$%.1f) | %s",
+                                    wSide, wT, FormatDubaiShortDT(leftPendTime, true), wPct, wUsd, wRsn);
+         ddBannerClr = GetEqDdTierColor(wT);
         }
       else
-         ddBannerTxt = StringFormat("DD LATEST  : %s CLEARED (T%d->OK) @ %s GST | Loss Cleared [OK]",
-                                    g_eqDdLastResetSide, g_eqDdLastResetTier, FormatDubaiShortDT(g_eqDdLastResetTime, true));
-      ddBannerClr = clrLime;
-     }
-   else if(g_eqDdLastHitTime > 0)
-     {
-      string hitSideLbl = (g_eqDdLastHitSide != "" ? (g_eqDdLastHitSide + " ") : "");
-      string okTag      = (!anySideDone && leftTier == 0) ? " [OK]" : "";
-      ddBannerTxt = StringFormat("DD LATEST  : %sT%d (-%.0f%%L) @ %s GST | %.1f%% (-$%.1f) | x%d (-%.2fL)%s",
-                                 hitSideLbl, g_eqDdLastHitTier, g_eqDdLastHitCutPct,
-                                 FormatDubaiShortDT(g_eqDdLastHitTime, true),
-                                 g_eqDdLastHitPct, g_eqDdLastHitUSD, g_eqDdLastHitOrders, g_eqDdLastHitLots, okTag);
-      ddBannerClr = (!anySideDone && leftTier == 0) ? clrGold : GetEqDdTierColor(g_eqDdLastHitTier);
-     }
-   else if(g_eqDdLastReachTime > 0)
-     {
-      string reachSideLbl = (g_eqDdLastReachSide != "" ? (g_eqDdLastReachSide + " ") : "");
-      string rsnTag       = (g_eqDdLastReachReason != "" ? g_eqDdLastReachReason : "Waiting Elig");
-      ddBannerTxt = StringFormat("DD LATEST  : %sT%d REACH @ %s GST | %.1f%% | %s",
-                                 reachSideLbl, g_eqDdLastReachTier, FormatDubaiShortDT(g_eqDdLastReachTime, true),
-                                 g_eqDdLastReachPct, rsnTag);
-      ddBannerClr = GetEqDdTierColor(g_eqDdLastReachTier);
-     }
-   else if(g_drawdownReliefExecuted || g_drawdownReliefArmed)
-     {
-      string rTag = g_drawdownReliefExecuted ? StringFormat("SL SET (Hits:%d)", g_drawdownReliefHitSuccessCount)
-                                             : StringFormat("ARMED (Tgt <=$%.0f)", g_drawdownReliefPeakUSD * (1.0 - InpDrawdownReliefPercent));
-      if(g_eqDdDailyResetTime > 0)
-         ddBannerTxt = StringFormat("DD LATEST  : DAY RESET @ %s GST | RLF %s | AcctDD:$%.1f",
-                                    FormatDubaiShortDT(g_eqDdDailyResetTime, false), rTag, curAcctDdUSD);
-      else
-         ddBannerTxt = StringFormat("DD LATEST  : EQ-DD NONE YET | RLF %s | AcctDD:$%.1f", rTag, curAcctDdUSD);
-      ddBannerClr = g_drawdownReliefExecuted ? clrLime : clrGold;
-     }
-   else if(g_eqDdDailyResetTime > 0)
-     {
-      if(g_eqDdPriorDayCuts > 0)
-         ddBannerTxt = StringFormat("DD LATEST  : DAY RESET @ %s GST | Fresh Start (Yday:%d -%.2fL) [OK]",
-                                    FormatDubaiShortDT(g_eqDdDailyResetTime, false),
-                                    g_eqDdPriorDayCuts, g_eqDdPriorDayLotsCut);
-      else
-         ddBannerTxt = StringFormat("DD LATEST  : DAY RESET @ %s GST | Fresh Start [OK]",
-                                    FormatDubaiShortDT(g_eqDdDailyResetTime, false));
-      ddBannerClr = clrLime;
-     }
-   else if(g_drawdownReliefPeakUSD > 0.0)
-     {
-      double rMult = (balancelomultipler > 0) ? balancelomultipler : 1.0;
-      double rReq  = (InpDrawdownReliefMinPeakUSD > 0.0 ? InpDrawdownReliefMinPeakUSD * rMult : 100.0 * rMult);
-      string rTag  = StringFormat("TRACK $%.0f/$%.0f", g_drawdownReliefPeakUSD, rReq);
-      ddBannerTxt = StringFormat("DD LATEST  : EQ-DD NONE YET | RLF %s | AcctDD:$%.1f", rTag, curAcctDdUSD);
-      ddBannerClr = clrDeepSkyBlue;
-     }
-   else
-     {
-      int    firstTier   = InpEqDdEnableTier1 ? 1 : 2;
-      double firstThresh = InpEqDdEnableTier1 ? InpEqDdTier1Pct : InpEqDdTier2Pct;
-      double firstCut    = InpEqDdEnableTier1 ? InpEqDdTier1CutPct : InpEqDdTier2CutPct;
-      ddBannerTxt = StringFormat("DD LATEST  : NONE YET | Per-Side T%d@%.0f%% (-%.0f%%L) .. T%d@%.0f%% Armed",
-                                 firstTier, firstThresh, firstCut, InpEqDdMaxTier, GetEqDdTierThresholdPct(InpEqDdMaxTier));
-      ddBannerClr = clrSilver;
-     }
+         if(g_eqDdLastResetTime > 0 && g_eqDdLastResetTime > g_eqDdLastHitTime)
+           {
+            if(g_eqDdLastHitTime > 0)
+              {
+               string hCh = (g_eqDdLastHitSide != "" ? StringSubstr(g_eqDdLastHitSide, 0, 1) : "?");
+               ddBannerTxt = StringFormat("DD LATEST  : %s CLEARED (T%d->OK) @ %s GST | Last:%s-T%d x%d(-%.2fL)",
+                                          g_eqDdLastResetSide, g_eqDdLastResetTier, FormatDubaiShortDT(g_eqDdLastResetTime, false),
+                                          hCh, g_eqDdLastHitTier, g_eqDdLastHitOrders, g_eqDdLastHitLots);
+              }
+            else
+               ddBannerTxt = StringFormat("DD LATEST  : %s CLEARED (T%d->OK) @ %s GST | Loss Cleared [OK]",
+                                          g_eqDdLastResetSide, g_eqDdLastResetTier, FormatDubaiShortDT(g_eqDdLastResetTime, true));
+            ddBannerClr = clrLime;
+           }
+         else
+            if(g_eqDdLastHitTime > 0)
+              {
+               string hitSideLbl = (g_eqDdLastHitSide != "" ? (g_eqDdLastHitSide + " ") : "");
+               string okTag      = (!anySideDone && leftTier == 0) ? " [OK]" : "";
+               ddBannerTxt = StringFormat("DD LATEST  : %sT%d (-%.0f%%L) @ %s GST | %.1f%% (-$%.1f) | x%d (-%.2fL)%s",
+                                          hitSideLbl, g_eqDdLastHitTier, g_eqDdLastHitCutPct,
+                                          FormatDubaiShortDT(g_eqDdLastHitTime, true),
+                                          g_eqDdLastHitPct, g_eqDdLastHitUSD, g_eqDdLastHitOrders, g_eqDdLastHitLots, okTag);
+               ddBannerClr = (!anySideDone && leftTier == 0) ? clrGold : GetEqDdTierColor(g_eqDdLastHitTier);
+              }
+            else
+               if(g_eqDdLastReachTime > 0)
+                 {
+                  string reachSideLbl = (g_eqDdLastReachSide != "" ? (g_eqDdLastReachSide + " ") : "");
+                  string rsnTag       = (g_eqDdLastReachReason != "" ? g_eqDdLastReachReason : "Waiting Elig");
+                  ddBannerTxt = StringFormat("DD LATEST  : %sT%d REACH @ %s GST | %.1f%% | %s",
+                                             reachSideLbl, g_eqDdLastReachTier, FormatDubaiShortDT(g_eqDdLastReachTime, true),
+                                             g_eqDdLastReachPct, rsnTag);
+                  ddBannerClr = GetEqDdTierColor(g_eqDdLastReachTier);
+                 }
+               else
+                  if(g_drawdownReliefExecuted || g_drawdownReliefArmed)
+                    {
+                     string rTag = g_drawdownReliefExecuted ? StringFormat("SL SET (Hits:%d)", g_drawdownReliefHitSuccessCount)
+                                   : StringFormat("ARMED (Tgt <=$%.0f)", g_drawdownReliefPeakUSD * (1.0 - InpDrawdownReliefPercent));
+                     if(g_eqDdDailyResetTime > 0)
+                        ddBannerTxt = StringFormat("DD LATEST  : DAY RESET @ %s GST | RLF %s | AcctDD:$%.1f",
+                                                   FormatDubaiShortDT(g_eqDdDailyResetTime, false), rTag, curAcctDdUSD);
+                     else
+                        ddBannerTxt = StringFormat("DD LATEST  : EQ-DD NONE YET | RLF %s | AcctDD:$%.1f", rTag, curAcctDdUSD);
+                     ddBannerClr = g_drawdownReliefExecuted ? clrLime : clrGold;
+                    }
+                  else
+                     if(g_eqDdDailyResetTime > 0)
+                       {
+                        if(g_eqDdPriorDayCuts > 0)
+                           ddBannerTxt = StringFormat("DD LATEST  : DAY RESET @ %s GST | Fresh Start (Yday:%d -%.2fL) [OK]",
+                                                      FormatDubaiShortDT(g_eqDdDailyResetTime, false),
+                                                      g_eqDdPriorDayCuts, g_eqDdPriorDayLotsCut);
+                        else
+                           ddBannerTxt = StringFormat("DD LATEST  : DAY RESET @ %s GST | Fresh Start [OK]",
+                                                      FormatDubaiShortDT(g_eqDdDailyResetTime, false));
+                        ddBannerClr = clrLime;
+                       }
+                     else
+                        if(g_drawdownReliefPeakUSD > 0.0)
+                          {
+                           double rMult = (balancelomultipler > 0) ? balancelomultipler : 1.0;
+                           double rReq  = (InpDrawdownReliefMinPeakUSD > 0.0 ? InpDrawdownReliefMinPeakUSD * rMult : 100.0 * rMult);
+                           string rTag  = StringFormat("TRACK $%.0f/$%.0f", g_drawdownReliefPeakUSD, rReq);
+                           ddBannerTxt = StringFormat("DD LATEST  : EQ-DD NONE YET | RLF %s | AcctDD:$%.1f", rTag, curAcctDdUSD);
+                           ddBannerClr = clrDeepSkyBlue;
+                          }
+                        else
+                          {
+                           int    firstTier   = InpEqDdEnableTier1 ? 1 : 2;
+                           double firstThresh = InpEqDdEnableTier1 ? InpEqDdTier1Pct : InpEqDdTier2Pct;
+                           double firstCut    = InpEqDdEnableTier1 ? InpEqDdTier1CutPct : InpEqDdTier2CutPct;
+                           ddBannerTxt = StringFormat("DD LATEST  : NONE YET | Per-Side T%d@%.0f%% (-%.0f%%L) .. T%d@%.0f%% Armed",
+                                                      firstTier, firstThresh, firstCut, InpEqDdMaxTier, GetEqDdTierThresholdPct(InpEqDdMaxTier));
+                           ddBannerClr = clrSilver;
+                          }
    CreateLeftLivePanel(LEFT_LIVE_PREFIX+"EQDD_HITBAR", x, y+60, width, 22, C'14,20,30');
    CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"EQDD_HITTXT", ddBannerTxt, tx, y+65, 8, ddBannerClr);
 
-   // Dubai Time & Night-Close Status Bars
+// Dubai Time & Night-Close Status Bars
    datetime dNowServer = TimeCurrent();
    datetime dDubaiTime = (dNowServer > 0) ? (dNowServer + (ServerToDubaiOffsetHours * 3600)) : 0;
    string   dDubaiClk  = (dDubaiTime > 0) ? TimeToString(dDubaiTime, TIME_DATE|TIME_MINUTES|TIME_SECONDS) : "--:--:--";
@@ -27004,10 +27176,11 @@ void UpdateLeftLiveOrdersDashboard()
      {
       if(InpDubaiNightCloseStartHour < InpDubaiNightCloseEndHour)
          dInNight = (dDubaiHr >= InpDubaiNightCloseStartHour && dDubaiHr < InpDubaiNightCloseEndHour);
-      else if(InpDubaiNightCloseStartHour > InpDubaiNightCloseEndHour)
-         dInNight = (dDubaiHr >= InpDubaiNightCloseStartHour || dDubaiHr < InpDubaiNightCloseEndHour);
       else
-         dInNight = (dDubaiHr == InpDubaiNightCloseStartHour);
+         if(InpDubaiNightCloseStartHour > InpDubaiNightCloseEndHour)
+            dInNight = (dDubaiHr >= InpDubaiNightCloseStartHour || dDubaiHr < InpDubaiNightCloseEndHour);
+         else
+            dInNight = (dDubaiHr == InpDubaiNightCloseStartHour);
      }
    bool dInForce = false;
    bool dForceInWindow = false;
@@ -27015,20 +27188,22 @@ void UpdateLeftLiveOrdersDashboard()
      {
       if(dStartMod < dEndMod)
          dForceInWindow = (dForceMod >= dStartMod && dForceMod < dEndMod);
-      else if(dStartMod > dEndMod)
-         dForceInWindow = (dForceMod >= dStartMod || dForceMod < dEndMod);
       else
-         dForceInWindow = (InpDubaiNightForceCloseHour == InpDubaiNightCloseStartHour);
+         if(dStartMod > dEndMod)
+            dForceInWindow = (dForceMod >= dStartMod || dForceMod < dEndMod);
+         else
+            dForceInWindow = (InpDubaiNightForceCloseHour == InpDubaiNightCloseStartHour);
      }
    bool dForceActive = (InpEnableDubaiNightForceCloseAll && dForceInWindow);
    if(dInNight && dForceActive)
      {
       if(dStartMod <= dEndMod)
          dInForce = (dDubaiMod >= dForceMod);
-      else if(dForceMod >= dStartMod)
-         dInForce = (dDubaiMod >= dForceMod || dDubaiMod < dEndMod);
       else
-         dInForce = (dDubaiMod >= dForceMod && dDubaiMod < dEndMod);
+         if(dForceMod >= dStartMod)
+            dInForce = (dDubaiMod >= dForceMod || dDubaiMod < dEndMod);
+         else
+            dInForce = (dDubaiMod >= dForceMod && dDubaiMod < dEndMod);
      }
    double dAbsAng   = MathAbs(GetEmaAngleDegrees(30));
    bool   dAngOk    = (!InpEnableDubaiNightEmaAngleFilter ||
@@ -27065,9 +27240,9 @@ void UpdateLeftLiveOrdersDashboard()
    color  leftDubaiTimeClr = clrAqua;
    string leftDubaiStatTxt = InpEnableDubaiNightDayProfitClose
                              ? StringFormat("Srv:%s | Open:$%.0f (%s%.1f%%/%.0f%%) | |Ang|:%.2f",
-                                            dSrvClk, dOpenEq, dSign, dDayEqPct, InpDubaiNightDayProfitPct, dAbsAng)
+                                   dSrvClk, dOpenEq, dSign, dDayEqPct, InpDubaiNightDayProfitPct, dAbsAng)
                              : StringFormat("Srv:%s | Open:$%.0f (%s%.1f%%) | |Ang|:%.2f",
-                                            dSrvClk, dOpenEq, dSign, dDayEqPct, dAbsAng);
+                                   dSrvClk, dOpenEq, dSign, dDayEqPct, dAbsAng);
    color  leftDubaiStatClr = dDayEqHit ? clrLime : (dAngOk ? clrAqua : clrSilver);
 
    string nightLeftTxt  = "";
@@ -27084,274 +27259,285 @@ void UpdateLeftLiveOrdersDashboard()
       nightRightTxt    = "Path-A/B Off";
       nightRightClr    = clrSilver;
      }
-   else if(g_dubaiNightCloseDoneToday && g_dubaiNightCloseDayKey == dDubaiDay)
-     {
-      leftDubaiTimeClr = clrGold;
-      leftDubaiStatClr = clrGold;
-      if(g_dubaiNightLastCloseTag != "")
-        {
-         if(g_dubaiNightLastCloseOrders > 0)
-           {
-            string cPlSign = (g_dubaiNightLastClosePL >= 0.0) ? "+" : "-";
-            nightLeftTxt   = StringFormat("NIGHT CLOSE: DONE[%s] @%s x%d -%.2fL %s$%.1f",
-                                          g_dubaiNightLastCloseTag, dCloseClk,
-                                          g_dubaiNightLastCloseOrders, g_dubaiNightLastCloseLots,
-                                          cPlSign, MathAbs(g_dubaiNightLastClosePL));
-           }
-         else
-            nightLeftTxt = StringFormat("NIGHT CLOSE: DONE[%s] @%s GST | 0 Ord Closed",
-                                        g_dubaiNightLastCloseTag, dCloseClk);
-        }
-      else
-         nightLeftTxt = StringFormat("NIGHT CLOSE: DONE TODAY @ %s GST | Locked 1x/Day", dCloseClk);
-      nightLeftClr  = clrGold;
-      nightRightTxt = (g_dubaiNightCutCountToday > 0)
-                      ? StringFormat("Cuts:%d | Reset 00:00", g_dubaiNightCutCountToday)
-                      : "1x Done | Reset 00:00";
-      nightRightClr = clrGold;
-     }
-   else if(dInNight && g_dubaiNightCloseRetryPending)
-     {
-      leftDubaiTimeClr = clrTomato;
-      leftDubaiStatClr = clrTomato;
-      nightLeftTxt     = StringFormat("NIGHT CLOSE: RETRY CLOSE ALL | Open:%d (B:%d S:%d)",
-                                      buyCount + sellCount, buyCount, sellCount);
-      nightLeftClr     = clrTomato;
-      nightRightTxt    = "Partial Retry";
-      nightRightClr    = clrTomato;
-     }
-   else if(dInNight && dDayEqHit)
-     {
-      leftDubaiTimeClr = clrLime;
-      leftDubaiStatClr = clrLime;
-      nightLeftTxt     = StringFormat("NIGHT CLOSE: PATH-A DAY %s%.1f%%>%.0f%% -> CLOSE ALL (%d)",
-                                      dSign, dDayEqPct, InpDubaiNightDayProfitPct, buyCount + sellCount);
-      nightLeftClr     = clrLime;
-      nightRightTxt    = StringFormat("Tgt:>$%.0f [HIT]", dDayTgtEq);
-      nightRightClr    = clrLime;
-     }
-   else if(dInForce)
-     {
-      if(dAngOk)
-        {
-         if((buyCount + sellCount) > 0)
-           {
-            leftDubaiTimeClr = clrTomato;
-            leftDubaiStatClr = clrTomato;
-            nightLeftTxt     = StringFormat("NIGHT CLOSE: %02d:%02d FORCE ALL | Close %d Ord (%.2fL)",
-                                            InpDubaiNightForceCloseHour, InpDubaiNightForceCloseMinute,
-                                            buyCount + sellCount, buyLots + sellLots);
-            nightLeftClr     = clrTomato;
-            nightRightTxt    = StringFormat("Cuts:%d | |Ang|:%.2f", g_dubaiNightCutCountToday, dAbsAng);
-            nightRightClr    = clrTomato;
-           }
-         else
-           {
-            leftDubaiTimeClr = clrDeepSkyBlue;
-            leftDubaiStatClr = clrDeepSkyBlue;
-            nightLeftTxt     = StringFormat("NIGHT CLOSE: %02d:%02d FORCE ARMED | No Open Orders (0)",
-                                            InpDubaiNightForceCloseHour, InpDubaiNightForceCloseMinute);
-            nightLeftClr     = clrDeepSkyBlue;
-            nightRightTxt    = StringFormat("|Ang|:%.2f <= %.1f", dAbsAng, InpDubaiNightMaxEmaAngleDeg);
-            nightRightClr    = clrDeepSkyBlue;
-           }
-        }
-      else
+   else
+      if(g_dubaiNightCloseDoneToday && g_dubaiNightCloseDayKey == dDubaiDay)
         {
          leftDubaiTimeClr = clrGold;
          leftDubaiStatClr = clrGold;
-         nightLeftTxt     = StringFormat("NIGHT CLOSE: %02d:%02d WAIT ANG | |%.2f| (%.0f-%.0f)",
-                                         InpDubaiNightForceCloseHour, InpDubaiNightForceCloseMinute,
-                                         dAbsAng, InpDubaiNightMinEmaAngleDeg, InpDubaiNightMaxEmaAngleDeg);
-         nightLeftClr     = clrGold;
-         nightRightTxt    = InpEnableDubaiNightDayProfitClose
-                            ? StringFormat("Cuts:%d | Tgt:>$%.0f", g_dubaiNightCutCountToday, dDayTgtEq)
-                            : StringFormat("Cuts:%d | 0..%.1f deg", g_dubaiNightCutCountToday, InpDubaiNightMaxEmaAngleDeg);
-         nightRightClr    = clrSilver;
-        }
-     }
-   else if(dInNight)
-     {
-      if(!dAngOk)
-        {
-         leftDubaiTimeClr = clrGold;
-         leftDubaiStatClr = clrGold;
-         if(g_dubaiNightCutCountToday > 0 && g_dubaiNightLastCutLots > 0.0)
-            nightLeftTxt = StringFormat("NIGHT CLOSE: HOLD |Ang|:%.2f | Last:CUT#%d @ %s",
-                                        dAbsAng, g_dubaiNightCutCountToday, dCutMinClk);
-         else
-            nightLeftTxt = StringFormat("NIGHT CLOSE: HOLD |Ang|:%.2f (Need %.0f-%.0f | B:%d S:%d)",
-                                        dAbsAng, InpDubaiNightMinEmaAngleDeg, InpDubaiNightMaxEmaAngleDeg,
-                                        buyCount, sellCount);
-         nightLeftClr = clrGold;
-         if(dCooldownOn)
-            nightRightTxt = dForceActive
-                            ? StringFormat("Cool:%02dm%02ds | %02d:%02d",
-                                           dCoolRemSec / 60, dCoolRemSec % 60,
-                                           InpDubaiNightForceCloseHour, InpDubaiNightForceCloseMinute)
-                            : StringFormat("Cool:%02dm%02ds | End %02d:00",
-                                           dCoolRemSec / 60, dCoolRemSec % 60, InpDubaiNightCloseEndHour);
-         else if(InpEnableDubaiNightDayProfitClose)
-            nightRightTxt = dForceActive
-                            ? StringFormat("Tgt:>$%.0f | %02d:%02d ALL",
-                                           dDayTgtEq, InpDubaiNightForceCloseHour, InpDubaiNightForceCloseMinute)
-                            : StringFormat("Tgt:>$%.0f | End %02d:00", dDayTgtEq, InpDubaiNightCloseEndHour);
-         else
-            nightRightTxt = dForceActive
-                            ? StringFormat("Need %.0f-%.0f | %02d:%02d",
-                                           InpDubaiNightMinEmaAngleDeg, InpDubaiNightMaxEmaAngleDeg,
-                                           InpDubaiNightForceCloseHour, InpDubaiNightForceCloseMinute)
-                            : StringFormat("Need %.0f-%.0f | End %02d:00",
-                                           InpDubaiNightMinEmaAngleDeg, InpDubaiNightMaxEmaAngleDeg, InpDubaiNightCloseEndHour);
-         nightRightClr = dCooldownOn ? clrDeepSkyBlue : clrSilver;
-        }
-      else if(!dOneSideZero)
-        {
-         if(buyCount == 0 && sellCount == 0)
+         if(g_dubaiNightLastCloseTag != "")
            {
-            leftDubaiTimeClr = clrDeepSkyBlue;
-            leftDubaiStatClr = clrDeepSkyBlue;
-            if(g_dubaiNightCutCountToday > 0 && g_dubaiNightLastCutLots > 0.0)
-               nightLeftTxt = StringFormat("NIGHT CLOSE: OPEN:0 | Last:CUT#%d %s=0 @%s -%.2fL",
-                                           g_dubaiNightCutCountToday, g_dubaiNightLastCutZeroSide,
-                                           dCutMinClk, g_dubaiNightLastCutLots);
+            if(g_dubaiNightLastCloseOrders > 0)
+              {
+               string cPlSign = (g_dubaiNightLastClosePL >= 0.0) ? "+" : "-";
+               nightLeftTxt   = StringFormat("NIGHT CLOSE: DONE[%s] @%s x%d -%.2fL %s$%.1f",
+                                             g_dubaiNightLastCloseTag, dCloseClk,
+                                             g_dubaiNightLastCloseOrders, g_dubaiNightLastCloseLots,
+                                             cPlSign, MathAbs(g_dubaiNightLastClosePL));
+              }
             else
-               nightLeftTxt = StringFormat("NIGHT CLOSE: IN WINDOW %02d-%02d | Open:0 (Armed)",
-                                           InpDubaiNightCloseStartHour, InpDubaiNightCloseEndHour);
-            nightLeftClr = clrDeepSkyBlue;
+               nightLeftTxt = StringFormat("NIGHT CLOSE: DONE[%s] @%s GST | 0 Ord Closed",
+                                           g_dubaiNightLastCloseTag, dCloseClk);
            }
          else
-           {
-            leftDubaiTimeClr = clrAqua;
-            leftDubaiStatClr = clrAqua;
-            if(g_dubaiNightCutCountToday > 0 && g_dubaiNightLastCutLots > 0.0)
-               nightLeftTxt = StringFormat("NIGHT CLOSE: WAIT 1-SIDE=0 (B:%d S:%d) | CUT#%d @%s",
-                                           buyCount, sellCount, g_dubaiNightCutCountToday, dCutMinClk);
-            else
-               nightLeftTxt = StringFormat("NIGHT CLOSE: WAIT 1-SIDE=0 (B:%d S:%d | Need B=0/S=0)",
-                                           buyCount, sellCount);
-            nightLeftClr = clrSilver;
-           }
-         if(dCooldownOn)
-            nightRightTxt = dForceActive
-                            ? StringFormat("Cool:%02dm%02ds | %02d:%02d",
-                                           dCoolRemSec / 60, dCoolRemSec % 60,
-                                           InpDubaiNightForceCloseHour, InpDubaiNightForceCloseMinute)
-                            : StringFormat("Cool:%02dm%02ds | End %02d:00",
-                                           dCoolRemSec / 60, dCoolRemSec % 60, InpDubaiNightCloseEndHour);
-         else if(InpEnableDubaiNightDayProfitClose)
-            nightRightTxt = dForceActive
-                            ? StringFormat("Tgt:>$%.0f | %02d:%02d ALL",
-                                           dDayTgtEq, InpDubaiNightForceCloseHour, InpDubaiNightForceCloseMinute)
-                            : StringFormat("Tgt:>$%.0f | 1-Side=0", dDayTgtEq);
-         else
-            nightRightTxt = dForceActive
-                            ? StringFormat("-%.0f%%/%dm | %02d:%02d ALL",
-                                           InpDubaiNightPartialCutPct, InpDubaiNightCutIntervalMinutes,
-                                           InpDubaiNightForceCloseHour, InpDubaiNightForceCloseMinute)
-                            : StringFormat("-%.0f%%/%dm | 1-Side=0",
-                                           InpDubaiNightPartialCutPct, InpDubaiNightCutIntervalMinutes);
-         nightRightClr = dCooldownOn ? clrDeepSkyBlue : clrLightGray;
-        }
-      else if(dCooldownOn)
-        {
-         leftDubaiTimeClr = clrDeepSkyBlue;
-         leftDubaiStatClr = clrDeepSkyBlue;
-         if(g_dubaiNightLastCutLots > 0.0)
-           {
-            string cutPlSign = (g_dubaiNightLastCutPL >= 0.0) ? "+" : "-";
-            nightLeftTxt = StringFormat("NIGHT CLOSE: CUT#%d %s=0 @%s x%d -%.2fL %s$%.1f",
-                                        g_dubaiNightCutCountToday, g_dubaiNightLastCutZeroSide,
-                                        dCutClk, g_dubaiNightLastCutOrders, g_dubaiNightLastCutLots,
-                                        cutPlSign, MathAbs(g_dubaiNightLastCutPL));
-           }
-         else
-            nightLeftTxt = StringFormat("NIGHT CLOSE: CUT#%d COOLDOWN @%s GST | %s=0",
-                                        g_dubaiNightCutCountToday, dCutClk, dZeroSideStr);
-         nightLeftClr = clrDeepSkyBlue;
-         if(dActiveSplit == 0)
-            nightRightTxt = dForceActive
-                            ? StringFormat("Nxt:%02dm%02ds MinL %02d:%02d", dCoolRemSec / 60, dCoolRemSec % 60,
-                                           InpDubaiNightForceCloseHour, InpDubaiNightForceCloseMinute)
-                            : StringFormat("Nxt:%02dm%02ds | MinLot", dCoolRemSec / 60, dCoolRemSec % 60);
-         else
-            nightRightTxt = dForceActive
-                            ? StringFormat("Nxt:%02dm%02ds | All %02d:%02d", dCoolRemSec / 60, dCoolRemSec % 60,
-                                           InpDubaiNightForceCloseHour, InpDubaiNightForceCloseMinute)
-                            : StringFormat("Nxt:%02dm%02ds | -%.0f%%/%dm", dCoolRemSec / 60, dCoolRemSec % 60,
-                                           InpDubaiNightPartialCutPct, InpDubaiNightCutIntervalMinutes);
-         nightRightClr = clrDeepSkyBlue;
-        }
-      else if(dActiveSplit == 0)
-        {
-         leftDubaiTimeClr = clrAqua;
-         leftDubaiStatClr = clrAqua;
-         if(dCutsTodayDisp > 0)
-            nightLeftTxt = StringFormat("NIGHT CLOSE: MINLOT KEPT %s=0 | CUT#%d (%d Ord@Min)",
-                                        dZeroSideStr, dCutsTodayDisp, dActiveOrdCnt);
-         else
-            nightLeftTxt = dForceActive
-                           ? StringFormat("NIGHT CLOSE: MINLOT KEPT %s=0 (%d Ord@Min -> %02d:%02d)",
-                                          dZeroSideStr, dActiveOrdCnt,
-                                          InpDubaiNightForceCloseHour, InpDubaiNightForceCloseMinute)
-                           : StringFormat("NIGHT CLOSE: MINLOT KEPT %s=0 (%d Ord@Min)",
-                                          dZeroSideStr, dActiveOrdCnt);
-         nightLeftClr  = clrAqua;
-         if(dForceActive && InpEnableDubaiNightDayProfitClose && dOpenEq > 0.0)
-            nightRightTxt = StringFormat("Final %02d:%02d | Tgt:$%.0f",
-                                         InpDubaiNightForceCloseHour, InpDubaiNightForceCloseMinute, dDayTgtEq);
-         else if(dForceActive)
-            nightRightTxt = StringFormat("Final %02d:%02d | Cuts:%d",
-                                         InpDubaiNightForceCloseHour, InpDubaiNightForceCloseMinute, dCutsTodayDisp);
-         else
-            nightRightTxt = StringFormat("Cuts:%d Skip:%d", dCutsTodayDisp, g_dubaiNightLastCutSkippedMin);
+            nightLeftTxt = StringFormat("NIGHT CLOSE: DONE TODAY @ %s GST | Locked 1x/Day", dCloseClk);
+         nightLeftClr  = clrGold;
+         nightRightTxt = (g_dubaiNightCutCountToday > 0)
+                         ? StringFormat("Cuts:%d | Reset 00:00", g_dubaiNightCutCountToday)
+                         : "1x Done | Reset 00:00";
          nightRightClr = clrGold;
         }
       else
-        {
-         leftDubaiTimeClr = clrOrange;
-         leftDubaiStatClr = clrOrange;
-         nightLeftTxt     = StringFormat("NIGHT CLOSE: PATH-B ARMED %s=0 | Cut:%d/%d -%.0f%%/%dm",
-                                         dZeroSideStr, dActiveSplit, dActiveOrdCnt,
-                                         InpDubaiNightPartialCutPct, InpDubaiNightCutIntervalMinutes);
-         nightLeftClr     = clrOrange;
-         nightRightTxt    = dForceActive
-                            ? StringFormat("Cuts:%d | %02d:%02d ALL",
-                                           g_dubaiNightCutCountToday, InpDubaiNightForceCloseHour, InpDubaiNightForceCloseMinute)
-                            : StringFormat("Cuts:%d | End %02d:00",
-                                           g_dubaiNightCutCountToday, InpDubaiNightCloseEndHour);
-         nightRightClr    = clrOrange;
-        }
-     }
-   else
-     {
-      int minsToWin = (dDubaiTime > 0) ? ((dStartMod - dDubaiMod + 1440) % 1440) : 0;
-      if(minsToWin == 0 && dDubaiTime > 0)
-         minsToWin = 1440;
-      int hToWin = minsToWin / 60;
-      int mToWin = minsToWin % 60;
-      if(g_dubaiNightLastResetTime > 0)
-         nightLeftTxt = StringFormat("NIGHT CLOSE: %02d-%02d READY in %dh%02dm | Rst %s [OK]",
-                                     InpDubaiNightCloseStartHour, InpDubaiNightCloseEndHour,
-                                     hToWin, mToWin, FormatDubaiShortDT(g_dubaiNightLastResetTime, false));
-      else
-         nightLeftTxt = StringFormat("NIGHT CLOSE: %02d-%02d READY in %dh%02dm | Path-B -%.0f%%/%dm",
-                                     InpDubaiNightCloseStartHour, InpDubaiNightCloseEndHour,
-                                     hToWin, mToWin, InpDubaiNightPartialCutPct, InpDubaiNightCutIntervalMinutes);
-      nightLeftClr = clrLightGray;
-      if(InpEnableDubaiNightDayProfitClose && dOpenEq > 0.0)
-         nightRightTxt = dForceActive
-                         ? StringFormat("Tgt:>$%.0f | %02d:%02d ALL",
-                                        dDayTgtEq, InpDubaiNightForceCloseHour, InpDubaiNightForceCloseMinute)
-                         : StringFormat("Tgt:>$%.0f | 1-Side=0", dDayTgtEq);
-      else
-         nightRightTxt = dForceActive
-                         ? StringFormat("Ang 0-%.0f | %02d:%02d ALL",
-                                        InpDubaiNightMaxEmaAngleDeg, InpDubaiNightForceCloseHour, InpDubaiNightForceCloseMinute)
-                         : StringFormat("Ang 0-%.0f | -%.0f%%/%dm",
-                                        InpDubaiNightMaxEmaAngleDeg, InpDubaiNightPartialCutPct, InpDubaiNightCutIntervalMinutes);
-      nightRightClr = clrSilver;
-     }
+         if(dInNight && g_dubaiNightCloseRetryPending)
+           {
+            leftDubaiTimeClr = clrTomato;
+            leftDubaiStatClr = clrTomato;
+            nightLeftTxt     = StringFormat("NIGHT CLOSE: RETRY CLOSE ALL | Open:%d (B:%d S:%d)",
+                                            buyCount + sellCount, buyCount, sellCount);
+            nightLeftClr     = clrTomato;
+            nightRightTxt    = "Partial Retry";
+            nightRightClr    = clrTomato;
+           }
+         else
+            if(dInNight && dDayEqHit)
+              {
+               leftDubaiTimeClr = clrLime;
+               leftDubaiStatClr = clrLime;
+               nightLeftTxt     = StringFormat("NIGHT CLOSE: PATH-A DAY %s%.1f%%>%.0f%% -> CLOSE ALL (%d)",
+                                               dSign, dDayEqPct, InpDubaiNightDayProfitPct, buyCount + sellCount);
+               nightLeftClr     = clrLime;
+               nightRightTxt    = StringFormat("Tgt:>$%.0f [HIT]", dDayTgtEq);
+               nightRightClr    = clrLime;
+              }
+            else
+               if(dInForce)
+                 {
+                  if(dAngOk)
+                    {
+                     if((buyCount + sellCount) > 0)
+                       {
+                        leftDubaiTimeClr = clrTomato;
+                        leftDubaiStatClr = clrTomato;
+                        nightLeftTxt     = StringFormat("NIGHT CLOSE: %02d:%02d FORCE ALL | Close %d Ord (%.2fL)",
+                                                        InpDubaiNightForceCloseHour, InpDubaiNightForceCloseMinute,
+                                                        buyCount + sellCount, buyLots + sellLots);
+                        nightLeftClr     = clrTomato;
+                        nightRightTxt    = StringFormat("Cuts:%d | |Ang|:%.2f", g_dubaiNightCutCountToday, dAbsAng);
+                        nightRightClr    = clrTomato;
+                       }
+                     else
+                       {
+                        leftDubaiTimeClr = clrDeepSkyBlue;
+                        leftDubaiStatClr = clrDeepSkyBlue;
+                        nightLeftTxt     = StringFormat("NIGHT CLOSE: %02d:%02d FORCE ARMED | No Open Orders (0)",
+                                                        InpDubaiNightForceCloseHour, InpDubaiNightForceCloseMinute);
+                        nightLeftClr     = clrDeepSkyBlue;
+                        nightRightTxt    = StringFormat("|Ang|:%.2f <= %.1f", dAbsAng, InpDubaiNightMaxEmaAngleDeg);
+                        nightRightClr    = clrDeepSkyBlue;
+                       }
+                    }
+                  else
+                    {
+                     leftDubaiTimeClr = clrGold;
+                     leftDubaiStatClr = clrGold;
+                     nightLeftTxt     = StringFormat("NIGHT CLOSE: %02d:%02d WAIT ANG | |%.2f| (%.0f-%.0f)",
+                                                     InpDubaiNightForceCloseHour, InpDubaiNightForceCloseMinute,
+                                                     dAbsAng, InpDubaiNightMinEmaAngleDeg, InpDubaiNightMaxEmaAngleDeg);
+                     nightLeftClr     = clrGold;
+                     nightRightTxt    = InpEnableDubaiNightDayProfitClose
+                                        ? StringFormat("Cuts:%d | Tgt:>$%.0f", g_dubaiNightCutCountToday, dDayTgtEq)
+                                        : StringFormat("Cuts:%d | 0..%.1f deg", g_dubaiNightCutCountToday, InpDubaiNightMaxEmaAngleDeg);
+                     nightRightClr    = clrSilver;
+                    }
+                 }
+               else
+                  if(dInNight)
+                    {
+                     if(!dAngOk)
+                       {
+                        leftDubaiTimeClr = clrGold;
+                        leftDubaiStatClr = clrGold;
+                        if(g_dubaiNightCutCountToday > 0 && g_dubaiNightLastCutLots > 0.0)
+                           nightLeftTxt = StringFormat("NIGHT CLOSE: HOLD |Ang|:%.2f | Last:CUT#%d @ %s",
+                                                       dAbsAng, g_dubaiNightCutCountToday, dCutMinClk);
+                        else
+                           nightLeftTxt = StringFormat("NIGHT CLOSE: HOLD |Ang|:%.2f (Need %.0f-%.0f | B:%d S:%d)",
+                                                       dAbsAng, InpDubaiNightMinEmaAngleDeg, InpDubaiNightMaxEmaAngleDeg,
+                                                       buyCount, sellCount);
+                        nightLeftClr = clrGold;
+                        if(dCooldownOn)
+                           nightRightTxt = dForceActive
+                                           ? StringFormat("Cool:%02dm%02ds | %02d:%02d",
+                                                          dCoolRemSec / 60, dCoolRemSec % 60,
+                                                          InpDubaiNightForceCloseHour, InpDubaiNightForceCloseMinute)
+                                           : StringFormat("Cool:%02dm%02ds | End %02d:00",
+                                                          dCoolRemSec / 60, dCoolRemSec % 60, InpDubaiNightCloseEndHour);
+                        else
+                           if(InpEnableDubaiNightDayProfitClose)
+                              nightRightTxt = dForceActive
+                                              ? StringFormat("Tgt:>$%.0f | %02d:%02d ALL",
+                                                             dDayTgtEq, InpDubaiNightForceCloseHour, InpDubaiNightForceCloseMinute)
+                                              : StringFormat("Tgt:>$%.0f | End %02d:00", dDayTgtEq, InpDubaiNightCloseEndHour);
+                           else
+                              nightRightTxt = dForceActive
+                                              ? StringFormat("Need %.0f-%.0f | %02d:%02d",
+                                                             InpDubaiNightMinEmaAngleDeg, InpDubaiNightMaxEmaAngleDeg,
+                                                             InpDubaiNightForceCloseHour, InpDubaiNightForceCloseMinute)
+                                              : StringFormat("Need %.0f-%.0f | End %02d:00",
+                                                             InpDubaiNightMinEmaAngleDeg, InpDubaiNightMaxEmaAngleDeg, InpDubaiNightCloseEndHour);
+                        nightRightClr = dCooldownOn ? clrDeepSkyBlue : clrSilver;
+                       }
+                     else
+                        if(!dOneSideZero)
+                          {
+                           if(buyCount == 0 && sellCount == 0)
+                             {
+                              leftDubaiTimeClr = clrDeepSkyBlue;
+                              leftDubaiStatClr = clrDeepSkyBlue;
+                              if(g_dubaiNightCutCountToday > 0 && g_dubaiNightLastCutLots > 0.0)
+                                 nightLeftTxt = StringFormat("NIGHT CLOSE: OPEN:0 | Last:CUT#%d %s=0 @%s -%.2fL",
+                                                             g_dubaiNightCutCountToday, g_dubaiNightLastCutZeroSide,
+                                                             dCutMinClk, g_dubaiNightLastCutLots);
+                              else
+                                 nightLeftTxt = StringFormat("NIGHT CLOSE: IN WINDOW %02d-%02d | Open:0 (Armed)",
+                                                             InpDubaiNightCloseStartHour, InpDubaiNightCloseEndHour);
+                              nightLeftClr = clrDeepSkyBlue;
+                             }
+                           else
+                             {
+                              leftDubaiTimeClr = clrAqua;
+                              leftDubaiStatClr = clrAqua;
+                              if(g_dubaiNightCutCountToday > 0 && g_dubaiNightLastCutLots > 0.0)
+                                 nightLeftTxt = StringFormat("NIGHT CLOSE: WAIT 1-SIDE=0 (B:%d S:%d) | CUT#%d @%s",
+                                                             buyCount, sellCount, g_dubaiNightCutCountToday, dCutMinClk);
+                              else
+                                 nightLeftTxt = StringFormat("NIGHT CLOSE: WAIT 1-SIDE=0 (B:%d S:%d | Need B=0/S=0)",
+                                                             buyCount, sellCount);
+                              nightLeftClr = clrSilver;
+                             }
+                           if(dCooldownOn)
+                              nightRightTxt = dForceActive
+                                              ? StringFormat("Cool:%02dm%02ds | %02d:%02d",
+                                                             dCoolRemSec / 60, dCoolRemSec % 60,
+                                                             InpDubaiNightForceCloseHour, InpDubaiNightForceCloseMinute)
+                                              : StringFormat("Cool:%02dm%02ds | End %02d:00",
+                                                             dCoolRemSec / 60, dCoolRemSec % 60, InpDubaiNightCloseEndHour);
+                           else
+                              if(InpEnableDubaiNightDayProfitClose)
+                                 nightRightTxt = dForceActive
+                                                 ? StringFormat("Tgt:>$%.0f | %02d:%02d ALL",
+                                                                dDayTgtEq, InpDubaiNightForceCloseHour, InpDubaiNightForceCloseMinute)
+                                                 : StringFormat("Tgt:>$%.0f | 1-Side=0", dDayTgtEq);
+                              else
+                                 nightRightTxt = dForceActive
+                                                 ? StringFormat("-%.0f%%/%dm | %02d:%02d ALL",
+                                                                InpDubaiNightPartialCutPct, InpDubaiNightCutIntervalMinutes,
+                                                                InpDubaiNightForceCloseHour, InpDubaiNightForceCloseMinute)
+                                                 : StringFormat("-%.0f%%/%dm | 1-Side=0",
+                                                                InpDubaiNightPartialCutPct, InpDubaiNightCutIntervalMinutes);
+                           nightRightClr = dCooldownOn ? clrDeepSkyBlue : clrLightGray;
+                          }
+                        else
+                           if(dCooldownOn)
+                             {
+                              leftDubaiTimeClr = clrDeepSkyBlue;
+                              leftDubaiStatClr = clrDeepSkyBlue;
+                              if(g_dubaiNightLastCutLots > 0.0)
+                                {
+                                 string cutPlSign = (g_dubaiNightLastCutPL >= 0.0) ? "+" : "-";
+                                 nightLeftTxt = StringFormat("NIGHT CLOSE: CUT#%d %s=0 @%s x%d -%.2fL %s$%.1f",
+                                                             g_dubaiNightCutCountToday, g_dubaiNightLastCutZeroSide,
+                                                             dCutClk, g_dubaiNightLastCutOrders, g_dubaiNightLastCutLots,
+                                                             cutPlSign, MathAbs(g_dubaiNightLastCutPL));
+                                }
+                              else
+                                 nightLeftTxt = StringFormat("NIGHT CLOSE: CUT#%d COOLDOWN @%s GST | %s=0",
+                                                             g_dubaiNightCutCountToday, dCutClk, dZeroSideStr);
+                              nightLeftClr = clrDeepSkyBlue;
+                              if(dActiveSplit == 0)
+                                 nightRightTxt = dForceActive
+                                                 ? StringFormat("Nxt:%02dm%02ds MinL %02d:%02d", dCoolRemSec / 60, dCoolRemSec % 60,
+                                                                InpDubaiNightForceCloseHour, InpDubaiNightForceCloseMinute)
+                                                 : StringFormat("Nxt:%02dm%02ds | MinLot", dCoolRemSec / 60, dCoolRemSec % 60);
+                              else
+                                 nightRightTxt = dForceActive
+                                                 ? StringFormat("Nxt:%02dm%02ds | All %02d:%02d", dCoolRemSec / 60, dCoolRemSec % 60,
+                                                                InpDubaiNightForceCloseHour, InpDubaiNightForceCloseMinute)
+                                                 : StringFormat("Nxt:%02dm%02ds | -%.0f%%/%dm", dCoolRemSec / 60, dCoolRemSec % 60,
+                                                                InpDubaiNightPartialCutPct, InpDubaiNightCutIntervalMinutes);
+                              nightRightClr = clrDeepSkyBlue;
+                             }
+                           else
+                              if(dActiveSplit == 0)
+                                {
+                                 leftDubaiTimeClr = clrAqua;
+                                 leftDubaiStatClr = clrAqua;
+                                 if(dCutsTodayDisp > 0)
+                                    nightLeftTxt = StringFormat("NIGHT CLOSE: MINLOT KEPT %s=0 | CUT#%d (%d Ord@Min)",
+                                                                dZeroSideStr, dCutsTodayDisp, dActiveOrdCnt);
+                                 else
+                                    nightLeftTxt = dForceActive
+                                                   ? StringFormat("NIGHT CLOSE: MINLOT KEPT %s=0 (%d Ord@Min -> %02d:%02d)",
+                                                                  dZeroSideStr, dActiveOrdCnt,
+                                                                  InpDubaiNightForceCloseHour, InpDubaiNightForceCloseMinute)
+                                                   : StringFormat("NIGHT CLOSE: MINLOT KEPT %s=0 (%d Ord@Min)",
+                                                                  dZeroSideStr, dActiveOrdCnt);
+                                 nightLeftClr  = clrAqua;
+                                 if(dForceActive && InpEnableDubaiNightDayProfitClose && dOpenEq > 0.0)
+                                    nightRightTxt = StringFormat("Final %02d:%02d | Tgt:$%.0f",
+                                                                 InpDubaiNightForceCloseHour, InpDubaiNightForceCloseMinute, dDayTgtEq);
+                                 else
+                                    if(dForceActive)
+                                       nightRightTxt = StringFormat("Final %02d:%02d | Cuts:%d",
+                                                                    InpDubaiNightForceCloseHour, InpDubaiNightForceCloseMinute, dCutsTodayDisp);
+                                    else
+                                       nightRightTxt = StringFormat("Cuts:%d Skip:%d", dCutsTodayDisp, g_dubaiNightLastCutSkippedMin);
+                                 nightRightClr = clrGold;
+                                }
+                              else
+                                {
+                                 leftDubaiTimeClr = clrOrange;
+                                 leftDubaiStatClr = clrOrange;
+                                 nightLeftTxt     = StringFormat("NIGHT CLOSE: PATH-B ARMED %s=0 | Cut:%d/%d -%.0f%%/%dm",
+                                                                 dZeroSideStr, dActiveSplit, dActiveOrdCnt,
+                                                                 InpDubaiNightPartialCutPct, InpDubaiNightCutIntervalMinutes);
+                                 nightLeftClr     = clrOrange;
+                                 nightRightTxt    = dForceActive
+                                                    ? StringFormat("Cuts:%d | %02d:%02d ALL",
+                                                                   g_dubaiNightCutCountToday, InpDubaiNightForceCloseHour, InpDubaiNightForceCloseMinute)
+                                                    : StringFormat("Cuts:%d | End %02d:00",
+                                                                   g_dubaiNightCutCountToday, InpDubaiNightCloseEndHour);
+                                 nightRightClr    = clrOrange;
+                                }
+                    }
+                  else
+                    {
+                     int minsToWin = (dDubaiTime > 0) ? ((dStartMod - dDubaiMod + 1440) % 1440) : 0;
+                     if(minsToWin == 0 && dDubaiTime > 0)
+                        minsToWin = 1440;
+                     int hToWin = minsToWin / 60;
+                     int mToWin = minsToWin % 60;
+                     if(g_dubaiNightLastResetTime > 0)
+                        nightLeftTxt = StringFormat("NIGHT CLOSE: %02d-%02d READY in %dh%02dm | Rst %s [OK]",
+                                                    InpDubaiNightCloseStartHour, InpDubaiNightCloseEndHour,
+                                                    hToWin, mToWin, FormatDubaiShortDT(g_dubaiNightLastResetTime, false));
+                     else
+                        nightLeftTxt = StringFormat("NIGHT CLOSE: %02d-%02d READY in %dh%02dm | Path-B -%.0f%%/%dm",
+                                                    InpDubaiNightCloseStartHour, InpDubaiNightCloseEndHour,
+                                                    hToWin, mToWin, InpDubaiNightPartialCutPct, InpDubaiNightCutIntervalMinutes);
+                     nightLeftClr = clrLightGray;
+                     if(InpEnableDubaiNightDayProfitClose && dOpenEq > 0.0)
+                        nightRightTxt = dForceActive
+                                        ? StringFormat("Tgt:>$%.0f | %02d:%02d ALL",
+                                                       dDayTgtEq, InpDubaiNightForceCloseHour, InpDubaiNightForceCloseMinute)
+                                        : StringFormat("Tgt:>$%.0f | 1-Side=0", dDayTgtEq);
+                     else
+                        nightRightTxt = dForceActive
+                                        ? StringFormat("Ang 0-%.0f | %02d:%02d ALL",
+                                                       InpDubaiNightMaxEmaAngleDeg, InpDubaiNightForceCloseHour, InpDubaiNightForceCloseMinute)
+                                        : StringFormat("Ang 0-%.0f | -%.0f%%/%dm",
+                                                       InpDubaiNightMaxEmaAngleDeg, InpDubaiNightPartialCutPct, InpDubaiNightCutIntervalMinutes);
+                     nightRightClr = clrSilver;
+                    }
 
    CreateLeftLivePanel(LEFT_LIVE_PREFIX+"DUBAI_BAR", x, y+82, width, 22, C'16,28,44');
    CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"DUBAI_TIME", leftDubaiTimeTxt, tx, y+87, 8, leftDubaiTimeClr);
@@ -27362,7 +27548,7 @@ void UpdateLeftLiveOrdersDashboard()
    CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"DUBAI_NIGHT_R", nightRightTxt, x+width-168, y+109, 8, nightRightClr);
 
    double pGapLeftMid    = (Bid > 0.0 && Ask > 0.0) ? ((Bid + Ask) * 0.5)
-                                                    : ((Bars > 0 && Close[0] > 0.0) ? Close[0] : Bid);
+                           : ((Bars > 0 && Close[0] > 0.0) ? Close[0] : Bid);
    double pGapLeftAnc    = (g_priceGapCloseAnchorPrice > 0.0) ? g_priceGapCloseAnchorPrice : GetEmaFlipPrice();
    double pGapLeftRaw    = (pGapLeftAnc > 0.0 && pGapLeftMid > 0.0) ? MathAbs(pGapLeftMid - pGapLeftAnc) : 0.0;
    double pGapLeftReq    = (InpPriceGapCloseRawGap > 0.0) ? InpPriceGapCloseRawGap : 1000.0;
@@ -27383,41 +27569,44 @@ void UpdateLeftLiveOrdersDashboard()
       pGapRightTxt = "Disabled";
       pGapRightClr = clrSilver;
      }
-   else if(pGapLeftArmed)
-     {
-      pGapLeftTxt  = StringFormat("GAP CLOSE  : ARMED Anc %s | Gap %.1f/%.0f | DayEq:%s%.1f%%>%.0f%%",
-                                  DoubleToString(pGapLeftAnc, Digits), pGapLeftRaw, pGapLeftReq,
-                                  dSign, dDayEqPct, pGapLeftPctReq);
-      pGapLeftClr  = clrLime;
-      pGapRightTxt = StringFormat("Hits:%d CLOSE ALL", g_priceGapCloseTotalSweeps);
-      pGapRightClr = clrLime;
-     }
-   else if(g_priceGapCloseLastHitTime > 0)
-     {
-      pGapLeftTxt  = StringFormat("GAP CLOSE  : Anc %s (%s) Gap %.1f/%.0f | Last x%d -%.2fL @%s",
-                                  DoubleToString(pGapLeftAnc, Digits), pGapAncTag,
-                                  pGapLeftRaw, pGapLeftReq,
-                                  g_priceGapCloseLastOrders, g_priceGapCloseLastLots,
-                                  FormatDubaiShortDT(g_priceGapCloseLastHitTime, false));
-      pGapLeftClr  = clrAqua;
-      pGapRightTxt = StringFormat("Hits:%d Ord:%d Eq:%s%.1f%%",
-                                  g_priceGapCloseTotalSweeps, g_priceGapCloseTotalOrders, dSign, dDayEqPct);
-      pGapRightClr = clrAqua;
-     }
    else
-     {
-      pGapLeftTxt  = StringFormat("GAP CLOSE  : Anc %s (%s) | Gap %.1f/%.0f | DayEq:%s%.2f%%/%.0f%%",
-                                  DoubleToString(pGapLeftAnc, Digits), pGapAncTag,
-                                  pGapLeftRaw, pGapLeftReq, dSign, dDayEqPct, pGapLeftPctReq);
-      pGapLeftClr  = (pGapLeftRaw > pGapLeftReq || dDayEqPct > pGapLeftPctReq) ? clrGold : clrLightGray;
-      if(pGapLeftRaw > pGapLeftReq)
-         pGapRightTxt = StringFormat("Wait Eq>%.0f%%", pGapLeftPctReq);
-      else if(dDayEqPct > pGapLeftPctReq)
-         pGapRightTxt = StringFormat("Wait Gap>%.0f", pGapLeftReq);
+      if(pGapLeftArmed)
+        {
+         pGapLeftTxt  = StringFormat("GAP CLOSE  : ARMED Anc %s | Gap %.1f/%.0f | DayEq:%s%.1f%%>%.0f%%",
+                                     DoubleToString(pGapLeftAnc, Digits), pGapLeftRaw, pGapLeftReq,
+                                     dSign, dDayEqPct, pGapLeftPctReq);
+         pGapLeftClr  = clrLime;
+         pGapRightTxt = StringFormat("Hits:%d CLOSE ALL", g_priceGapCloseTotalSweeps);
+         pGapRightClr = clrLime;
+        }
       else
-         pGapRightTxt = StringFormat("Gap>%.0f + Eq>%.0f%%", pGapLeftReq, pGapLeftPctReq);
-      pGapRightClr = (pGapLeftRaw > pGapLeftReq || dDayEqPct > pGapLeftPctReq) ? clrGold : clrSilver;
-     }
+         if(g_priceGapCloseLastHitTime > 0)
+           {
+            pGapLeftTxt  = StringFormat("GAP CLOSE  : Anc %s (%s) Gap %.1f/%.0f | Last x%d -%.2fL @%s",
+                                        DoubleToString(pGapLeftAnc, Digits), pGapAncTag,
+                                        pGapLeftRaw, pGapLeftReq,
+                                        g_priceGapCloseLastOrders, g_priceGapCloseLastLots,
+                                        FormatDubaiShortDT(g_priceGapCloseLastHitTime, false));
+            pGapLeftClr  = clrAqua;
+            pGapRightTxt = StringFormat("Hits:%d Ord:%d Eq:%s%.1f%%",
+                                        g_priceGapCloseTotalSweeps, g_priceGapCloseTotalOrders, dSign, dDayEqPct);
+            pGapRightClr = clrAqua;
+           }
+         else
+           {
+            pGapLeftTxt  = StringFormat("GAP CLOSE  : Anc %s (%s) | Gap %.1f/%.0f | DayEq:%s%.2f%%/%.0f%%",
+                                        DoubleToString(pGapLeftAnc, Digits), pGapAncTag,
+                                        pGapLeftRaw, pGapLeftReq, dSign, dDayEqPct, pGapLeftPctReq);
+            pGapLeftClr  = (pGapLeftRaw > pGapLeftReq || dDayEqPct > pGapLeftPctReq) ? clrGold : clrLightGray;
+            if(pGapLeftRaw > pGapLeftReq)
+               pGapRightTxt = StringFormat("Wait Eq>%.0f%%", pGapLeftPctReq);
+            else
+               if(dDayEqPct > pGapLeftPctReq)
+                  pGapRightTxt = StringFormat("Wait Gap>%.0f", pGapLeftReq);
+               else
+                  pGapRightTxt = StringFormat("Gap>%.0f + Eq>%.0f%%", pGapLeftReq, pGapLeftPctReq);
+            pGapRightClr = (pGapLeftRaw > pGapLeftReq || dDayEqPct > pGapLeftPctReq) ? clrGold : clrSilver;
+           }
 
    CreateLeftLivePanel(LEFT_LIVE_PREFIX+"PGAP_BAR", x, y+126, width, 22, C'14,22,36');
    CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"PGAP_L", pGapLeftTxt, tx, y+131, 8, pGapLeftClr);
@@ -27443,44 +27632,47 @@ void UpdateLeftLiveOrdersDashboard()
       sLossRightTxt = "Disabled";
       sLossRightClr = clrSilver;
      }
-   else if(sLeftEmerg)
-     {
-      sLossLeftTxt  = StringFormat("STEP LOSS  : EMERGENCY EqDD %.1f%%>%.0f%% | B:%.0f/%.0f S:%.0f/%.0f",
-                                   sLeftEqDdPct, sLeftEmgReq,
-                                   g_stepLossLastBuyAdv, g_stepLossLastReqBuyGap,
-                                   g_stepLossLastSellAdv, g_stepLossLastReqSellGap);
-      sLossLeftClr  = clrRed;
-      sLossRightTxt = StringFormat("-%.0f%%L + %d Worst 0.01", InpStepLossEmergencyCutPct, InpStepLossEmergMinLotClosePerStep);
-      sLossRightClr = clrRed;
-     }
-   else if(g_stepLossLastHitTime > 0)
-     {
-      sLossLeftTxt  = StringFormat("STEP LOSS  : Last %s#%d @%s | P%d/F%d -%.2fL | B:%.0f S:%.0f",
-                                   g_stepLossLastHitSide, g_stepLossTotalSweeps,
-                                   FormatDubaiShortDT(g_stepLossLastHitTime, false),
-                                   g_stepLossLastHitPartials, g_stepLossLastHitFulls, g_stepLossLastHitLots,
-                                   g_stepLossLastBuyAdv, g_stepLossLastSellAdv);
-      sLossLeftClr  = clrOrange;
-      sLossRightTxt = StringFormat("Sweeps:%d (-%.2fL Tot)", g_stepLossTotalSweeps, g_stepLossTotalLotsCut);
-      sLossRightClr = clrOrange;
-     }
-   else if(sLeftActive)
-     {
-      sLossLeftTxt  = StringFormat("STEP LOSS  : ARMED B:%.1f%% (%.0f/%.0f) S:%.1f%% (%.0f/%.0f)",
-                                   liveBuyDdPct, g_stepLossLastBuyAdv, g_stepLossLastReqBuyGap,
-                                   liveSellDdPct, g_stepLossLastSellAdv, g_stepLossLastReqSellGap);
-      sLossLeftClr  = clrGold;
-      sLossRightTxt = StringFormat("-%.0f%%L + %d Worst 0.01", InpStepLossCutPct, InpStepLossMinLotClosePerStep);
-      sLossRightClr = clrGold;
-     }
    else
-     {
-      sLossLeftTxt  = StringFormat("STEP LOSS  : MONITOR >%.0f%% Side / %.0f | Emerg >%.0f%% DD / %.0f",
-                                   sLeftActReq, sLeftNormGap, sLeftEmgReq, sLeftEmgGap);
-      sLossLeftClr  = clrLightGray;
-      sLossRightTxt = StringFormat("%.0f%%L + Worst 0.01L", InpStepLossCutPct);
-      sLossRightClr = clrSilver;
-     }
+      if(sLeftEmerg)
+        {
+         sLossLeftTxt  = StringFormat("STEP LOSS  : EMERGENCY EqDD %.1f%%>%.0f%% | B:%.0f/%.0f S:%.0f/%.0f",
+                                      sLeftEqDdPct, sLeftEmgReq,
+                                      g_stepLossLastBuyAdv, g_stepLossLastReqBuyGap,
+                                      g_stepLossLastSellAdv, g_stepLossLastReqSellGap);
+         sLossLeftClr  = clrRed;
+         sLossRightTxt = StringFormat("-%.0f%%L + %d Worst 0.01", InpStepLossEmergencyCutPct, InpStepLossEmergMinLotClosePerStep);
+         sLossRightClr = clrRed;
+        }
+      else
+         if(g_stepLossLastHitTime > 0)
+           {
+            sLossLeftTxt  = StringFormat("STEP LOSS  : Last %s#%d @%s | P%d/F%d -%.2fL | B:%.0f S:%.0f",
+                                         g_stepLossLastHitSide, g_stepLossTotalSweeps,
+                                         FormatDubaiShortDT(g_stepLossLastHitTime, false),
+                                         g_stepLossLastHitPartials, g_stepLossLastHitFulls, g_stepLossLastHitLots,
+                                         g_stepLossLastBuyAdv, g_stepLossLastSellAdv);
+            sLossLeftClr  = clrOrange;
+            sLossRightTxt = StringFormat("Sweeps:%d (-%.2fL Tot)", g_stepLossTotalSweeps, g_stepLossTotalLotsCut);
+            sLossRightClr = clrOrange;
+           }
+         else
+            if(sLeftActive)
+              {
+               sLossLeftTxt  = StringFormat("STEP LOSS  : ARMED B:%.1f%% (%.0f/%.0f) S:%.1f%% (%.0f/%.0f)",
+                                            liveBuyDdPct, g_stepLossLastBuyAdv, g_stepLossLastReqBuyGap,
+                                            liveSellDdPct, g_stepLossLastSellAdv, g_stepLossLastReqSellGap);
+               sLossLeftClr  = clrGold;
+               sLossRightTxt = StringFormat("-%.0f%%L + %d Worst 0.01", InpStepLossCutPct, InpStepLossMinLotClosePerStep);
+               sLossRightClr = clrGold;
+              }
+            else
+              {
+               sLossLeftTxt  = StringFormat("STEP LOSS  : MONITOR >%.0f%% Side / %.0f | Emerg >%.0f%% DD / %.0f",
+                                            sLeftActReq, sLeftNormGap, sLeftEmgReq, sLeftEmgGap);
+               sLossLeftClr  = clrLightGray;
+               sLossRightTxt = StringFormat("%.0f%%L + Worst 0.01L", InpStepLossCutPct);
+               sLossRightClr = clrSilver;
+              }
 
    CreateLeftLivePanel(LEFT_LIVE_PREFIX+"SLOSS_BAR", x, y+148, width, 22, C'18,22,34');
    CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"SLOSS_L", sLossLeftTxt, tx, y+153, 8, sLossLeftClr);
