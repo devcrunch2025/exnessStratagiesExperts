@@ -44,7 +44,7 @@ CheckBasketProfitClose  Total open basket profit
 
 
 
-string glbVersion = "VMULTI-1162 - FINAL - Partial close LOT with $4000 Balance multiplier";
+string glbVersion = "VMULTI-1163 - Hourly Profit Close Only (Plan B 1H Side Loss Cut OFF)";
 
 
 
@@ -320,8 +320,8 @@ bool   InpDrawEqDdHitIcon                 = true;   // Draw chart icon with DD% 
 int    InpEqDdHitIconCode                 = 171;    // Chart icon Wingdings code (171=star, 238=shield, 159=dot, 251=check)
 int    InpEqDdHitFontSize                 = 10;     // Chart icon text font size
 
-// ===== HOURLY 1-HOUR PER-SIDE ENGINE: PLAN A (1H DAY EQ >5% CLOSE ALL), PLAN B (1H SIDE LOSS >20% CUT 20% LOT), PLAN C (15M DAY EQ >10% CLOSE ALL), PLAN D (1M 31->90% HR-RESET CLOSE ALL) =====
-bool   InpEnableHourlySideLossCut         = false;//true;   // Run 1-Hour Engine: Plan A (1H >5%), Plan B (1H SideLoss >20% Cut 20% LOT), Plan C (15M >10%), Plan D (1M 31-90% HrReset)
+// ===== HOURLY 1-HOUR PER-SIDE ENGINE: PLAN A (1H DAY EQ >5% CLOSE ALL), PLAN B (1H SIDE LOSS >20% CUT 20% LOT - OFF), PLAN C (30M/15M DAY EQ >10% CLOSE ALL), PLAN D (1M 15->90% HR-RESET CLOSE ALL) =====
+bool   InpEnableHourlySideLossCut         = true;   // Run Hourly Profit Close Engine: Plan A (1H >5%), Plan C (30M >10%), Plan D (1M 15-90% HrReset) [Plan B Loss Cut controlled below]
 int    InpHourlySideLossIntervalMinutes   = 60;     // Plan A/B execution interval in minutes (60 = every 1 hour)
 bool   InpEnableHourlyPlanADayProfitClose = true;   // Plan A: If Day Equity Profit > 5% vs Dubai 00:00 opening equity, close ALL open orders (every 1 hour)
 double InpHourlyPlanADayProfitPct         = 5.0;    // Plan A: Day equity profit threshold % (> 5.0%, e.g. $500 -> >$525)
@@ -330,6 +330,7 @@ color  InpHourlyPlanAIconColor            = clrLime;// Plan A: Chart icon & labe
 bool   InpDrawHourlyPlanAIcon             = true;   // Plan A: Draw chart icon & label whenever 1H Hour Target HIT (DayEq >5%) triggers
 bool   InpDrawHourlyPlanAIconWhenFlat     = true;   // Plan A: Also draw Hour Target HIT chart icon when triggered with 0 open orders
 int    InpHourlyPlanAIconCode             = 171;    // Plan A: Chart icon Wingdings code (171=star, 251=check, 238=shield)
+bool   InpEnableHourlyPlanBSideLossCut    = false;  // Plan B: DISABLED (1H Per-Side Floating Loss >20% Cut 20% LOT - profit closes only)
 double InpHourlySideLossThresholdPct      = 20.0;   // Plan B: Floating loss % of Balance trigger (> 20.0%, BUY and SELL evaluated separately)
 double InpHourlySideLossCutPct            = 20.0;   // Plan B: Percentage of each losing order's lots to close (20% LOT)
 double InpHourlySideLossMinLot            = 0.01;   // Plan B: Minimum partial-close lot step & minimum preserved remaining order lot (0.01)
@@ -4937,6 +4938,9 @@ void ManageHourlySideLoss20PctCut()
      }
 
    // ===== OR PLAN B: Per-Side Floating Loss > 20% -> Close 20% LOT (Min 0.01) =====
+   if(!InpEnableHourlyPlanBSideLossCut)
+      return;
+
    double balance = AccountBalance();
    if(balance <= 0.0)
       return;
@@ -11896,10 +11900,13 @@ void OnDeinit(const int reason)
      }
    if(g_hourlyPlanATotalSweeps > 0 || g_hourlySideLossTotalCuts > 0 || g_hourlySideLossCheckCount > 0 || g_hourlyPlanCTotalSweeps > 0 || g_hourlyPlanCCheckCount > 0 || g_hourlyPlanDTotalSweeps > 0 || g_hourlyPlanDCheckCount > 0)
      {
-      PrintFormat(">>> [1H PLAN A/B/C/D SUMMARY] 1H-Chk(%dm): %d | Plan-A (DayEq>%.0f%%): Sweeps=%d Orders=%d (-%.2fL) | Plan-B (Side>%.0f%% -%.0f%%L): Sweeps=%d Cuts=%d (-%.2fL) | 15M-Chk(%dm): %d | Plan-C (DayEq>%.0f%%): Sweeps=%d Orders=%d (-%.2fL) | 1M-Chk(%ds): %d | Plan-D (%.0f-%.0f%% 1hRst): Sweeps=%d Orders=%d (-%.2fL)",
+      string planBDesc = InpEnableHourlyPlanBSideLossCut
+                         ? StringFormat("Side>%.0f%% -%.0f%%L", InpHourlySideLossThresholdPct, InpHourlySideLossCutPct)
+                         : "OFF";
+      PrintFormat(">>> [1H PLAN A/B/C/D SUMMARY] 1H-Chk(%dm): %d | Plan-A (DayEq>%.0f%%): Sweeps=%d Orders=%d (-%.2fL) | Plan-B (%s): Sweeps=%d Cuts=%d (-%.2fL) | 15M-Chk(%dm): %d | Plan-C (DayEq>%.0f%%): Sweeps=%d Orders=%d (-%.2fL) | 1M-Chk(%ds): %d | Plan-D (%.0f-%.0f%% 1hRst): Sweeps=%d Orders=%d (-%.2fL)",
                   InpHourlySideLossIntervalMinutes, g_hourlySideLossCheckCount,
                   InpHourlyPlanADayProfitPct, g_hourlyPlanATotalSweeps, g_hourlyPlanATotalOrders, g_hourlyPlanATotalLots,
-                  InpHourlySideLossThresholdPct, InpHourlySideLossCutPct,
+                  planBDesc,
                   g_hourlySideLossTotalSweeps, g_hourlySideLossTotalCuts, g_hourlySideLossTotalLotsCut,
                   InpHourlyPlanCIntervalMinutes, g_hourlyPlanCCheckCount,
                   InpHourlyPlanCDayProfitPct, g_hourlyPlanCTotalSweeps, g_hourlyPlanCTotalOrders, g_hourlyPlanCTotalLots,
@@ -25533,7 +25540,7 @@ void UpdateDashboard(DailyProtectionState &state)
    bool   dashWaitSell = (InpEnableEqDdLotReduction && dashTierS > 0 && g_eqDdSellLastReachTime > 0 &&
                           dashTierS >= g_eqDdSellLastReachTier && g_eqDdSellLastReachTime > g_eqDdSellLastHitTime && g_eqDdSellLastReachReason != "");
    bool   dashPending  = (dashWaitBuy || dashWaitSell);
-   bool   dashHrlyBreach = (InpEnableHourlySideLossCut &&
+   bool   dashHrlyBreach = (InpEnableHourlySideLossCut && InpEnableHourlyPlanBSideLossCut &&
                             (dashBuyDdPct > InpHourlySideLossThresholdPct || dashSellDdPct > InpHourlySideLossThresholdPct));
    string dashHrlyNxt = (g_hourlySideLossNextRunTime > 0)
                         ? TimeToString(g_hourlySideLossNextRunTime + (ServerToDubaiOffsetHours * 3600), TIME_MINUTES)
@@ -25687,8 +25694,9 @@ void UpdateDashboard(DailyProtectionState &state)
            }
          else
            {
-            eqDdHitLine = StringFormat("1H LATEST   : A>%.0f B>%.0f C>%.0f D:m%d>%.0f%s (%s)",
-                                       hrlyDashAThr, InpHourlySideLossThresholdPct, hrlyDashCThr,
+            string bDashTag = InpEnableHourlyPlanBSideLossCut ? StringFormat("B>%.0f", InpHourlySideLossThresholdPct) : "B:OFF";
+            eqDdHitLine = StringFormat("1H LATEST   : A>%.0f %s C>%.0f D:m%d>%.0f%s (%s)",
+                                       hrlyDashAThr, bDashTag, hrlyDashCThr,
                                        hrlyDashDMin, hrlyDashDThr, (hrlyDashDLock ? "L" : "%"), dashHrlyCNxt);
             eqDdHitClr  = hrlyDashPlanD ? clrDeepSkyBlue : (hrlyDashPlanC ? clrGold : (hrlyDashPlanA ? clrLime : (dashHrlyBreach ? clrOrangeRed : clrSilver)));
            }
@@ -26265,8 +26273,8 @@ void UpdateLeftLiveOrdersDashboard()
    double maxSideDdPct = buyDom ? liveBuyDdPct : liveSellDdPct;
    double maxSideDdUSD = buyDom ? liveBuyDdUSD : liveSellDdUSD;
    string maxSideName  = buyDom ? "BUY" : "SELL";
-   bool   hrlyBreachBuy  = (!InpEnableEqDdLotReduction && InpEnableHourlySideLossCut && liveBuyDdPct  > InpHourlySideLossThresholdPct);
-   bool   hrlyBreachSell = (!InpEnableEqDdLotReduction && InpEnableHourlySideLossCut && liveSellDdPct > InpHourlySideLossThresholdPct);
+   bool   hrlyBreachBuy  = (!InpEnableEqDdLotReduction && InpEnableHourlySideLossCut && InpEnableHourlyPlanBSideLossCut && liveBuyDdPct  > InpHourlySideLossThresholdPct);
+   bool   hrlyBreachSell = (!InpEnableEqDdLotReduction && InpEnableHourlySideLossCut && InpEnableHourlyPlanBSideLossCut && liveSellDdPct > InpHourlySideLossThresholdPct);
    bool   hrlyBreachAny  = (hrlyBreachBuy || hrlyBreachSell);
    datetime liveHrlyNow   = TimeCurrent();
    datetime liveHrlyDub   = (liveHrlyNow > 0) ? (liveHrlyNow + (ServerToDubaiOffsetHours * 3600)) : 0;
@@ -26419,7 +26427,8 @@ void UpdateLeftLiveOrdersDashboard()
             string dStateTag = !InpEnableHourlyPlanDDayProfitClose ? "Off"
                                : (hrlyDLockedH ? StringFormat("m%dLOCK", liveHrlyDMin)
                                : StringFormat("m%d>%.0f%%", liveHrlyDMin, liveHrlyDThr));
-            ddStatLeftTxt = StringFormat("1H A/B/C/D : Eq:%s%.1f%% (D:%s) | B:%.1f%% S:%.1f%%",
+            ddStatLeftTxt = StringFormat("1H %s : Eq:%s%.1f%% (D:%s) | B:%.1f%% S:%.1f%%",
+                                         (InpEnableHourlyPlanBSideLossCut ? "A/B/C/D" : "A/C/D  "),
                                          liveHrlySign, liveHrlyEqPct, dStateTag,
                                          liveBuyDdPct, liveSellDdPct);
             ddStatLeftClr = (maxSideDdPct > 0.0) ? clrWhite : clrLime;
@@ -26548,8 +26557,9 @@ void UpdateLeftLiveOrdersDashboard()
            }
          else
            {
-            ddBannerTxt = StringFormat("1H A-D     : NONE | A>%.0f B>%.0f C>%.0f D:m%d>%.0f%s Chk:%d/%d/%d",
-                                       liveHrlyAThr, InpHourlySideLossThresholdPct,
+            string bLeftTag = InpEnableHourlyPlanBSideLossCut ? StringFormat("B>%.0f", InpHourlySideLossThresholdPct) : "B:OFF";
+            ddBannerTxt = StringFormat("1H A-D     : NONE | A>%.0f %s C>%.0f D:m%d>%.0f%s Chk:%d/%d/%d",
+                                       liveHrlyAThr, bLeftTag,
                                        liveHrlyCThr, liveHrlyDMin, liveHrlyDThr, (hrlyDLockedH ? "L" : "%"),
                                        g_hourlySideLossCheckCount, g_hourlyPlanCCheckCount, g_hourlyPlanDCheckCount);
             ddBannerClr = hrlyPlanDArmed ? clrDeepSkyBlue : (hrlyPlanCArmed ? clrGold : (hrlyPlanAArmed ? clrLime : (hrlyBreachAny ? clrOrangeRed : clrSilver)));
