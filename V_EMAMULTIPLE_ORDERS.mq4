@@ -44,7 +44,7 @@ CheckBasketProfitClose  Total open basket profit
 
 
 
-string glbVersion = "VMULTI-1169 - Fix Sweep Opposite Block Intra-Candle Flicker Reset";
+string glbVersion = "VMULTI-1170 - Closed-Candle Mitigation + Pending Delete on Sweep & HLine";
 
 
 
@@ -285,6 +285,9 @@ bool   InpEnableSweepOppositeBlock                = true;          // Block oppo
 int    InpSweepOppositeBlockMinutes               = 5;             // Opposite-order block duration in minutes after SSLS/BSLS (5 min)
 bool   InpResetSweepOppositeBlockOnNewHLine       = true;          // Reset active SSLS/BSLS opposite-order block when a new horizontal signal (EQH-R/EQH-G) is detected
 bool   InpResetSweepOppositeBlockOnEmaFlip        = true;          // Reset active SSLS/BSLS opposite-order block when EMADirection flips
+bool   InpSweepMitigationWaitCandleClose          = true;          // Wait for closed candle (i >= 1) before mitigating/ending active EQH-R / EQH-G horizontal lines
+bool   InpDeleteOppositePendingOnSweep            = true;          // Delete open opposite pending orders when SSLS (SELL pending) or BSLS (BUY pending) arms
+bool   InpDeleteOppositePendingOnHLineStart       = true;          // Delete open opposite pending orders when GREEN EQH-G (SELL pending) or RED EQH-R (BUY pending) starts
 
 // ===== EMA FLIP WIDE SL BREATHING PROTECTION =====
 bool   InpEnableEmaFlipWideBreathingSL     = true;   // On EMA flip, modify losing orders with wide breathing SL
@@ -7753,6 +7756,8 @@ void     SyncHorizontalLineActivationTimers();
 int      GetHorizontalLineActiveWaitElapsedSeconds(bool isRedLine);
 bool     IsHorizontalLineActivationWaitSatisfied(bool isRedLine);
 void     ResetSweepOppositeBlockState(string reason = "");
+int      DeleteOppositePendingOrdersForGuard(bool deleteBuyPending, string reason);
+void     SyncHorizontalLineStartPendingCleanup();
 void     SyncSweepOppositeBlockState();
 void     ActivateSweepOppositeBlockOnSweep(string sweepSig, datetime sweepBarTime);
 bool     IsBlockedByActiveSweepOppositeRule(int orderType, string orderComment = "");
@@ -11934,6 +11939,8 @@ int OnInit()
    g_lastHandledSweepBlockType    = "None";
    g_lastSweptEqHighLineStart     = 0;
    g_lastSweptEqLowLineStart      = 0;
+   g_lastDeletedPendingEqHStart   = 0;
+   g_lastDeletedPendingEqLStart   = 0;
    ResetSweepOppositeBlockState();
    if(ShowHistoricalSignals || ShowSSLLines)
       DrawHistoricalSignals();
@@ -12122,6 +12129,9 @@ datetime g_sweepOppositeBlockBannedEqHStart  = 0;      // Already-active or swep
 datetime g_sweepOppositeBlockBannedEqLStart  = 0;      // Already-active or swept EQH-G start ID (ignore mid-bar flicker)
 datetime g_lastSweptEqHighLineStart          = 0;      // Start ID of most recently swept EQH-R line
 datetime g_lastSweptEqLowLineStart           = 0;      // Start ID of most recently swept EQH-G line
+datetime g_lastDeletedPendingEqHStart        = 0;      // Start ID of EQH-R whose opposite BUY pending orders were deleted
+datetime g_lastDeletedPendingEqLStart        = 0;      // Start ID of EQH-G whose opposite SELL pending orders were deleted
+int      g_sweepPendingCleanupDir            = 0;      // Pending cleanup retry on sweep: 1 = BUY pending, -1 = SELL pending, 0 = none
 datetime g_lastHandledSweepBlockBarTime      = 0;      // Most recent sweep candle bar already handled
 string   g_lastHandledSweepBlockType         = "None"; // Sweep type for g_lastHandledSweepBlockBarTime
 
@@ -12336,6 +12346,7 @@ void OnTick()
    UpdateLiquiditySweepDetectorOnChart();
    SyncHorizontalLineActivationTimers();
    SyncSweepOppositeBlockState();
+   SyncHorizontalLineStartPendingCleanup();
 // ManageLsdSweepLineStopLossProtection(); // DISABLED: LSD Sweep lines only create FlipBasketSupport, DO NOT modify/close orders
    CheckNewRedLineCloseBuyAndOpenSell();
    CheckNewGreenLineCloseSellAndOpenBuy(); // USER RULE: On new EQH-G green line: close SELL if loss < $1*mult & open SSL Long 0.02*mult
@@ -15366,6 +15377,103 @@ void ResetSweepOppositeBlockState(string reason = "")
    g_sweepOppositeBlockInitEqLStart   = 0;
    g_sweepOppositeBlockBannedEqHStart = 0;
    g_sweepOppositeBlockBannedEqLStart = 0;
+   g_sweepPendingCleanupDir           = 0;
+  }
+
+//+------------------------------------------------------------------+
+//| DeleteOppositePendingOrdersForGuard:                             |
+//| Deletes open EA pending orders on the blocked opposite side.     |
+//| Returns number deleted (>=0), or -failedCount if any retry needed|
+//+------------------------------------------------------------------+
+int DeleteOppositePendingOrdersForGuard(bool deleteBuyPending, string reason)
+  {
+   int deletedCount = 0;
+   int failedCount  = 0;
+   color delClr     = deleteBuyPending ? clrRed : clrGreen;
+   string sideName  = deleteBuyPending ? "BUY" : "SELL";
+
+   for(int p = OrdersTotal() - 1; p >= 0; p--)
+     {
+      if(!OrderSelect(p, SELECT_BY_POS, MODE_TRADES))
+         continue;
+      if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber)
+         continue;
+
+      int pType = OrderType();
+      bool isTargetPending = deleteBuyPending
+                             ? (pType == OP_BUYSTOP || pType == OP_BUYLIMIT)
+                             : (pType == OP_SELLSTOP || pType == OP_SELLLIMIT);
+      if(!isTargetPending)
+         continue;
+
+      int    tkt    = OrderTicket();
+      double lots   = OrderLots();
+      double openPx = OrderOpenPrice();
+      string cmt    = OrderComment();
+
+      if(SafeOrderDelete(tkt, delClr))
+        {
+         deletedCount++;
+         InvalidateTotalEAOrdersCache();
+         PrintFormat(">>> [PENDING ORDER DELETED - %s] Deleted %s pending #%d (Type=%d, Lots=%.2f, Entry=%.2f, Comment='%s')",
+                     reason, sideName, tkt, pType, lots, openPx, cmt);
+        }
+      else
+        {
+         failedCount++;
+         PrintFormat(">>> [PENDING DELETE DEFERRED - %s] Failed to delete %s pending #%d (Err=%d)",
+                     reason, sideName, tkt, GetLastError());
+        }
+     }
+
+   return (failedCount > 0) ? -failedCount : deletedCount;
+  }
+
+//+------------------------------------------------------------------+
+//| SyncHorizontalLineStartPendingCleanup:                           |
+//| USER RULE:                                                       |
+//| - When GREEN horizontal line (EQH-G) starts -> delete SELL       |
+//|   pending orders (OP_SELLSTOP / OP_SELLLIMIT).                   |
+//| - When RED horizontal line (EQH-R) starts -> delete BUY          |
+//|   pending orders (OP_BUYSTOP / OP_BUYLIMIT).                     |
+//+------------------------------------------------------------------+
+void SyncHorizontalLineStartPendingCleanup()
+  {
+   if(!InpDeleteOppositePendingOnHLineStart)
+      return;
+
+   if(!EAStartupComplete)
+     {
+      if(g_lastEqHighLineStart > g_lastDeletedPendingEqHStart)
+         g_lastDeletedPendingEqHStart = g_lastEqHighLineStart;
+      if(g_lastEqLowLineStart > g_lastDeletedPendingEqLStart)
+         g_lastDeletedPendingEqLStart = g_lastEqLowLineStart;
+      return;
+     }
+
+   if(g_lastEqHighPrice > 0.0 && g_lastEqHighLineStart > 0 &&
+      g_lastEqHighLineStart > g_lastDeletedPendingEqHStart &&
+      g_lastEqHighLineStart > g_lastSweptEqHighLineStart)
+     {
+      int redDelRes = DeleteOppositePendingOrdersForGuard(true,
+                                                          StringFormat("RED EQH-R START %s @ %.2f",
+                                                                       TimeToString(g_lastEqHighLineStart, TIME_DATE|TIME_MINUTES),
+                                                                       g_lastEqHighPrice));
+      if(redDelRes >= 0)
+         g_lastDeletedPendingEqHStart = g_lastEqHighLineStart;
+     }
+
+   if(g_lastEqLowPrice > 0.0 && g_lastEqLowLineStart > 0 &&
+      g_lastEqLowLineStart > g_lastDeletedPendingEqLStart &&
+      g_lastEqLowLineStart > g_lastSweptEqLowLineStart)
+     {
+      int greenDelRes = DeleteOppositePendingOrdersForGuard(false,
+                                                            StringFormat("GREEN EQH-G START %s @ %.2f",
+                                                                         TimeToString(g_lastEqLowLineStart, TIME_DATE|TIME_MINUTES),
+                                                                         g_lastEqLowPrice));
+      if(greenDelRes >= 0)
+         g_lastDeletedPendingEqLStart = g_lastEqLowLineStart;
+     }
   }
 
 //+------------------------------------------------------------------+
@@ -15376,6 +15484,21 @@ void ResetSweepOppositeBlockState(string reason = "")
 //+------------------------------------------------------------------+
 void SyncSweepOppositeBlockState()
   {
+   if(g_sweepPendingCleanupDir != 0)
+     {
+      if(InpDeleteOppositePendingOnSweep && EAStartupComplete)
+        {
+         int retryDel = DeleteOppositePendingOrdersForGuard((g_sweepPendingCleanupDir > 0),
+                                                            StringFormat("SWEEP %s RETRY", (g_sweepPendingCleanupDir > 0 ? "BSLS" : "SSLS")));
+         if(retryDel >= 0)
+            g_sweepPendingCleanupDir = 0;
+        }
+      else
+        {
+         g_sweepPendingCleanupDir = 0;
+        }
+     }
+
    if(g_sweepOppositeBlockSignal != "SSLS" && g_sweepOppositeBlockSignal != "BSLS")
       return;
 
@@ -15497,6 +15620,14 @@ void ActivateSweepOppositeBlockOnSweep(string sweepSig, datetime sweepBarTime)
                (sweepSig == "SSLS" ? "SELL" : "BUY"),
                InpSweepOppositeBlockMinutes,
                TimeToString(nowT + blockSec, TIME_DATE|TIME_SECONDS));
+
+   if(InpDeleteOppositePendingOnSweep)
+     {
+      bool delBuyPending = (sweepSig == "BSLS");
+      int sweepDelRes = DeleteOppositePendingOrdersForGuard(delBuyPending,
+                                                            StringFormat("SWEEP %s (%s)", sweepSig, TimeToString(sweepBarTime, TIME_DATE|TIME_MINUTES)));
+      g_sweepPendingCleanupDir = (sweepDelRes < 0) ? (delBuyPending ? 1 : -1) : 0;
+     }
   }
 
 //+------------------------------------------------------------------+
@@ -31044,7 +31175,7 @@ void UpdateLiquiditySweepDetectorOnChart()
       if(curHighLineName != "" && activeEqHighPrice > 0.0)
         {
          bool bslSweep = (High[i] > activeEqHighPrice && Close[i] < activeEqHighPrice);
-         bool bslMitigated = (Close[i] >= activeEqHighPrice + atr * 0.15);
+         bool bslMitigated = ((!InpSweepMitigationWaitCandleClose || i >= 1) && Close[i] >= activeEqHighPrice + atr * 0.15);
          bool timeout = (sweepDurationSec > 0 && (Time[i] - activeEqHighStart) >= sweepDurationSec);
 
          if(bslSweep)
@@ -31130,7 +31261,7 @@ void UpdateLiquiditySweepDetectorOnChart()
       if(curLowLineName != "" && activeEqLowPrice > 0.0)
         {
          bool sslSweep = (Low[i] < activeEqLowPrice && Close[i] > activeEqLowPrice);
-         bool sslMitigated = (Close[i] <= activeEqLowPrice - atr * 0.15);
+         bool sslMitigated = ((!InpSweepMitigationWaitCandleClose || i >= 1) && Close[i] <= activeEqLowPrice - atr * 0.15);
          bool timeout = (sweepDurationSec > 0 && (Time[i] - activeEqLowStart) >= sweepDurationSec);
 
          if(sslSweep)
