@@ -44,7 +44,7 @@ CheckBasketProfitClose  Total open basket profit
 
 
 
-string glbVersion = "VMULTI-1161- FINAL 2 - Old partial Close is enabled";
+string glbVersion = "VMULTI-1162 - FINAL - Partial close LOT with $4000 Balance multiplier";
 
 
 
@@ -12898,6 +12898,10 @@ void OnTickCore()
      }
    if(EnableProfitLadder1 || EnableProfitLadder2)
       ManageProfitLadder();
+      
+      if(InpEnablePartialLossCut)
+      ManagePartialClosesLoss();
+      
    if(TradeOperationFailedThisTick)
      {
       UpdateDashboardsThrottled(dailyState);
@@ -23877,8 +23881,7 @@ void ManagePartialClosesLossOld()
 //+------------------------------------------------------------------+
 void ManagePartialCloses()
   {
-   if(InpEnablePartialLossCut)
-      ManagePartialClosesLoss();
+   
 
    if(!InpEnablePartialProfitClose)
       return;
