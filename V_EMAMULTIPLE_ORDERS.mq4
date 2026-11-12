@@ -44,7 +44,7 @@ CheckBasketProfitClose  Total open basket profit
 
 
 
-string glbVersion = "VMULTI-1167 - Horizontal Line Active-Only Guard & 2-3 Min Activation Wait";
+string glbVersion = "VMULTI-1168 - SafeOrderSend SSLS/BSLS 5m Opposite-Order Block";
 
 
 
@@ -279,6 +279,12 @@ bool   InpBlockSellNearActiveGreenLine            = true;          // While acti
 double InpActiveLineOppositeBlockRangeRaw         = 50.0;          // Active Red/Green line opposite-order block distance in raw USD ($50, used if InpBlockAllOppositeWhenLineActive=false)
 bool   InpBlockAllOrdersWhenBothHorizontalLinesActive = true;      // Confusion Block: When BOTH Red (EQH-R) & Green (EQH-G) lines are active, block ALL orders until single line confirms
 bool   InpBlockAllOppositeWhenLineActive          = true;          // Single Active Line: true = block ALL opposite orders at ANY distance (Red blocks all BUY; Green blocks all SELL)
+
+// ===== LSD SWEEP (SSLS/BSLS) OPPOSITE-ORDER BLOCK IN SafeOrderSend() =====
+bool   InpEnableSweepOppositeBlock                = true;          // Block opposite orders in SafeOrderSend(): SSLS blocks SELL, BSLS blocks BUY
+int    InpSweepOppositeBlockMinutes               = 5;             // Opposite-order block duration in minutes after SSLS/BSLS (5 min)
+bool   InpResetSweepOppositeBlockOnNewHLine       = true;          // Reset active SSLS/BSLS opposite-order block when a new horizontal signal (EQH-R/EQH-G) is detected
+bool   InpResetSweepOppositeBlockOnEmaFlip        = true;          // Reset active SSLS/BSLS opposite-order block when EMADirection flips
 
 // ===== EMA FLIP WIDE SL BREATHING PROTECTION =====
 bool   InpEnableEmaFlipWideBreathingSL     = true;   // On EMA flip, modify losing orders with wide breathing SL
@@ -7671,6 +7677,10 @@ datetime GetLsdSweepActiveEqlLineStart();
 void     SyncHorizontalLineActivationTimers();
 int      GetHorizontalLineActiveWaitElapsedSeconds(bool isRedLine);
 bool     IsHorizontalLineActivationWaitSatisfied(bool isRedLine);
+void     ResetSweepOppositeBlockState(string reason = "");
+void     SyncSweepOppositeBlockState();
+void     ActivateSweepOppositeBlockOnSweep(string sweepSig, datetime sweepBarTime);
+bool     IsBlockedByActiveSweepOppositeRule(int orderType, string orderComment = "");
 int      CountOrdersForLsdLine(string lineType, datetime lineStartTime, int &outPendingTicket);
 bool     HasOrderBeenCreatedForLsdLine(string lineType, datetime lineStartTime);
 void     CleanDuplicateLsdLinePendingOrders();
@@ -11332,6 +11342,8 @@ void TrackEmaFlip()
       g_sweepSignalTypeInCurrentEmaFlip   = "None";
       g_sweepSignalDetectedTimeInFlip     = 0;
       ManageSweepGlobalVariables("None");
+      if(InpResetSweepOppositeBlockOnEmaFlip && g_sweepOppositeBlockSignal != "None")
+         ResetSweepOppositeBlockState(StringFormat("%s block cleared: EMA flipped (%d -> %d)", g_sweepOppositeBlockSignal, prevDir, currentDirection));
 
       // Close previous FLIPBasketSupport orders immediately on flip change
       CloseFLIPBasketSupportOrders();
@@ -11839,6 +11851,9 @@ int OnInit()
    DeleteDashboardObjects();
    DeleteLeftLiveOrdersDashboardObjects();
    DeleteLiquiditySweepObjects();
+   g_lastHandledSweepBlockBarTime = 0;
+   g_lastHandledSweepBlockType    = "None";
+   ResetSweepOppositeBlockState();
    if(ShowHistoricalSignals || ShowSSLLines)
       DrawHistoricalSignals();
    UpdateEMALineOnChart();
@@ -12013,6 +12028,17 @@ bool     g_isSweepSignalConfirmed            = false;  // True when a sweep sign
 bool     g_sweepSignalActiveInCurrentEmaFlip = false;
 string   g_sweepSignalTypeInCurrentEmaFlip   = "None";
 datetime g_sweepSignalDetectedTimeInFlip     = 0;
+
+// Active SSLS/BSLS Opposite-Order Cooldown Block (SafeOrderSend Gate)
+string   g_sweepOppositeBlockSignal          = "None"; // "SSLS" (blocks SELL), "BSLS" (blocks BUY), or "None"
+datetime g_sweepOppositeBlockBarTime         = 0;      // Sweep candle bar time
+datetime g_sweepOppositeBlockActivatedAt     = 0;      // Server time when sweep block started
+int      g_sweepOppositeBlockInitEmaDir      = 0;      // EMADirection at block activation
+int      g_sweepOppositeBlockInitTrackDir    = 0;      // LastTrackedEmaDirection at block activation
+datetime g_sweepOppositeBlockInitEqHStart    = 0;      // Active EQH-R start ID at block activation
+datetime g_sweepOppositeBlockInitEqLStart    = 0;      // Active EQH-G start ID at block activation
+datetime g_lastHandledSweepBlockBarTime      = 0;      // Most recent sweep candle bar already handled
+string   g_lastHandledSweepBlockType         = "None"; // Sweep type for g_lastHandledSweepBlockBarTime
 
 // Managed Global Variables (Requested by user)
 bool     GlobalSweepBuy                      = false;  // True when SWEEP buy signal is active (SSLS)
@@ -12224,6 +12250,7 @@ void OnTick()
 
    UpdateLiquiditySweepDetectorOnChart();
    SyncHorizontalLineActivationTimers();
+   SyncSweepOppositeBlockState();
 // ManageLsdSweepLineStopLossProtection(); // DISABLED: LSD Sweep lines only create FlipBasketSupport, DO NOT modify/close orders
    CheckNewRedLineCloseBuyAndOpenSell();
    CheckNewGreenLineCloseSellAndOpenBuy(); // USER RULE: On new EQH-G green line: close SELL if loss < $1*mult & open SSL Long 0.02*mult
@@ -15228,6 +15255,191 @@ bool IsBlockedByActiveHorizontalLines(int orderType, double reqPrice, string ord
   }
 
 //+------------------------------------------------------------------+
+//| ResetSweepOppositeBlockState:                                    |
+//| Clears active SSLS/BSLS opposite-order block state.              |
+//+------------------------------------------------------------------+
+void ResetSweepOppositeBlockState(string reason = "")
+  {
+   if(reason != "" && g_sweepOppositeBlockSignal != "None")
+      Print(">>> [SWEEP OPPOSITE BLOCK RESET] ", reason);
+
+   g_sweepOppositeBlockSignal       = "None";
+   g_sweepOppositeBlockBarTime      = 0;
+   g_sweepOppositeBlockActivatedAt  = 0;
+   g_sweepOppositeBlockInitEmaDir   = 0;
+   g_sweepOppositeBlockInitTrackDir = 0;
+   g_sweepOppositeBlockInitEqHStart = 0;
+   g_sweepOppositeBlockInitEqLStart = 0;
+  }
+
+//+------------------------------------------------------------------+
+//| SyncSweepOppositeBlockState:                                     |
+//| Expires the 5-min SSLS/BSLS opposite-order block or resets early |
+//| when a new horizontal line (EQH-R/EQH-G) or EMADirection flip    |
+//| is detected.                                                     |
+//+------------------------------------------------------------------+
+void SyncSweepOppositeBlockState()
+  {
+   if(g_sweepOppositeBlockSignal != "SSLS" && g_sweepOppositeBlockSignal != "BSLS")
+      return;
+
+   if(!InpEnableSweepOppositeBlock || InpSweepOppositeBlockMinutes <= 0)
+     {
+      ResetSweepOppositeBlockState("Opposite-order sweep block disabled via settings");
+      return;
+     }
+
+   datetime nowT = TimeCurrent();
+   int blockSec  = InpSweepOppositeBlockMinutes * 60;
+   if(g_sweepOppositeBlockActivatedAt <= 0 || nowT < g_sweepOppositeBlockActivatedAt ||
+      (nowT - g_sweepOppositeBlockActivatedAt) >= blockSec)
+     {
+      int elapsedSec = (g_sweepOppositeBlockActivatedAt > 0 && nowT >= g_sweepOppositeBlockActivatedAt)
+                       ? (int)(nowT - g_sweepOppositeBlockActivatedAt) : 0;
+      ResetSweepOppositeBlockState(StringFormat("%s %dm cooldown expired (Elapsed=%ds / %ds)",
+                                   g_sweepOppositeBlockSignal, InpSweepOppositeBlockMinutes, elapsedSec, blockSec));
+      return;
+     }
+
+   if(InpResetSweepOppositeBlockOnEmaFlip)
+     {
+      if(g_sweepOppositeBlockInitEmaDir == 0 && EMADirection != 0)
+         g_sweepOppositeBlockInitEmaDir = EMADirection;
+      if(g_sweepOppositeBlockInitTrackDir == 0 && LastTrackedEmaDirection != 0)
+         g_sweepOppositeBlockInitTrackDir = LastTrackedEmaDirection;
+
+      bool emaChanged   = (EMADirection != 0 && g_sweepOppositeBlockInitEmaDir != 0 && EMADirection != g_sweepOppositeBlockInitEmaDir);
+      bool trackChanged = (LastTrackedEmaDirection != 0 && g_sweepOppositeBlockInitTrackDir != 0 && LastTrackedEmaDirection != g_sweepOppositeBlockInitTrackDir);
+      if(emaChanged || trackChanged)
+        {
+         ResetSweepOppositeBlockState(StringFormat("%s block cleared: EMADirection flipped (EMA=%d->%d, Track=%d->%d)",
+                                      g_sweepOppositeBlockSignal,
+                                      g_sweepOppositeBlockInitEmaDir, EMADirection,
+                                      g_sweepOppositeBlockInitTrackDir, LastTrackedEmaDirection));
+         return;
+        }
+     }
+
+   if(InpResetSweepOppositeBlockOnNewHLine)
+     {
+      if(g_lastEqHighLineStart == 0)
+         g_sweepOppositeBlockInitEqHStart = 0;
+      if(g_lastEqLowLineStart == 0)
+         g_sweepOppositeBlockInitEqLStart = 0;
+
+      bool newRedDetected   = (g_lastEqHighPrice > 0.0 && g_lastEqHighLineStart > 0 && g_lastEqHighLineStart != g_sweepOppositeBlockInitEqHStart);
+      bool newGreenDetected = (g_lastEqLowPrice  > 0.0 && g_lastEqLowLineStart  > 0 && g_lastEqLowLineStart  != g_sweepOppositeBlockInitEqLStart);
+
+      if(newRedDetected || newGreenDetected)
+        {
+         string hDesc = newRedDetected
+                        ? StringFormat("New EQH-R Red line (Start=%s, Price=%.2f)", TimeToString(g_lastEqHighLineStart, TIME_DATE|TIME_MINUTES), g_lastEqHighPrice)
+                        : StringFormat("New EQH-G Green line (Start=%s, Price=%.2f)", TimeToString(g_lastEqLowLineStart, TIME_DATE|TIME_MINUTES), g_lastEqLowPrice);
+         ResetSweepOppositeBlockState(StringFormat("%s block cleared: New horizontal signal detected (%s)",
+                                      g_sweepOppositeBlockSignal, hDesc));
+         return;
+        }
+     }
+  }
+
+//+------------------------------------------------------------------+
+//| ActivateSweepOppositeBlockOnSweep:                               |
+//| Arms the 5-min opposite-order block in SafeOrderSend() when a    |
+//| fresh live SSLS or BSLS sweep fires.                             |
+//+------------------------------------------------------------------+
+void ActivateSweepOppositeBlockOnSweep(string sweepSig, datetime sweepBarTime)
+  {
+   if(!InpEnableSweepOppositeBlock || InpSweepOppositeBlockMinutes <= 0)
+      return;
+   if(sweepSig != "SSLS" && sweepSig != "BSLS")
+      return;
+   if(sweepBarTime <= 0)
+      return;
+
+// Ignore pre-existing historical sweeps present before EA initialization completes
+   if(!EAStartupComplete)
+     {
+      if(sweepBarTime > g_lastHandledSweepBlockBarTime)
+        {
+         g_lastHandledSweepBlockBarTime = sweepBarTime;
+         g_lastHandledSweepBlockType    = sweepSig;
+        }
+      return;
+     }
+
+   datetime nowT = TimeCurrent();
+   int blockSec  = InpSweepOppositeBlockMinutes * 60;
+
+// Ignore stale historical sweeps (or intra-bar flicker falling back to an older sweep)
+   if(nowT < sweepBarTime || (nowT - sweepBarTime) >= blockSec)
+      return;
+   if(sweepBarTime < g_lastHandledSweepBlockBarTime)
+      return;
+   if(sweepBarTime == g_lastHandledSweepBlockBarTime && sweepSig == g_lastHandledSweepBlockType)
+      return;
+
+   g_lastHandledSweepBlockBarTime   = sweepBarTime;
+   g_lastHandledSweepBlockType      = sweepSig;
+
+   g_sweepOppositeBlockSignal       = sweepSig;
+   g_sweepOppositeBlockBarTime      = sweepBarTime;
+   g_sweepOppositeBlockActivatedAt  = nowT;
+   g_sweepOppositeBlockInitEmaDir   = EMADirection;
+   g_sweepOppositeBlockInitTrackDir = LastTrackedEmaDirection;
+   g_sweepOppositeBlockInitEqHStart = g_lastEqHighLineStart;
+   g_sweepOppositeBlockInitEqLStart = g_lastEqLowLineStart;
+
+   PrintFormat(">>> [SWEEP OPPOSITE BLOCK ARMED] '%s' triggered (SweepBar=%s) -> Blocking %s orders in SafeOrderSend() for %d min (until %s, or reset on new horizontal line / EMA flip)",
+               sweepSig,
+               TimeToString(sweepBarTime, TIME_DATE|TIME_MINUTES),
+               (sweepSig == "SSLS" ? "SELL" : "BUY"),
+               InpSweepOppositeBlockMinutes,
+               TimeToString(nowT + blockSec, TIME_DATE|TIME_SECONDS));
+  }
+
+//+------------------------------------------------------------------+
+//| IsBlockedByActiveSweepOppositeRule:                              |
+//| SafeOrderSend() physical gate:                                   |
+//| - SSLS active (<5m) -> blocks SELL / SELLSTOP / SELLLIMIT orders |
+//| - BSLS active (<5m) -> blocks BUY  / BUYSTOP  / BUYLIMIT  orders |
+//+------------------------------------------------------------------+
+bool IsBlockedByActiveSweepOppositeRule(int orderType, string orderComment = "")
+  {
+   SyncSweepOppositeBlockState();
+   if(g_sweepOppositeBlockSignal != "SSLS" && g_sweepOppositeBlockSignal != "BSLS")
+      return false;
+
+   bool isBuySideOrder  = (orderType == OP_BUY  || orderType == OP_BUYSTOP  || orderType == OP_BUYLIMIT);
+   bool isSellSideOrder = (orderType == OP_SELL || orderType == OP_SELLSTOP || orderType == OP_SELLLIMIT);
+
+   bool shouldBlock = (g_sweepOppositeBlockSignal == "SSLS" && isSellSideOrder) ||
+                      (g_sweepOppositeBlockSignal == "BSLS" && isBuySideOrder);
+   if(!shouldBlock)
+      return false;
+
+   datetime nowT     = TimeCurrent();
+   int blockSec      = InpSweepOppositeBlockMinutes * 60;
+   int elapsedSec    = (g_sweepOppositeBlockActivatedAt > 0 && nowT >= g_sweepOppositeBlockActivatedAt)
+                       ? (int)(nowT - g_sweepOppositeBlockActivatedAt) : 0;
+   int remainingSec  = MathMax(0, blockSec - elapsedSec);
+
+   static datetime s_lastSweepBlockLogTime = 0;
+   if(s_lastSweepBlockLogTime == 0 || nowT < s_lastSweepBlockLogTime || (nowT - s_lastSweepBlockLogTime) >= 30)
+     {
+      RefreshRates();
+      PrintFormat("SAFEORDERSEND BLOCKED [ACTIVE %s SWEEP]: Blocking %s type=%d | Remaining=%ds/%ds | SweepBar=%s | Bid=%.2f Ask=%.2f | %s",
+                  g_sweepOppositeBlockSignal,
+                  (isSellSideOrder ? "SELL" : "BUY"),
+                  orderType, remainingSec, blockSec,
+                  TimeToString(g_sweepOppositeBlockBarTime, TIME_DATE|TIME_MINUTES),
+                  Bid, Ask, orderComment);
+      s_lastSweepBlockLogTime = nowT;
+     }
+
+   return true;
+  }
+
+//+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
 int SafeOrderSend(string symbol,int orderType,double lots,double price,int slippage,double stopLoss,double takeProfit,string comment,int magic,color arrowColor)
@@ -15558,6 +15770,9 @@ int SafeOrderSend(string symbol,int orderType,double lots,double price,int slipp
 
    // Physical Gate: Both-lines confusion block + single active Red/Green line $50 opposite-order block
    if(IsBlockedByActiveHorizontalLines(orderType, price, comment))
+      return -1;
+
+   if(IsBlockedByActiveSweepOppositeRule(orderType, comment))
       return -1;
 
    if(Enable30MinuteMomentumFilter && Enable30MinuteMomentumForAllOrders && !isVShapeOverride && !isReverse100Order)
@@ -31018,6 +31233,7 @@ void UpdateLiquiditySweepDetectorOnChart()
       g_sweepSignalTypeInCurrentEmaFlip   = activeFoundSweep;
       g_sweepSignalDetectedTimeInFlip     = activeFoundTime;
       ManageSweepGlobalVariables(activeFoundSweep);
+      ActivateSweepOppositeBlockOnSweep(activeFoundSweep, activeFoundTime);
      }
    else
       if(g_isSweepSignalConfirmed && g_rememberedSweepSignal != "None")
