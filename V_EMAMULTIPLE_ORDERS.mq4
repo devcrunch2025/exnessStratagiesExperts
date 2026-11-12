@@ -44,7 +44,7 @@ CheckBasketProfitClose  Total open basket profit
 
 
 
-string glbVersion = "VMULTI-1165 - SafeOrderSend Both-Lines Active Confusion Block & Single-Line $50 Opposite Block";
+string glbVersion = "VMULTI-1166 - Active Line Full Opposite Block & Single-Line Confirmation Retry";
 
 
 
@@ -273,10 +273,11 @@ double InpLineEndedBreakoutTriggerGapRaw          = 500;//100.0;         // Pric
 double InpLineEndedBreakoutSLOffsetRaw            = 2000;//1000;//200.0;         // StopLoss offset in USD ($200) from ended line price (Red: Line+200, Green: Line-200)
 bool   InpLineEndedBreakoutDeletePending          = true;          // When line-ended breakout triggers: delete pending orders
 bool   InpLineEndedBreakoutDeleteAllPending       = false;         // false = delete breakout side pending (SELL for Red, BUY for Green); true = delete ALL pending
-bool   InpBlockBuyNearActiveRedLine               = true;          // While active Red EQH-R line is running: block BUY orders within $50 distance
-bool   InpBlockSellNearActiveGreenLine            = true;          // While active Green EQH-G line is running: block SELL orders within $50 distance
-double InpActiveLineOppositeBlockRangeRaw         = 50.0;          // Active Red/Green line opposite-order block distance in raw USD ($50)
+bool   InpBlockBuyNearActiveRedLine               = true;          // While active Red EQH-R line is running: block BUY orders
+bool   InpBlockSellNearActiveGreenLine            = true;          // While active Green EQH-G line is running: block SELL orders
+double InpActiveLineOppositeBlockRangeRaw         = 50.0;          // Active Red/Green line opposite-order block distance in raw USD ($50, used if InpBlockAllOppositeWhenLineActive=false)
 bool   InpBlockAllOrdersWhenBothHorizontalLinesActive = true;      // Confusion Block: When BOTH Red (EQH-R) & Green (EQH-G) lines are active, block ALL orders until single line confirms
+bool   InpBlockAllOppositeWhenLineActive          = true;          // Single Active Line: true = block ALL opposite orders at ANY distance (Red blocks all BUY; Green blocks all SELL)
 
 // ===== EMA FLIP WIDE SL BREATHING PROTECTION =====
 bool   InpEnableEmaFlipWideBreathingSL     = true;   // On EMA flip, modify losing orders with wide breathing SL
@@ -15164,9 +15165,9 @@ bool IsBlockedByActiveHorizontalLines(int orderType, double reqPrice, string ord
       return true;
      }
 
-   // Rule 2: Single active line -> block opposite-direction orders within $50 distance
+   // Rule 2: Single active line -> block opposite-direction orders (at any distance if InpBlockAllOppositeWhenLineActive, else within range)
    double lineBlockRange = InpActiveLineOppositeBlockRangeRaw;
-   if(lineBlockRange <= 0.0)
+   if(!InpBlockAllOppositeWhenLineActive && lineBlockRange <= 0.0)
       return false;
 
    bool isBuySideOrder  = (orderType == OP_BUY  || orderType == OP_BUYSTOP  || orderType == OP_BUYLIMIT);
@@ -15177,14 +15178,16 @@ bool IsBlockedByActiveHorizontalLines(int orderType, double reqPrice, string ord
       double checkBuyReq    = (orderType == OP_BUY) ? Ask : NormalizeDouble(reqPrice, Digits);
       double liveBuyDistRed = MathAbs(Ask - g_lastEqHighPrice);
       double reqBuyDistRed  = (checkBuyReq > 0.0) ? MathAbs(checkBuyReq - g_lastEqHighPrice) : liveBuyDistRed;
-      if(liveBuyDistRed <= lineBlockRange + 1e-8 || reqBuyDistRed <= lineBlockRange + 1e-8)
+      if(InpBlockAllOppositeWhenLineActive || liveBuyDistRed <= lineBlockRange + 1e-8 || reqBuyDistRed <= lineBlockRange + 1e-8)
         {
          if(s_lastActiveRedBuyBlockLog == 0 || (nowLineBlockT - s_lastActiveRedBuyBlockLog) >= 30)
            {
-            PrintFormat("SAFEORDERSEND BLOCKED [ACTIVE RED EQH-R]: Blocking BUY type=%d | Ask=%.2f Req=%.2f RedLine=%.2f Start=%s LiveDist=$%.2f ReqDist=$%.2f Range=$%.2f | %s",
+            PrintFormat("SAFEORDERSEND BLOCKED [ACTIVE RED EQH-R]: Blocking BUY type=%d | Ask=%.2f Req=%.2f RedLine=%.2f Start=%s LiveDist=$%.2f ReqDist=$%.2f Mode=%s | %s",
                         orderType, Ask, checkBuyReq, g_lastEqHighPrice,
                         TimeToString(g_lastEqHighLineStart, TIME_DATE|TIME_SECONDS),
-                        liveBuyDistRed, reqBuyDistRed, lineBlockRange, orderComment);
+                        liveBuyDistRed, reqBuyDistRed,
+                        (InpBlockAllOppositeWhenLineActive ? "ALL_DIST" : ("$" + DoubleToString(lineBlockRange, 2))),
+                        orderComment);
             s_lastActiveRedBuyBlockLog = nowLineBlockT;
            }
          return true;
@@ -15196,14 +15199,16 @@ bool IsBlockedByActiveHorizontalLines(int orderType, double reqPrice, string ord
       double checkSellReq      = (orderType == OP_SELL) ? Bid : NormalizeDouble(reqPrice, Digits);
       double liveSellDistGreen = MathAbs(Bid - g_lastEqLowPrice);
       double reqSellDistGreen  = (checkSellReq > 0.0) ? MathAbs(checkSellReq - g_lastEqLowPrice) : liveSellDistGreen;
-      if(liveSellDistGreen <= lineBlockRange + 1e-8 || reqSellDistGreen <= lineBlockRange + 1e-8)
+      if(InpBlockAllOppositeWhenLineActive || liveSellDistGreen <= lineBlockRange + 1e-8 || reqSellDistGreen <= lineBlockRange + 1e-8)
         {
          if(s_lastActiveGreenSellBlockLog == 0 || (nowLineBlockT - s_lastActiveGreenSellBlockLog) >= 30)
            {
-            PrintFormat("SAFEORDERSEND BLOCKED [ACTIVE GREEN EQH-G]: Blocking SELL type=%d | Bid=%.2f Req=%.2f GreenLine=%.2f Start=%s LiveDist=$%.2f ReqDist=$%.2f Range=$%.2f | %s",
+            PrintFormat("SAFEORDERSEND BLOCKED [ACTIVE GREEN EQH-G]: Blocking SELL type=%d | Bid=%.2f Req=%.2f GreenLine=%.2f Start=%s LiveDist=$%.2f ReqDist=$%.2f Mode=%s | %s",
                         orderType, Bid, checkSellReq, g_lastEqLowPrice,
                         TimeToString(g_lastEqLowLineStart, TIME_DATE|TIME_SECONDS),
-                        liveSellDistGreen, reqSellDistGreen, lineBlockRange, orderComment);
+                        liveSellDistGreen, reqSellDistGreen,
+                        (InpBlockAllOppositeWhenLineActive ? "ALL_DIST" : ("$" + DoubleToString(lineBlockRange, 2))),
+                        orderComment);
             s_lastActiveGreenSellBlockLog = nowLineBlockT;
            }
          return true;
@@ -27652,6 +27657,9 @@ double EMAflipdistance(int orderType = -1)
 //+------------------------------------------------------------------+
 double GetLsdSweepEqlPrice()
   {
+   if(g_lastEqLowPrice > 0.0 && g_lastEqLowLineStart > 0)
+      return g_lastEqLowPrice;
+
    static double cachedVal = 0.0;
    static int    cachedTick = -1;
    if(cachedTick == CurrentTickSequence && CurrentTickSequence > 0)
@@ -27694,6 +27702,9 @@ double GetLsdSweepEqlPrice()
 //+------------------------------------------------------------------+
 double GetLsdSweepEqhPrice()
   {
+   if(g_lastEqHighPrice > 0.0 && g_lastEqHighLineStart > 0)
+      return g_lastEqHighPrice;
+
    static double cachedVal = 0.0;
    static int    cachedTick = -1;
    if(cachedTick == CurrentTickSequence && CurrentTickSequence > 0)
@@ -28862,6 +28873,14 @@ void CheckNewRedLineCloseBuyAndOpenSell()
       s_firstDetectedEqhLineStart = curEqhStart;
       s_firstDetectedEqhTime      = TimeCurrent();
      }
+   // While BOTH Red & Green lines are active, wait for single-line confirmation without expiring the 5-min timer
+   if(InpBlockAllOrdersWhenBothHorizontalLinesActive &&
+      g_lastEqHighPrice > 0.0 && g_lastEqHighLineStart > 0 &&
+      g_lastEqLowPrice  > 0.0 && g_lastEqLowLineStart  > 0)
+     {
+      s_firstDetectedEqhTime = TimeCurrent();
+      return;
+     }
    int elapsedSec = (int)(TimeCurrent() - s_firstDetectedEqhTime);
    if(elapsedSec > maxDurationSec)
      {
@@ -28880,9 +28899,7 @@ void CheckNewRedLineCloseBuyAndOpenSell()
      }
 
    double liveEma  = iMA(Symbol(), Period(), InpEMA200Period, InpEMAPriceShift, MODE_EMA, PRICE_CLOSE, 0);
-   double eqhPrice = GetEQR_R_Price(false);
-   if(eqhPrice <= 0.0)
-      eqhPrice = g_lastEqHighPrice;
+   double eqhPrice = (g_lastEqHighPrice > 0.0 && g_lastEqHighLineStart > 0) ? g_lastEqHighPrice : GetEQR_R_Price(false);
 
    double mult      = (balancelomultipler > 0) ? balancelomultipler : 1.0;
    int    recTicket = -1;
@@ -29190,6 +29207,14 @@ void CheckNewGreenLineCloseSellAndOpenBuy()
       s_firstDetectedEqlLineStart = curEqlStart;
       s_firstDetectedEqlTime      = TimeCurrent();
      }
+   // While BOTH Red & Green lines are active, wait for single-line confirmation without expiring the 5-min timer
+   if(InpBlockAllOrdersWhenBothHorizontalLinesActive &&
+      g_lastEqHighPrice > 0.0 && g_lastEqHighLineStart > 0 &&
+      g_lastEqLowPrice  > 0.0 && g_lastEqLowLineStart  > 0)
+     {
+      s_firstDetectedEqlTime = TimeCurrent();
+      return;
+     }
    int elapsedSec = (int)(TimeCurrent() - s_firstDetectedEqlTime);
    if(elapsedSec > maxDurationSec)
      {
@@ -29208,9 +29233,7 @@ void CheckNewGreenLineCloseSellAndOpenBuy()
      }
 
    double liveEma  = iMA(Symbol(), Period(), InpEMA200Period, InpEMAPriceShift, MODE_EMA, PRICE_CLOSE, 0);
-   double eqlPrice = GetEQR_G_Price(false);
-   if(eqlPrice <= 0.0)
-      eqlPrice = g_lastEqLowPrice;
+   double eqlPrice = (g_lastEqLowPrice > 0.0 && g_lastEqLowLineStart > 0) ? g_lastEqLowPrice : GetEQR_G_Price(false);
 
    double mult      = (balancelomultipler > 0) ? balancelomultipler : 1.0;
    int    recTicket = -1;
