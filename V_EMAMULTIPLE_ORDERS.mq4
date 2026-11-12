@@ -44,7 +44,7 @@ CheckBasketProfitClose  Total open basket profit
 
 
 
-string glbVersion = "VMULTI-1170 - Closed-Candle Mitigation + Pending Delete on Sweep & HLine";
+string glbVersion = "VMULTI-1171- Day Profit Lock $50";
 
 
 
@@ -760,7 +760,7 @@ double RecoveryStopLossRaw         =3000;//300;// 200.0; // Alias matching Recov
 double DayProfitLadder1Amount = 5;
 
 // ===== DYNAMIC DAY PROFIT LADDER =====
-bool   EnableDayProfitLadder = true;;//false;//true;
+bool   EnableDayProfitLadder = false;//true;;//false;//true;
 double DayProfitLadder1Percent = 2;
 double DayProfitLadder2Percent = 1;
 double DayProfitLadderLockRatio = 10;
