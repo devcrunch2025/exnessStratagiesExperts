@@ -48,8 +48,8 @@ string glbVersion = "VMULTI-1170 - Closed-Candle Mitigation + Pending Delete on 
 
 
 
-double DailyEquityStopUSD  =1000;//50;//20*2.5;//10;//20;// 10;//30.0; close all orders at $50Xmultipler
-double TargetProfitPerFlipUSD =1000;//20;//10;//10*2;//10;//5;//20;// 10.0; close all orders at $20Xmultipler
+double DailyEquityStopUSD  =50;//  $50 /10;//10%;//percentage //1000;//50;//20*2.5;//10;//20;// 10;//30.0; close all orders at $50Xmultipler
+double TargetProfitPerFlipUSD =50;//;//percentage////1000;//20;//10;//10*2;//10;//5;//20;// 10.0; close all orders at $20Xmultipler
 
 double protectgapOnOrderclose=31;//30;//101;//1000;//303;//11111111111111
 
@@ -760,9 +760,9 @@ double RecoveryStopLossRaw         =3000;//300;// 200.0; // Alias matching Recov
 double DayProfitLadder1Amount = 5;
 
 // ===== DYNAMIC DAY PROFIT LADDER =====
-bool   EnableDayProfitLadder =false; //true;//false;//true;
-double DayProfitLadder1Percent = 25;
-double DayProfitLadder2Percent = 10;
+bool   EnableDayProfitLadder = true;;//false;//true;
+double DayProfitLadder1Percent = 2;
+double DayProfitLadder2Percent = 1;
 double DayProfitLadderLockRatio = 10;
 double DayProfitInitialProtectionPercent = 80;
 double PeakProfitLockPercent =30;// 80.0;
@@ -5013,7 +5013,7 @@ void ManageHourlySideLoss20PctCut()
                           dayProfitPct > planAThresh);
                           
                           //1 hour 
-   if(planADayHit && MathAbs( GlobalEmaAngle30)>4 && !IsEmaWEAKDistanceReduced50PercentFromPeak())
+   if(planADayHit)// && MathAbs( GlobalEmaAngle30)>4 && !IsEmaWEAKDistanceReduced50PercentFromPeak())
      {
       ExecuteHourlyPlanACloseAll(dayOpenEq, curEquity, dayProfitUSD, dayProfitPct, nowServer);
       return; // Plan A triggered -> OR skips Plan B on this hourly evaluation
@@ -11652,6 +11652,9 @@ void CloseOppositeOrdersOnEmaDistance()
 //+------------------------------------------------------------------+
 int OnInit()
   {
+  
+  g_dayNumber=-1;
+  CheckForNewDay();
 // Check minimum opening balance condition (.00)
    if(AccountBalance() < MinimumOpeningBalanceUSD)
      {
@@ -12217,7 +12220,7 @@ void CheckForNewDay()
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
-bool IsDailyEquityStopReached1()
+bool IsDailyEquityStopReacheddmanual()
   {
    double stopEquity = g_dayOpeningBalance *
                        (DailyEquityStopUSD / 100.0);
@@ -12266,8 +12269,8 @@ bool IsDailyEquityStopReached()
 //+------------------------------------------------------------------+
 void OnTick()
   {
-
-
+CheckForNewDay();
+if(g_dailyEquityTradingBlocked) return ;
 
    if(AccountEquity()<=0)
       return ;
@@ -12332,7 +12335,7 @@ void OnTick()
      }
    CheckAndCloseOrphanFLIPBasketSupportOrders();
 
-   CheckForNewDay();
+   
 //ManageDubaiNightOneSideCloseAll();
 
    IsDailyEquityStopReached();
