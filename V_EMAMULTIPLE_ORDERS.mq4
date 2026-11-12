@@ -44,7 +44,7 @@ CheckBasketProfitClose  Total open basket profit
 
 
 
-string glbVersion = "VMULTI-1166 - Active Line Full Opposite Block & Single-Line Confirmation Retry";
+string glbVersion = "VMULTI-1167 - Horizontal Line Active-Only Guard & 2-3 Min Activation Wait";
 
 
 
@@ -263,6 +263,7 @@ double InpHorizontalLineEndedSLGapRaw             =2000;//1000;//200;// 50.0;   
 double InpHorizontalLineMinEmaGapRaw             = 0.0;           // Min raw price gap ( = disabled) between horizontal line & EMA (Do not create orders if < min gap)
 double InpHorizontalLineIgnoreEmaGapAngle        = 4;//3.0;           // USER RULE: Ignore EMA Distance Runway filter if MathAbs(EMAangle) > 4.0
 int    InpHorizontalLineMaxDurationSeconds        = 300;           // Max allowed duration (300s = 5 min) since horizontal line initiated to create order (0 = no limit)
+int    InpHorizontalLineMinActiveWaitSeconds      = 150;           // Activation warm-up wait (120-180s = 2-3 min; default 150s) after line activates before creating horizontal orders (0 = immediate)
 bool   InpModifyOppositeOrderSLToLinePrice        = true;          // On new/active horizontal line: try to modify opposite order SL to Line price
 bool   InpModifyLinePriceSLOnlyFirstOrder         = true;          // Modify SL with Line Price ONLY for the FIRST (oldest) open order
 double InpLinePriceSLOffsetRaw                    = 2000;//1000;//200;//100;//50.0;          // Offset in USD ($50) added to Line Price for StopLoss modification (Line Price + 50)
@@ -7667,6 +7668,9 @@ int      CreateFLIPBasketSupportOrder(int flipDirection, bool ignoreEmaDistanceG
 void     CheckLsdSweepFlipBasketSupportOrder();
 datetime GetLsdSweepActiveEqhLineStart();
 datetime GetLsdSweepActiveEqlLineStart();
+void     SyncHorizontalLineActivationTimers();
+int      GetHorizontalLineActiveWaitElapsedSeconds(bool isRedLine);
+bool     IsHorizontalLineActivationWaitSatisfied(bool isRedLine);
 int      CountOrdersForLsdLine(string lineType, datetime lineStartTime, int &outPendingTicket);
 bool     HasOrderBeenCreatedForLsdLine(string lineType, datetime lineStartTime);
 void     CleanDuplicateLsdLinePendingOrders();
@@ -11985,6 +11989,10 @@ bool     g_forceSweepRecalc                  = false;  // Immediate recalculatio
 // Active Horizontal Line Timestamps & Order Limit Tracking (1 Order Per Line Limit)
 datetime g_lastEqHighLineStart               = 0;      // Start time of current active EQH-R line
 datetime g_lastEqLowLineStart                = 0;      // Start time of current active EQH-G line
+datetime g_activeEqHighTrackedStart          = 0;      // Live-active EQH-R start ID under activation wait timer
+datetime g_activeEqHighActivatedAt           = 0;      // Live server time when single active EQH-R began waiting
+datetime g_activeEqLowTrackedStart           = 0;      // Live-active EQH-G start ID under activation wait timer
+datetime g_activeEqLowActivatedAt            = 0;      // Live server time when single active EQH-G began waiting
 datetime g_lastOrderEqHighLineStart          = 0;      // Line start time for which EQH-R support order was created
 datetime g_lastOrderEqLowLineStart           = 0;      // Line start time for which EQH-G support order was created
 int      g_lastEqhSellOrderTicket            = -1;     // Ticket of SELL order created for active EQH-R line
@@ -12215,6 +12223,7 @@ void OnTick()
 // CloseOppositeOrdersOnEmaDistance();// DISABLED: Preserves breathing cushion during EMA trend shifts
 
    UpdateLiquiditySweepDetectorOnChart();
+   SyncHorizontalLineActivationTimers();
 // ManageLsdSweepLineStopLossProtection(); // DISABLED: LSD Sweep lines only create FlipBasketSupport, DO NOT modify/close orders
    CheckNewRedLineCloseBuyAndOpenSell();
    CheckNewGreenLineCloseSellAndOpenBuy(); // USER RULE: On new EQH-G green line: close SELL if loss < $1*mult & open SSL Long 0.02*mult
@@ -19810,27 +19819,14 @@ void CheckLsdStructuralRecoveryOrders()
 
    RefreshRates();
 
-   bool eqhRPresent = (IsLsdSweepRedLinePresent() || GetEQR_R_Price(true) > 0.0);
-   bool eqhGPresent = (IsLsdSweepGreenLinePresent() || GetEQR_G_Price(true) > 0.0);
+   bool eqhRPresent = (g_lastEqHighPrice > 0.0 && g_lastEqHighLineStart > 0 && IsHorizontalLineActivationWaitSatisfied(true));
+   bool eqhGPresent = (g_lastEqLowPrice  > 0.0 && g_lastEqLowLineStart  > 0 && IsHorizontalLineActivationWaitSatisfied(false));
 
    if(!eqhRPresent && !eqhGPresent)
-      return; // No active structural liquidity lines
+      return; // No active single structural liquidity lines past activation wait
 
-   double eqhPrice = 0.0;
-   if(eqhRPresent)
-     {
-      eqhPrice = GetEQR_R_Price(true);
-      if(eqhPrice <= 0.0)
-         eqhPrice = GetEQR_R_Price(false);
-     }
-
-   double eqlPrice = 0.0;
-   if(eqhGPresent)
-     {
-      eqlPrice = GetEQR_G_Price(true);
-      if(eqlPrice <= 0.0)
-         eqlPrice = GetEQR_G_Price(false);
-     }
+   double eqhPrice = eqhRPresent ? g_lastEqHighPrice : 0.0;
+   double eqlPrice = eqhGPresent ? g_lastEqLowPrice  : 0.0;
 
    double tolGap     = (InpLsdRecoveryLevelToleranceRaw > 0.0) ? InpLsdRecoveryLevelToleranceRaw : 50.0;
    double minAdvGap   = (InpLsdRecoveryMinAdverseGap > 0.0)      ? InpLsdRecoveryMinAdverseGap     : 100.0;
@@ -27673,20 +27669,23 @@ double GetLsdSweepEqlPrice()
      }
 
    cachedVal = 0.0;
-   int total = ObjectsTotal(0, -1, -1);
-   for(int i = total - 1; i >= 0; i--)
+   if(!InpShowLiquiditySweeps)
      {
-      string name = ObjectName(0, i, -1, -1);
-      if(StringFind(name, LSD_PREFIX + "EQL_", 0) == 0 && StringFind(name, "EQL_M_", 0) < 0)
+      int total = ObjectsTotal(0, -1, -1);
+      for(int i = total - 1; i >= 0; i--)
         {
-         datetime t2 = (datetime)ObjectGet(name, OBJPROP_TIME2);
-         if(TimeCurrent() <= t2)
+         string name = ObjectName(0, i, -1, -1);
+         if(StringFind(name, LSD_PREFIX + "EQL_", 0) == 0 && StringFind(name, "EQL_M_", 0) < 0)
            {
-            double p = ObjectGet(name, OBJPROP_PRICE1);
-            if(p > 0.0)
+            datetime t2 = (datetime)ObjectGet(name, OBJPROP_TIME2);
+            if(TimeCurrent() < t2)
               {
-               cachedVal = p;
-               break;
+               double p = ObjectGet(name, OBJPROP_PRICE1);
+               if(p > 0.0)
+                 {
+                  cachedVal = p;
+                  break;
+                 }
               }
            }
         }
@@ -27718,20 +27717,23 @@ double GetLsdSweepEqhPrice()
      }
 
    cachedVal = 0.0;
-   int total = ObjectsTotal(0, -1, -1);
-   for(int i = total - 1; i >= 0; i--)
+   if(!InpShowLiquiditySweeps)
      {
-      string name = ObjectName(0, i, -1, -1);
-      if(StringFind(name, LSD_PREFIX + "EQH_", 0) == 0 && StringFind(name, "EQH_M_", 0) < 0)
+      int total = ObjectsTotal(0, -1, -1);
+      for(int i = total - 1; i >= 0; i--)
         {
-         datetime t2 = (datetime)ObjectGet(name, OBJPROP_TIME2);
-         if(TimeCurrent() <= t2)
+         string name = ObjectName(0, i, -1, -1);
+         if(StringFind(name, LSD_PREFIX + "EQH_", 0) == 0 && StringFind(name, "EQH_M_", 0) < 0)
            {
-            double p = ObjectGet(name, OBJPROP_PRICE1);
-            if(p > 0.0)
+            datetime t2 = (datetime)ObjectGet(name, OBJPROP_TIME2);
+            if(TimeCurrent() < t2)
               {
-               cachedVal = p;
-               break;
+               double p = ObjectGet(name, OBJPROP_PRICE1);
+               if(p > 0.0)
+                 {
+                  cachedVal = p;
+                  break;
+                 }
               }
            }
         }
@@ -28124,27 +28126,28 @@ bool IsLsdSweepGreenLinePresent()
       return cachedVal;
 
    cachedVal = false;
-   if(g_lastEqLowPrice > 0.0)
+   if(g_lastEqLowPrice > 0.0 && g_lastEqLowLineStart > 0)
      {
       cachedVal = true;
      }
    else
-     {
-      int total = ObjectsTotal(0, -1, -1);
-      for(int i = total - 1; i >= 0; i--)
+      if(!InpShowLiquiditySweeps)
         {
-         string name = ObjectName(0, i, -1, -1);
-         if(StringFind(name, LSD_PREFIX + "EQL_", 0) == 0 && StringFind(name, "EQL_M_", 0) < 0)
+         int total = ObjectsTotal(0, -1, -1);
+         for(int i = total - 1; i >= 0; i--)
            {
-            datetime t2 = (datetime)ObjectGet(name, OBJPROP_TIME2);
-            if(TimeCurrent() <= t2)
+            string name = ObjectName(0, i, -1, -1);
+            if(StringFind(name, LSD_PREFIX + "EQL_", 0) == 0 && StringFind(name, "EQL_M_", 0) < 0)
               {
-               cachedVal = true;
-               break;
+               datetime t2 = (datetime)ObjectGet(name, OBJPROP_TIME2);
+               if(TimeCurrent() < t2)
+                 {
+                  cachedVal = true;
+                  break;
+                 }
               }
            }
         }
-     }
 
    cachedTick = CurrentTickSequence;
    return cachedVal;
@@ -28161,27 +28164,28 @@ bool IsLsdSweepRedLinePresent()
       return cachedVal;
 
    cachedVal = false;
-   if(g_lastEqHighPrice > 0.0)
+   if(g_lastEqHighPrice > 0.0 && g_lastEqHighLineStart > 0)
      {
       cachedVal = true;
      }
    else
-     {
-      int total = ObjectsTotal(0, -1, -1);
-      for(int i = total - 1; i >= 0; i--)
+      if(!InpShowLiquiditySweeps)
         {
-         string name = ObjectName(0, i, -1, -1);
-         if(StringFind(name, LSD_PREFIX + "EQH_", 0) == 0 && StringFind(name, "EQH_M_", 0) < 0)
+         int total = ObjectsTotal(0, -1, -1);
+         for(int i = total - 1; i >= 0; i--)
            {
-            datetime t2 = (datetime)ObjectGet(name, OBJPROP_TIME2);
-            if(TimeCurrent() <= t2)
+            string name = ObjectName(0, i, -1, -1);
+            if(StringFind(name, LSD_PREFIX + "EQH_", 0) == 0 && StringFind(name, "EQH_M_", 0) < 0)
               {
-               cachedVal = true;
-               break;
+               datetime t2 = (datetime)ObjectGet(name, OBJPROP_TIME2);
+               if(TimeCurrent() < t2)
+                 {
+                  cachedVal = true;
+                  break;
+                 }
               }
            }
         }
-     }
 
    cachedTick = CurrentTickSequence;
    return cachedVal;
@@ -28833,15 +28837,23 @@ void CheckNewRedLineCloseBuyAndOpenSell()
    if(!EAStartupComplete)
       return;
 
-   datetime curEqhStart = GetLsdSweepActiveEqhLineStart();
-   if(curEqhStart <= 0)
-      return;
+   SyncHorizontalLineActivationTimers();
 
-// Track initial sweep vs Step-3 retry state while within the 5-minute window
+// Track initial sweep vs Step-3 retry state while within the valid activation window
    static datetime s_lastHandledRedLineStart   = 0;
    static datetime s_pendingRetryRedLineStart  = 0;
-   static datetime s_firstDetectedEqhLineStart = 0;
-   static datetime s_firstDetectedEqhTime      = 0;
+
+   if(g_lastEqHighPrice <= 0.0 || g_lastEqHighLineStart <= 0)
+     {
+      if(s_pendingRetryRedLineStart > 0)
+        {
+         s_lastHandledRedLineStart  = s_pendingRetryRedLineStart;
+         s_pendingRetryRedLineStart = 0;
+        }
+      return;
+     }
+
+   datetime curEqhStart = g_lastEqHighLineStart;
 
    bool initialPhaseDone = (curEqhStart == s_lastHandledRedLineStart);
    bool retryPending     = (curEqhStart == s_pendingRetryRedLineStart);
@@ -28851,7 +28863,7 @@ void CheckNewRedLineCloseBuyAndOpenSell()
       return;
 
 // If retrying after a gap/send block, stop immediately if the line has already ended on the chart
-   if(retryPending && (g_endedEqHighStart == curEqhStart || (g_lastEqHighLineStart == 0 && GetEQR_R_Price(true) <= 0.0)))
+   if(retryPending && g_endedEqHighStart == curEqhStart)
      {
       s_lastHandledRedLineStart  = curEqhStart;
       s_pendingRetryRedLineStart = 0;
@@ -28866,30 +28878,40 @@ void CheckNewRedLineCloseBuyAndOpenSell()
       return;
      }
 
-// USER RULE: "Horizontal orders should create within 5 min duration when the Line is initialed . do not create horizontal orders after 5 min"
-   int maxDurationSec = (InpHorizontalLineMaxDurationSeconds > 0) ? InpHorizontalLineMaxDurationSeconds : 300;
-   if(curEqhStart != s_firstDetectedEqhLineStart)
-     {
-      s_firstDetectedEqhLineStart = curEqhStart;
-      s_firstDetectedEqhTime      = TimeCurrent();
-     }
-   // While BOTH Red & Green lines are active, wait for single-line confirmation without expiring the 5-min timer
+// Confusion Block: While BOTH Red & Green lines are active, wait for single-line confirmation
    if(InpBlockAllOrdersWhenBothHorizontalLinesActive &&
-      g_lastEqHighPrice > 0.0 && g_lastEqHighLineStart > 0 &&
-      g_lastEqLowPrice  > 0.0 && g_lastEqLowLineStart  > 0)
+      g_lastEqLowPrice > 0.0 && g_lastEqLowLineStart > 0)
+      return;
+
+// USER RULE: Wait 2 to 3 min from line activation before creating horizontal orders (filters out brief/small lines)
+   int waitSec        = (InpHorizontalLineMinActiveWaitSeconds > 0) ? InpHorizontalLineMinActiveWaitSeconds : 0;
+   int maxDurationSec = (InpHorizontalLineMaxDurationSeconds > 0) ? InpHorizontalLineMaxDurationSeconds : 300;
+   int elapsedSec     = GetHorizontalLineActiveWaitElapsedSeconds(true);
+   if(elapsedSec < 0)
+      return;
+
+   if(waitSec > 0 && elapsedSec < waitSec)
      {
-      s_firstDetectedEqhTime = TimeCurrent();
+      static datetime s_lastWaitLogEqh = 0;
+      if(s_lastWaitLogEqh == 0 || TimeCurrent() - s_lastWaitLogEqh >= 30 || TimeCurrent() < s_lastWaitLogEqh)
+        {
+         s_lastWaitLogEqh = TimeCurrent();
+         Print(">>> [RED LINE WAIT] EQH-R line active (Start=", TimeToStr(curEqhStart, TIME_DATE|TIME_MINUTES),
+               ", Price=", DoubleToString(g_lastEqHighPrice, Digits),
+               ") | Waiting ", waitSec, "s before horizontal actions (Elapsed=", elapsedSec, "s / ", waitSec, "s)");
+        }
       return;
      }
-   int elapsedSec = (int)(TimeCurrent() - s_firstDetectedEqhTime);
+
+// USER RULE: "Horizontal orders should create within 5 min duration when the Line is initialed . do not create horizontal orders after 5 min"
    if(elapsedSec > maxDurationSec)
      {
       static datetime s_lastExpiredLogEqh = 0;
       if(s_lastExpiredLogEqh == 0 || TimeCurrent() - s_lastExpiredLogEqh >= 30 || TimeCurrent() < s_lastExpiredLogEqh)
         {
          s_lastExpiredLogEqh = TimeCurrent();
-         Print(">>> [RED LINE ORDER BLOCKED] EQH-R line initiated at ", TimeToStr(s_firstDetectedEqhTime, TIME_DATE|TIME_MINUTES),
-               " is older than 5 min (Elapsed=", elapsedSec, "s > ", maxDurationSec,
+         Print(">>> [RED LINE ORDER BLOCKED] EQH-R line activated at ", TimeToStr(g_activeEqHighActivatedAt, TIME_DATE|TIME_MINUTES),
+               " is older than max window (Elapsed=", elapsedSec, "s > ", maxDurationSec,
                "s). Rule: Do not create horizontal orders after 5 min!");
         }
       s_lastHandledRedLineStart  = curEqhStart;
@@ -28899,7 +28921,7 @@ void CheckNewRedLineCloseBuyAndOpenSell()
      }
 
    double liveEma  = iMA(Symbol(), Period(), InpEMA200Period, InpEMAPriceShift, MODE_EMA, PRICE_CLOSE, 0);
-   double eqhPrice = (g_lastEqHighPrice > 0.0 && g_lastEqHighLineStart > 0) ? g_lastEqHighPrice : GetEQR_R_Price(false);
+   double eqhPrice = g_lastEqHighPrice;
 
    double mult      = (balancelomultipler > 0) ? balancelomultipler : 1.0;
    int    recTicket = -1;
@@ -29167,15 +29189,23 @@ void CheckNewGreenLineCloseSellAndOpenBuy()
    if(!EAStartupComplete)
       return;
 
-   datetime curEqlStart = GetLsdSweepActiveEqlLineStart();
-   if(curEqlStart <= 0)
-      return;
+   SyncHorizontalLineActivationTimers();
 
-// Track initial sweep vs Step-3 retry state while within the 5-minute window
+// Track initial sweep vs Step-3 retry state while within the valid activation window
    static datetime s_lastHandledGreenLineStart   = 0;
    static datetime s_pendingRetryGreenLineStart  = 0;
-   static datetime s_firstDetectedEqlLineStart   = 0;
-   static datetime s_firstDetectedEqlTime        = 0;
+
+   if(g_lastEqLowPrice <= 0.0 || g_lastEqLowLineStart <= 0)
+     {
+      if(s_pendingRetryGreenLineStart > 0)
+        {
+         s_lastHandledGreenLineStart  = s_pendingRetryGreenLineStart;
+         s_pendingRetryGreenLineStart = 0;
+        }
+      return;
+     }
+
+   datetime curEqlStart = g_lastEqLowLineStart;
 
    bool initialPhaseDone = (curEqlStart == s_lastHandledGreenLineStart);
    bool retryPending     = (curEqlStart == s_pendingRetryGreenLineStart);
@@ -29185,7 +29215,7 @@ void CheckNewGreenLineCloseSellAndOpenBuy()
       return;
 
 // If retrying after a gap/send block, stop immediately if the line has already ended on the chart
-   if(retryPending && (g_endedEqLowStart == curEqlStart || (g_lastEqLowLineStart == 0 && GetEQR_G_Price(true) <= 0.0)))
+   if(retryPending && g_endedEqLowStart == curEqlStart)
      {
       s_lastHandledGreenLineStart  = curEqlStart;
       s_pendingRetryGreenLineStart = 0;
@@ -29200,30 +29230,40 @@ void CheckNewGreenLineCloseSellAndOpenBuy()
       return;
      }
 
-// USER RULE: "Horizontal orders should create within 5 min duration when the Line is initialed . do not create horizontal orders after 5 min"
-   int maxDurationSec = (InpHorizontalLineMaxDurationSeconds > 0) ? InpHorizontalLineMaxDurationSeconds : 300;
-   if(curEqlStart != s_firstDetectedEqlLineStart)
-     {
-      s_firstDetectedEqlLineStart = curEqlStart;
-      s_firstDetectedEqlTime      = TimeCurrent();
-     }
-   // While BOTH Red & Green lines are active, wait for single-line confirmation without expiring the 5-min timer
+// Confusion Block: While BOTH Red & Green lines are active, wait for single-line confirmation
    if(InpBlockAllOrdersWhenBothHorizontalLinesActive &&
-      g_lastEqHighPrice > 0.0 && g_lastEqHighLineStart > 0 &&
-      g_lastEqLowPrice  > 0.0 && g_lastEqLowLineStart  > 0)
+      g_lastEqHighPrice > 0.0 && g_lastEqHighLineStart > 0)
+      return;
+
+// USER RULE: Wait 2 to 3 min from line activation before creating horizontal orders (filters out brief/small lines)
+   int waitSec        = (InpHorizontalLineMinActiveWaitSeconds > 0) ? InpHorizontalLineMinActiveWaitSeconds : 0;
+   int maxDurationSec = (InpHorizontalLineMaxDurationSeconds > 0) ? InpHorizontalLineMaxDurationSeconds : 300;
+   int elapsedSec     = GetHorizontalLineActiveWaitElapsedSeconds(false);
+   if(elapsedSec < 0)
+      return;
+
+   if(waitSec > 0 && elapsedSec < waitSec)
      {
-      s_firstDetectedEqlTime = TimeCurrent();
+      static datetime s_lastWaitLogEql = 0;
+      if(s_lastWaitLogEql == 0 || TimeCurrent() - s_lastWaitLogEql >= 30 || TimeCurrent() < s_lastWaitLogEql)
+        {
+         s_lastWaitLogEql = TimeCurrent();
+         Print(">>> [GREEN LINE WAIT] EQH-G line active (Start=", TimeToStr(curEqlStart, TIME_DATE|TIME_MINUTES),
+               ", Price=", DoubleToString(g_lastEqLowPrice, Digits),
+               ") | Waiting ", waitSec, "s before horizontal actions (Elapsed=", elapsedSec, "s / ", waitSec, "s)");
+        }
       return;
      }
-   int elapsedSec = (int)(TimeCurrent() - s_firstDetectedEqlTime);
+
+// USER RULE: "Horizontal orders should create within 5 min duration when the Line is initialed . do not create horizontal orders after 5 min"
    if(elapsedSec > maxDurationSec)
      {
       static datetime s_lastExpiredLogEql = 0;
       if(s_lastExpiredLogEql == 0 || TimeCurrent() - s_lastExpiredLogEql >= 30 || TimeCurrent() < s_lastExpiredLogEql)
         {
          s_lastExpiredLogEql = TimeCurrent();
-         Print(">>> [GREEN LINE ORDER BLOCKED] EQH-G line initiated at ", TimeToStr(s_firstDetectedEqlTime, TIME_DATE|TIME_MINUTES),
-               " is older than 5 min (Elapsed=", elapsedSec, "s > ", maxDurationSec,
+         Print(">>> [GREEN LINE ORDER BLOCKED] EQH-G line activated at ", TimeToStr(g_activeEqLowActivatedAt, TIME_DATE|TIME_MINUTES),
+               " is older than max window (Elapsed=", elapsedSec, "s > ", maxDurationSec,
                "s). Rule: Do not create horizontal orders after 5 min!");
         }
       s_lastHandledGreenLineStart  = curEqlStart;
@@ -29233,7 +29273,7 @@ void CheckNewGreenLineCloseSellAndOpenBuy()
      }
 
    double liveEma  = iMA(Symbol(), Period(), InpEMA200Period, InpEMAPriceShift, MODE_EMA, PRICE_CLOSE, 0);
-   double eqlPrice = (g_lastEqLowPrice > 0.0 && g_lastEqLowLineStart > 0) ? g_lastEqLowPrice : GetEQR_G_Price(false);
+   double eqlPrice = g_lastEqLowPrice;
 
    double mult      = (balancelomultipler > 0) ? balancelomultipler : 1.0;
    int    recTicket = -1;
@@ -29852,11 +29892,14 @@ void ManageHorizontalLineEndedBreakoutStopLoss()
 //+------------------------------------------------------------------+
 //| GetLsdSweepActiveEqhLineStart:                                   |
 //| Returns start time (Pivot 1) of currently active EQH-R red line. |
+//| Strictly active-only: never returns ended historical lines.      |
 //+------------------------------------------------------------------+
 datetime GetLsdSweepActiveEqhLineStart()
   {
-   if(g_lastEqHighLineStart > 0)
+   if(g_lastEqHighPrice > 0.0 && g_lastEqHighLineStart > 0)
       return g_lastEqHighLineStart;
+   if(InpShowLiquiditySweeps)
+      return 0;
 
    int total = ObjectsTotal(0, -1, -1);
    for(int i = total - 1; i >= 0; i--)
@@ -29865,7 +29908,7 @@ datetime GetLsdSweepActiveEqhLineStart()
       if(StringFind(name, LSD_PREFIX + "EQH_", 0) == 0 && StringFind(name, "EQH_M_", 0) < 0)
         {
          datetime t2 = (datetime)ObjectGet(name, OBJPROP_TIME2);
-         if(TimeCurrent() <= t2)
+         if(TimeCurrent() < t2)
            {
             datetime t1 = (datetime)ObjectGet(name, OBJPROP_TIME1);
             if(t1 > 0)
@@ -29873,30 +29916,20 @@ datetime GetLsdSweepActiveEqhLineStart()
            }
         }
      }
-
-// Fallback: search newest EQH line on chart
-   datetime newestTime = 0;
-   for(int i = total - 1; i >= 0; i--)
-     {
-      string name = ObjectName(0, i, -1, -1);
-      if(StringFind(name, LSD_PREFIX + "EQH_", 0) == 0 && StringFind(name, "EQH_M_", 0) < 0)
-        {
-         datetime t1 = (datetime)ObjectGet(name, OBJPROP_TIME1);
-         if(t1 > newestTime)
-            newestTime = t1;
-        }
-     }
-   return newestTime;
+   return 0;
   }
 
 //+------------------------------------------------------------------+
 //| GetLsdSweepActiveEqlLineStart:                                   |
 //| Returns start time (Pivot 1) of currently active EQH-G green line.|
+//| Strictly active-only: never returns ended historical lines.      |
 //+------------------------------------------------------------------+
 datetime GetLsdSweepActiveEqlLineStart()
   {
-   if(g_lastEqLowLineStart > 0)
+   if(g_lastEqLowPrice > 0.0 && g_lastEqLowLineStart > 0)
       return g_lastEqLowLineStart;
+   if(InpShowLiquiditySweeps)
+      return 0;
 
    int total = ObjectsTotal(0, -1, -1);
    for(int i = total - 1; i >= 0; i--)
@@ -29905,7 +29938,7 @@ datetime GetLsdSweepActiveEqlLineStart()
       if(StringFind(name, LSD_PREFIX + "EQL_", 0) == 0 && StringFind(name, "EQL_M_", 0) < 0)
         {
          datetime t2 = (datetime)ObjectGet(name, OBJPROP_TIME2);
-         if(TimeCurrent() <= t2)
+         if(TimeCurrent() < t2)
            {
             datetime t1 = (datetime)ObjectGet(name, OBJPROP_TIME1);
             if(t1 > 0)
@@ -29913,20 +29946,101 @@ datetime GetLsdSweepActiveEqlLineStart()
            }
         }
      }
+   return 0;
+  }
 
-// Fallback: search newest EQL line on chart
-   datetime newestTime = 0;
-   for(int i = total - 1; i >= 0; i--)
+//+------------------------------------------------------------------+
+//| SyncHorizontalLineActivationTimers:                              |
+//| Tracks live single-line activation duration and resets whenever  |
+//| a line ends or both Red & Green lines are simultaneously active. |
+//+------------------------------------------------------------------+
+void SyncHorizontalLineActivationTimers()
+  {
+   if(!EAStartupComplete)
      {
-      string name = ObjectName(0, i, -1, -1);
-      if(StringFind(name, LSD_PREFIX + "EQL_", 0) == 0 && StringFind(name, "EQL_M_", 0) < 0)
-        {
-         datetime t1 = (datetime)ObjectGet(name, OBJPROP_TIME1);
-         if(t1 > newestTime)
-            newestTime = t1;
-        }
+      g_activeEqHighTrackedStart = 0;
+      g_activeEqHighActivatedAt  = 0;
+      g_activeEqLowTrackedStart  = 0;
+      g_activeEqLowActivatedAt   = 0;
+      return;
      }
-   return newestTime;
+
+   datetime nowT          = TimeCurrent();
+   bool redLiveActive     = (g_lastEqHighPrice > 0.0 && g_lastEqHighLineStart > 0);
+   bool greenLiveActive   = (g_lastEqLowPrice  > 0.0 && g_lastEqLowLineStart  > 0);
+
+   if(!redLiveActive)
+     {
+      g_activeEqHighTrackedStart = 0;
+      g_activeEqHighActivatedAt  = 0;
+     }
+   else
+      if(g_lastEqHighLineStart != g_activeEqHighTrackedStart || g_activeEqHighActivatedAt == 0 || nowT < g_activeEqHighActivatedAt)
+        {
+         g_activeEqHighTrackedStart = g_lastEqHighLineStart;
+         g_activeEqHighActivatedAt  = nowT;
+        }
+
+   if(!greenLiveActive)
+     {
+      g_activeEqLowTrackedStart = 0;
+      g_activeEqLowActivatedAt  = 0;
+     }
+   else
+      if(g_lastEqLowLineStart != g_activeEqLowTrackedStart || g_activeEqLowActivatedAt == 0 || nowT < g_activeEqLowActivatedAt)
+        {
+         g_activeEqLowTrackedStart = g_lastEqLowLineStart;
+         g_activeEqLowActivatedAt  = nowT;
+        }
+
+   if(InpBlockAllOrdersWhenBothHorizontalLinesActive && redLiveActive && greenLiveActive)
+     {
+      g_activeEqHighActivatedAt = nowT;
+      g_activeEqLowActivatedAt  = nowT;
+     }
+  }
+
+//+------------------------------------------------------------------+
+//| GetHorizontalLineActiveWaitElapsedSeconds:                       |
+//| Returns seconds elapsed since active single-line stabilization.  |
+//+------------------------------------------------------------------+
+int GetHorizontalLineActiveWaitElapsedSeconds(bool isRedLine)
+  {
+   SyncHorizontalLineActivationTimers();
+   if(isRedLine)
+     {
+      if(g_lastEqHighPrice <= 0.0 || g_lastEqHighLineStart <= 0 || g_activeEqHighActivatedAt <= 0)
+         return -1;
+      return (int)(TimeCurrent() - g_activeEqHighActivatedAt);
+     }
+   if(g_lastEqLowPrice <= 0.0 || g_lastEqLowLineStart <= 0 || g_activeEqLowActivatedAt <= 0)
+      return -1;
+   return (int)(TimeCurrent() - g_activeEqLowActivatedAt);
+  }
+
+//+------------------------------------------------------------------+
+//| IsHorizontalLineActivationWaitSatisfied:                         |
+//| True only when the line is live-active, single-line confirmed,   |
+//| and has stayed active >= InpHorizontalLineMinActiveWaitSeconds.  |
+//+------------------------------------------------------------------+
+bool IsHorizontalLineActivationWaitSatisfied(bool isRedLine)
+  {
+   SyncHorizontalLineActivationTimers();
+   bool redLiveActive   = (g_lastEqHighPrice > 0.0 && g_lastEqHighLineStart > 0);
+   bool greenLiveActive = (g_lastEqLowPrice  > 0.0 && g_lastEqLowLineStart  > 0);
+
+   if(InpBlockAllOrdersWhenBothHorizontalLinesActive && redLiveActive && greenLiveActive)
+      return false;
+
+   int elapsedSec = GetHorizontalLineActiveWaitElapsedSeconds(isRedLine);
+   if(elapsedSec < 0)
+      return false;
+
+   int waitSec = (InpHorizontalLineMinActiveWaitSeconds > 0) ? InpHorizontalLineMinActiveWaitSeconds : 0;
+   if(waitSec > 0 && elapsedSec < waitSec)
+      return false;
+
+   return true;
   }
 
 //+------------------------------------------------------------------+
@@ -30109,6 +30223,8 @@ void CheckLsdSweepFlipBasketSupportOrder()
 // 0. Auto-clean any duplicate pending orders exceeding 1 order limit
    CleanDuplicateLsdLinePendingOrders();
 
+   SyncHorizontalLineActivationTimers();
+
 // USER RULE: "Horizontal orders should create within 5 min duration when the Line is initialed . do not create horizontal orders after 5 min"
    int maxDurationSec = (InpHorizontalLineMaxDurationSeconds > 0) ? InpHorizontalLineMaxDurationSeconds : 300;
 
@@ -30124,24 +30240,14 @@ void CheckLsdSweepFlipBasketSupportOrder()
    double minEmaDist  = (InpLsdMinEmaDistanceRaw > 0.0)        ? InpLsdMinEmaDistanceRaw        : 100.0;
    double liveEma     = iMA(Symbol(), Period(), InpEMA200Period, InpEMAPriceShift, MODE_EMA, PRICE_CLOSE, 0);
 
-   bool eqhRPresent = (IsLsdSweepRedLinePresent() || GetEQR_R_Price(true) > 0.0);
-   bool eqhGPresent = (IsLsdSweepGreenLinePresent() || GetEQR_G_Price(true) > 0.0);
+   bool eqhRPresent = (g_lastEqHighPrice > 0.0 && g_lastEqHighLineStart > 0 && IsHorizontalLineActivationWaitSatisfied(true));
+   bool eqhGPresent = (g_lastEqLowPrice  > 0.0 && g_lastEqLowLineStart  > 0 && IsHorizontalLineActivationWaitSatisfied(false));
 
-   double eqhPrice = 0.0;
-   if(eqhRPresent)
-     {
-      eqhPrice = GetEQR_R_Price(true);
-      if(eqhPrice <= 0.0)
-         eqhPrice = GetEQR_R_Price(false);
-     }
+   int eqhWaitElapsed = GetHorizontalLineActiveWaitElapsedSeconds(true);
+   int eqlWaitElapsed = GetHorizontalLineActiveWaitElapsedSeconds(false);
 
-   double eqlPrice = 0.0;
-   if(eqhGPresent)
-     {
-      eqlPrice = GetEQR_G_Price(true);
-      if(eqlPrice <= 0.0)
-         eqlPrice = GetEQR_G_Price(false);
-     }
+   double eqhPrice = eqhRPresent ? g_lastEqHighPrice : 0.0;
+   double eqlPrice = eqhGPresent ? g_lastEqLowPrice  : 0.0;
 
 // =================================================================
 // 1. BUY SUPPORT ORDER EVALUATION (Max open BUY support count is 1)
@@ -30149,8 +30255,8 @@ void CheckLsdSweepFlipBasketSupportOrder()
    if(!HasOpenFLIPBasketSupportOrder(OP_BUY))
      {
       // --- Method 1: EQH-R detects & EMA -1: Price > EQH-R (gap <= $100) -> CREATE BUY ---
-      // USER RULE: 5-min line duration limit
-      if(runMethod1 && eqhRPresent && EMADirection == -1 && eqhPrice > 0.0 && eqhStart > 0 && (TimeCurrent() - eqhStart) <= maxDurationSec)
+      // USER RULE: 2-3 min activation wait + 5-min line duration limit
+      if(runMethod1 && eqhRPresent && EMADirection == -1 && eqhPrice > 0.0 && eqhStart > 0 && eqhWaitElapsed >= 0 && eqhWaitElapsed <= maxDurationSec)
         {
          if(HasOrderBeenCreatedForLsdLine("EQHR", eqhStart))
            {
@@ -30202,8 +30308,8 @@ void CheckLsdSweepFlipBasketSupportOrder()
         }
 
       // --- Method 2: EQH-G detects & EMA ANY: Price > EQH-G (gap <= $50) -> CREATE BUY ---
-      // USER RULE: 5-min line duration limit
-      if(!HasOpenFLIPBasketSupportOrder(OP_BUY) && runMethod2 && eqhGPresent && eqlPrice > 0.0 && eqlStart > 0 && (TimeCurrent() - eqlStart) <= maxDurationSec)
+      // USER RULE: 2-3 min activation wait + 5-min line duration limit
+      if(!HasOpenFLIPBasketSupportOrder(OP_BUY) && runMethod2 && eqhGPresent && eqlPrice > 0.0 && eqlStart > 0 && eqlWaitElapsed >= 0 && eqlWaitElapsed <= maxDurationSec)
         {
          if(HasOrderBeenCreatedForLsdLine("EQHG", eqlStart))
            {
@@ -30299,8 +30405,8 @@ void CheckLsdSweepFlipBasketSupportOrder()
    if(!HasOpenFLIPBasketSupportOrder(OP_SELL))
      {
       // --- Method 1: EQH-G detects & EMA +1: Price < EQH-G (gap <= $100) -> CREATE SELL ---
-      // USER RULE: 5-min line duration limit
-      if(runMethod1 && eqhGPresent && EMADirection == 1 && eqlPrice > 0.0 && eqlStart > 0 && (TimeCurrent() - eqlStart) <= maxDurationSec)
+      // USER RULE: 2-3 min activation wait + 5-min line duration limit
+      if(runMethod1 && eqhGPresent && EMADirection == 1 && eqlPrice > 0.0 && eqlStart > 0 && eqlWaitElapsed >= 0 && eqlWaitElapsed <= maxDurationSec)
         {
          if(HasOrderBeenCreatedForLsdLine("EQHG", eqlStart))
            {
@@ -30352,8 +30458,8 @@ void CheckLsdSweepFlipBasketSupportOrder()
         }
 
       // --- Method 2: EQH-R detects & EMA ANY: Price < EQH-R (gap <= $50) -> CREATE SELL ---
-      // USER RULE: 5-min line duration limit
-      if(!HasOpenFLIPBasketSupportOrder(OP_SELL) && runMethod2 && eqhRPresent && eqhPrice > 0.0 && eqhStart > 0 && (TimeCurrent() - eqhStart) <= maxDurationSec)
+      // USER RULE: 2-3 min activation wait + 5-min line duration limit
+      if(!HasOpenFLIPBasketSupportOrder(OP_SELL) && runMethod2 && eqhRPresent && eqhPrice > 0.0 && eqhStart > 0 && eqhWaitElapsed >= 0 && eqhWaitElapsed <= maxDurationSec)
         {
          if(HasOrderBeenCreatedForLsdLine("EQHR", eqhStart))
            {
