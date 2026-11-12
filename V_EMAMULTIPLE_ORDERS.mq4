@@ -392,7 +392,7 @@ double InpLsdRecoveryLevelToleranceRaw      = 50.0;  // Max raw distance ($50) f
 double InpLsdRecoveryLotMultiplier          = 2.0;   // Recovery lot multiplier (2x parent lot)
 double InpLsdRecoveryBasketProfitUSD        = 0.50;  // Net profit target in USD (>$0.50) to close parent + recovery basket
 double InpLsdRecoveryStopLossRaw            = 3000;//300.0; // StopLoss raw points ($300) for Type 2 Recovery order
-double InpLsdRecoveryTakeProfitRaw          = 500.0; // TakeProfit raw points ($500) for Type 2 Recovery order
+double InpLsdRecoveryTakeProfitRaw          = 3000;//500.0; // TakeProfit raw points ($500) for Type 2 Recovery order
 int    InpLsdRecoveryMaxActiveOrders        = 1;     // Max simultaneous active Type 2 Recovery orders (default 1)
 
 // ===== WEAK EMA REVERSAL RECOVERY (TYPE 3) SETTINGS =====
@@ -410,7 +410,7 @@ double InpType3TriggerLossUSD               = 2.0;   // Min loss in USD (>$2.00)
 double InpType3LotMultiplier                = 2.0;   // Recovery lot multiplier (2x parent lot)
 double InpType3BasketProfitUSD              = 1.0;   // Net profit target in USD ($1.00) to close parent + recovery basket
 double InpType3StopLossRaw                  = 3000;//300.0; // StopLoss raw points ($300) for Type 3 Recovery order
-double InpType3TakeProfitRaw                = 500.0; // TakeProfit raw points ($500) for Type 3 Recovery order
+double InpType3TakeProfitRaw                = 5000.0; // TakeProfit raw points ($500) for Type 3 Recovery order
 int    InpType3MaxActiveOrders              = 1;     // Max simultaneous active Type 3 Recovery orders (default 1)
 
 // ===== RECOVERY ATTEMPT SHIELD SETTINGS =====
@@ -425,7 +425,7 @@ int    InpHedgeRecoveryMinElapsedMin        = 15;    // Min elapsed minutes afte
 double InpHedgeRecoveryLotMultiplier        = 2.0;   // Hedge recovery lot multiplier (2.0x parent lot)
 double InpHedgeRecoveryBasketProfitUSD      = 2.0;   // Net profit target in USD ($2.00) to close parent + hedge basket
 double InpHedgeRecoveryStopLossRaw          = 3000;//300.0; // StopLoss raw points ($300) for Hedge Recovery order
-double InpHedgeRecoveryTakeProfitRaw        = 500.0; // TakeProfit raw points ($500) for Hedge Recovery order
+double InpHedgeRecoveryTakeProfitRaw        = 5000.0; // TakeProfit raw points ($500) for Hedge Recovery order
 int    InpHedgeRecoveryMaxActiveOrders      = 1;     // Max simultaneous active Hedge Recovery orders (default 1)
 
 // ===== $100 ADVERSE OPPOSITE 2X REVERSE ORDER (1-TIME PER ORDER) =====
@@ -436,7 +436,7 @@ double InpReverse100LotMultiplier           = 2.0;   // Opposite reverse order l
 int    InpReverse100MaxActiveOrders         = 2;     // Max simultaneous active _REV reverse orders allowed at a time (1-2 recommended)
 double InpReverse100BasketProfitUSD         = 2.0;   // Combined Parent + 2X Reverse basket net profit target ($2.00) via ManageRecoveryBasket
 double InpReverse100StopLossRaw             = 3000.0;// Initial StopLoss raw distance ($3000)
-double InpReverse100TakeProfitRaw           = 500.0; // Initial TakeProfit raw distance ($500)
+double InpReverse100TakeProfitRaw           = 5000.0; // Initial TakeProfit raw distance ($500)
 bool   InpReverse100IncludeHorizontal       = true;  // Include Horizontal line orders (EQH / EQL) as qualifying parents
 bool   InpReverse100IncludeFlipSupport      = false; // Exclude internal non-horizontal FLIPBasketSupport orders (default false)
 bool   InpReverse100SkipPartialClosed       = false;//true;  // Do not create _REV recovery orders for partially closed orders (comments like "from #...")
@@ -585,10 +585,10 @@ int      InpDubaiNightIconFontSize           = 10;    // Chart icon text font si
 
 // ===== SPREAD & RISK SETTINGS =====
 double MaxAllowedSpreadUSD = 35.0;
-int AccountMultiplierLOT = 4000;//400;//200;//500;
+int AccountMultiplierLOT = 1001;//400;//200;//500;
 double OriginalStopLossUSD = 20;//6;//4;
 double StopLossRawPriceGap =3000;// 2000.0;   // Raw price gap ($2000 BTC price points) for StopLoss
-double TakeProfitRawPriceGap = 500.0;  // Raw price gap ($500 BTC price points) for TakeProfit
+double TakeProfitRawPriceGap = 5000.0;  // Raw price gap ($500 BTC price points) for TakeProfit
 double StopLossUSD =30;//20;//10;//6;//10;//6;//5;//10;//2;// 10;
 
 // ===== MOM ORDER FLAG (global - set before OpenBuy/OpenSell, cleared after) =====
