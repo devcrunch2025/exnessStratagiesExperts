@@ -44,7 +44,7 @@ CheckBasketProfitClose  Total open basket profit
 
 
 
-string glbVersion = "VMULTI-1168 - SafeOrderSend SSLS/BSLS 5m Opposite-Order Block";
+string glbVersion = "VMULTI-1169 - Fix Sweep Opposite Block Intra-Candle Flicker Reset";
 
 
 
@@ -11853,6 +11853,8 @@ int OnInit()
    DeleteLiquiditySweepObjects();
    g_lastHandledSweepBlockBarTime = 0;
    g_lastHandledSweepBlockType    = "None";
+   g_lastSweptEqHighLineStart     = 0;
+   g_lastSweptEqLowLineStart      = 0;
    ResetSweepOppositeBlockState();
    if(ShowHistoricalSignals || ShowSSLLines)
       DrawHistoricalSignals();
@@ -12037,6 +12039,10 @@ int      g_sweepOppositeBlockInitEmaDir      = 0;      // EMADirection at block 
 int      g_sweepOppositeBlockInitTrackDir    = 0;      // LastTrackedEmaDirection at block activation
 datetime g_sweepOppositeBlockInitEqHStart    = 0;      // Active EQH-R start ID at block activation
 datetime g_sweepOppositeBlockInitEqLStart    = 0;      // Active EQH-G start ID at block activation
+datetime g_sweepOppositeBlockBannedEqHStart  = 0;      // Already-active or swept EQH-R start ID (ignore mid-bar flicker)
+datetime g_sweepOppositeBlockBannedEqLStart  = 0;      // Already-active or swept EQH-G start ID (ignore mid-bar flicker)
+datetime g_lastSweptEqHighLineStart          = 0;      // Start ID of most recently swept EQH-R line
+datetime g_lastSweptEqLowLineStart           = 0;      // Start ID of most recently swept EQH-G line
 datetime g_lastHandledSweepBlockBarTime      = 0;      // Most recent sweep candle bar already handled
 string   g_lastHandledSweepBlockType         = "None"; // Sweep type for g_lastHandledSweepBlockBarTime
 
@@ -15263,13 +15269,15 @@ void ResetSweepOppositeBlockState(string reason = "")
    if(reason != "" && g_sweepOppositeBlockSignal != "None")
       Print(">>> [SWEEP OPPOSITE BLOCK RESET] ", reason);
 
-   g_sweepOppositeBlockSignal       = "None";
-   g_sweepOppositeBlockBarTime      = 0;
-   g_sweepOppositeBlockActivatedAt  = 0;
-   g_sweepOppositeBlockInitEmaDir   = 0;
-   g_sweepOppositeBlockInitTrackDir = 0;
-   g_sweepOppositeBlockInitEqHStart = 0;
-   g_sweepOppositeBlockInitEqLStart = 0;
+   g_sweepOppositeBlockSignal         = "None";
+   g_sweepOppositeBlockBarTime        = 0;
+   g_sweepOppositeBlockActivatedAt    = 0;
+   g_sweepOppositeBlockInitEmaDir     = 0;
+   g_sweepOppositeBlockInitTrackDir   = 0;
+   g_sweepOppositeBlockInitEqHStart   = 0;
+   g_sweepOppositeBlockInitEqLStart   = 0;
+   g_sweepOppositeBlockBannedEqHStart = 0;
+   g_sweepOppositeBlockBannedEqLStart = 0;
   }
 
 //+------------------------------------------------------------------+
@@ -15327,8 +15335,12 @@ void SyncSweepOppositeBlockState()
       if(g_lastEqLowLineStart == 0)
          g_sweepOppositeBlockInitEqLStart = 0;
 
-      bool newRedDetected   = (g_lastEqHighPrice > 0.0 && g_lastEqHighLineStart > 0 && g_lastEqHighLineStart != g_sweepOppositeBlockInitEqHStart);
-      bool newGreenDetected = (g_lastEqLowPrice  > 0.0 && g_lastEqLowLineStart  > 0 && g_lastEqLowLineStart  != g_sweepOppositeBlockInitEqLStart);
+      bool newRedDetected   = (g_lastEqHighPrice > 0.0 && g_lastEqHighLineStart > 0 &&
+                               g_lastEqHighLineStart != g_sweepOppositeBlockInitEqHStart &&
+                               g_lastEqHighLineStart > g_sweepOppositeBlockBannedEqHStart);
+      bool newGreenDetected = (g_lastEqLowPrice  > 0.0 && g_lastEqLowLineStart  > 0 &&
+                               g_lastEqLowLineStart  != g_sweepOppositeBlockInitEqLStart &&
+                               g_lastEqLowLineStart  > g_sweepOppositeBlockBannedEqLStart);
 
       if(newRedDetected || newGreenDetected)
         {
@@ -15381,13 +15393,15 @@ void ActivateSweepOppositeBlockOnSweep(string sweepSig, datetime sweepBarTime)
    g_lastHandledSweepBlockBarTime   = sweepBarTime;
    g_lastHandledSweepBlockType      = sweepSig;
 
-   g_sweepOppositeBlockSignal       = sweepSig;
-   g_sweepOppositeBlockBarTime      = sweepBarTime;
-   g_sweepOppositeBlockActivatedAt  = nowT;
-   g_sweepOppositeBlockInitEmaDir   = EMADirection;
-   g_sweepOppositeBlockInitTrackDir = LastTrackedEmaDirection;
-   g_sweepOppositeBlockInitEqHStart = g_lastEqHighLineStart;
-   g_sweepOppositeBlockInitEqLStart = g_lastEqLowLineStart;
+   g_sweepOppositeBlockSignal         = sweepSig;
+   g_sweepOppositeBlockBarTime        = sweepBarTime;
+   g_sweepOppositeBlockActivatedAt    = nowT;
+   g_sweepOppositeBlockInitEmaDir     = EMADirection;
+   g_sweepOppositeBlockInitTrackDir   = LastTrackedEmaDirection;
+   g_sweepOppositeBlockInitEqHStart   = g_lastEqHighLineStart;
+   g_sweepOppositeBlockInitEqLStart   = g_lastEqLowLineStart;
+   g_sweepOppositeBlockBannedEqHStart = MathMax(g_lastEqHighLineStart, (sweepSig == "BSLS" ? g_lastSweptEqHighLineStart : 0));
+   g_sweepOppositeBlockBannedEqLStart = MathMax(g_lastEqLowLineStart,  (sweepSig == "SSLS" ? g_lastSweptEqLowLineStart  : 0));
 
    PrintFormat(">>> [SWEEP OPPOSITE BLOCK ARMED] '%s' triggered (SweepBar=%s) -> Blocking %s orders in SafeOrderSend() for %d min (until %s, or reset on new horizontal line / EMA flip)",
                sweepSig,
@@ -30889,6 +30903,7 @@ void UpdateLiquiditySweepDetectorOnChart()
                   ObjectDelete(0, curHighMarkerName);
               }
 
+            g_lastSweptEqHighLineStart = activeEqHighStart;
             curHighLineName = "";
             curHighMarkerName = "";
             activeEqHighPrice = 0.0;
@@ -30974,6 +30989,7 @@ void UpdateLiquiditySweepDetectorOnChart()
                   ObjectDelete(0, curLowMarkerName);
               }
 
+            g_lastSweptEqLowLineStart = activeEqLowStart;
             curLowLineName = "";
             curLowMarkerName = "";
             activeEqLowPrice = 0.0;
