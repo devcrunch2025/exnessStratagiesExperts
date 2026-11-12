@@ -44,7 +44,7 @@ CheckBasketProfitClose  Total open basket profit
 
 
 
-string glbVersion = "VMULTI-1163 - FINAL - OLD Partial loss ,with $4000 Balance multiplier , Hourly Profit Close Only (Plan B 1H Side Loss Cut OFF)";
+string glbVersion = "VMULTI-1164 - SafeOrderSend Active Red/Green Line $50 Opposite Block (Hourly Profit Close Only)";
 
 
 
@@ -273,6 +273,9 @@ double InpLineEndedBreakoutTriggerGapRaw          = 500;//100.0;         // Pric
 double InpLineEndedBreakoutSLOffsetRaw            = 2000;//1000;//200.0;         // StopLoss offset in USD ($200) from ended line price (Red: Line+200, Green: Line-200)
 bool   InpLineEndedBreakoutDeletePending          = true;          // When line-ended breakout triggers: delete pending orders
 bool   InpLineEndedBreakoutDeleteAllPending       = false;         // false = delete breakout side pending (SELL for Red, BUY for Green); true = delete ALL pending
+bool   InpBlockBuyNearActiveRedLine               = true;          // While active Red EQH-R line is running: block BUY orders within $50 distance
+bool   InpBlockSellNearActiveGreenLine            = true;          // While active Green EQH-G line is running: block SELL orders within $50 distance
+double InpActiveLineOppositeBlockRangeRaw         = 50.0;          // Active Red/Green line opposite-order block distance in raw USD ($50)
 
 // ===== EMA FLIP WIDE SL BREATHING PROTECTION =====
 bool   InpEnableEmaFlipWideBreathingSL     = true;   // On EMA flip, modify losing orders with wide breathing SL
@@ -15445,6 +15448,58 @@ int SafeOrderSend(string symbol,int orderType,double lots,double price,int slipp
      {
       Print("TRADE BLOCKED | Spread too high: $", DoubleToString(currentSpreadUSD, 2), " | Max allowed: $", DoubleToString(MaxAllowedSpreadUSD, 2));
       return -1;
+     }
+
+   // Physical Gate: Block opposite-direction orders within $50 of an active Horizontal Red (EQH-R) / Green (EQH-G) line
+   double lineBlockRange = InpActiveLineOppositeBlockRangeRaw;
+   if(lineBlockRange > 0.0)
+     {
+      static datetime s_lastActiveRedBuyBlockLog = 0;
+      static datetime s_lastActiveGreenSellBlockLog = 0;
+      datetime nowLineBlockT = TimeCurrent();
+      if(nowLineBlockT < s_lastActiveRedBuyBlockLog) s_lastActiveRedBuyBlockLog = 0;
+      if(nowLineBlockT < s_lastActiveGreenSellBlockLog) s_lastActiveGreenSellBlockLog = 0;
+
+      bool isBuySideOrder  = (orderType == OP_BUY || orderType == OP_BUYSTOP || orderType == OP_BUYLIMIT);
+      bool isSellSideOrder = (orderType == OP_SELL || orderType == OP_SELLSTOP || orderType == OP_SELLLIMIT);
+
+      if(InpBlockBuyNearActiveRedLine && isBuySideOrder && g_lastEqHighPrice > 0.0 && g_lastEqHighLineStart > 0)
+        {
+         double reqBuyPrice = (orderType == OP_BUY) ? Ask : NormalizeDouble(price, Digits);
+         double liveBuyDistRed = MathAbs(Ask - g_lastEqHighPrice);
+         double reqBuyDistRed  = (reqBuyPrice > 0.0) ? MathAbs(reqBuyPrice - g_lastEqHighPrice) : liveBuyDistRed;
+         if(liveBuyDistRed <= lineBlockRange + 1e-8 || reqBuyDistRed <= lineBlockRange + 1e-8)
+           {
+            if(s_lastActiveRedBuyBlockLog == 0 || (nowLineBlockT - s_lastActiveRedBuyBlockLog) >= 30)
+              {
+               PrintFormat("SAFEORDERSEND BLOCKED [ACTIVE RED EQH-R]: Blocking BUY type=%d | Ask=%.2f Req=%.2f RedLine=%.2f Start=%s LiveDist=$%.2f ReqDist=$%.2f Range=$%.2f | %s",
+                           orderType, Ask, reqBuyPrice, g_lastEqHighPrice,
+                           TimeToString(g_lastEqHighLineStart, TIME_DATE|TIME_SECONDS),
+                           liveBuyDistRed, reqBuyDistRed, lineBlockRange, comment);
+               s_lastActiveRedBuyBlockLog = nowLineBlockT;
+              }
+            return -1;
+           }
+        }
+
+      if(InpBlockSellNearActiveGreenLine && isSellSideOrder && g_lastEqLowPrice > 0.0 && g_lastEqLowLineStart > 0)
+        {
+         double reqSellPrice = (orderType == OP_SELL) ? Bid : NormalizeDouble(price, Digits);
+         double liveSellDistGreen = MathAbs(Bid - g_lastEqLowPrice);
+         double reqSellDistGreen  = (reqSellPrice > 0.0) ? MathAbs(reqSellPrice - g_lastEqLowPrice) : liveSellDistGreen;
+         if(liveSellDistGreen <= lineBlockRange + 1e-8 || reqSellDistGreen <= lineBlockRange + 1e-8)
+           {
+            if(s_lastActiveGreenSellBlockLog == 0 || (nowLineBlockT - s_lastActiveGreenSellBlockLog) >= 30)
+              {
+               PrintFormat("SAFEORDERSEND BLOCKED [ACTIVE GREEN EQH-G]: Blocking SELL type=%d | Bid=%.2f Req=%.2f GreenLine=%.2f Start=%s LiveDist=$%.2f ReqDist=$%.2f Range=$%.2f | %s",
+                           orderType, Bid, reqSellPrice, g_lastEqLowPrice,
+                           TimeToString(g_lastEqLowLineStart, TIME_DATE|TIME_SECONDS),
+                           liveSellDistGreen, reqSellDistGreen, lineBlockRange, comment);
+               s_lastActiveGreenSellBlockLog = nowLineBlockT;
+              }
+            return -1;
+           }
+        }
      }
 
    if(Enable30MinuteMomentumFilter && Enable30MinuteMomentumForAllOrders && !isVShapeOverride && !isReverse100Order)
