@@ -44,7 +44,7 @@ CheckBasketProfitClose  Total open basket profit
 
 
 
-string glbVersion = "VMULTI-1176 - FINAL Dabai   Profit Pause at Target $10 Sat,Sun /2";
+string glbVersion = "VMULTI-1177 - FINAL Dabai   Profit Pause at Target $20 Sat,Sun /2";
 
 
 
@@ -12199,7 +12199,7 @@ void CheckForNewDay()
    datetime dubaiTime = TimeGMT() + 4 * 3600;
 
    // Trading day starts at 16:00 Dubai time
-   datetime tradingDayStart = dubaiTime - (16 * 3600);
+   datetime tradingDayStart = dubaiTime - (15 * 3600);// 3PM - one hour before - 4PM dubai
 
    int today = TimeYear(tradingDayStart) * 10000
              + TimeMonth(tradingDayStart) * 100
