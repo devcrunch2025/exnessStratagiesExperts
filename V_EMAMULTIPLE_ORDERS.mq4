@@ -339,7 +339,7 @@ int    InpEqDdHitFontSize                 = 10;     // Chart icon text font size
 bool   InpEnableHourlySideLossCut         = true;   // Run Hourly Profit Close Engine: Plan A (1H >5%), Plan C (30M >10%), Plan D (1M 15-90% HrReset) [Plan B Loss Cut controlled below]
 int    InpHourlySideLossIntervalMinutes   = 60;     // Plan A/B execution interval in minutes (60 = every 1 hour)
 bool   InpEnableHourlyPlanADayProfitClose = true;   // Plan A: If Day Equity Profit > 5% vs Dubai 00:00 opening equity, close ALL open orders (every 1 hour)
-double InpHourlyPlanADayProfitPct         = 100;//10;//1;//5.0;    // Plan A: Day equity profit threshold % (> 5.0%, e.g. $500 -> >$525)
+double InpHourlyPlanADayProfitPct         = 5;//10;//1;//5.0;    // Plan A: Day equity profit threshold % (> 5.0%, e.g. $500 -> >$525)
 bool   InpHourlyPlanAOncePerDay           = false;  // Plan A repeat mode: false = evaluate every 1 hour without daily lock (true = max 1x/Dubai day)
 color  InpHourlyPlanAIconColor            = clrLime;// Plan A: Chart icon & label color when Hour Target HIT (Day Equity >5%) executes
 bool   InpDrawHourlyPlanAIcon             = true;   // Plan A: Draw chart icon & label whenever 1H Hour Target HIT (DayEq >5%) triggers
@@ -355,7 +355,7 @@ color  InpHourlySideLossIconColor         = clrOrangeRed; // Plan B: Chart icon 
 int    InpHourlySideLossIconFontSize      = 10;     // Chart icon text font size
 bool   InpEnableHourlyPlanCDayProfitClose = true;   // Plan C (Extra): Check every 15 min; if Day Equity Profit > 10% vs Dubai 00:00 opening equity, close ALL open orders
 int    InpHourlyPlanCIntervalMinutes      = 30;//15;     // Plan C execution interval in minutes (15 = every 15 minutes)
-double InpHourlyPlanCDayProfitPct         = 100;//10;//3.0;   // Plan C: Day equity profit threshold % (> 10.0%, e.g. $500 -> >$550)
+double InpHourlyPlanCDayProfitPct         = 5;//10;//3.0;   // Plan C: Day equity profit threshold % (> 10.0%, e.g. $500 -> >$550)
 bool   InpHourlyPlanCOncePerDay           = false;  // Plan C repeat mode: false = evaluate every 15 min without daily lock (true = max 1x/Dubai day)
 color  InpHourlyPlanCIconColor            = clrGold;// Plan C: Chart icon & label color when 15M Plan C (DayEq >10%) executes
 bool   InpDrawHourlyPlanCIcon             = true;   // Plan C: Draw chart icon & label whenever 15M Plan C (>10% Close All) executes
@@ -363,7 +363,7 @@ int    InpHourlyPlanCIconCode             = 252;    // Plan C: Chart icon Wingdi
 bool   InpEnableHourlyPlanDDayProfitClose = false;//true;//false;//true;   // Plan D (Extra): Check every 1 min (1st min >31%, 2nd >32%, ..., 60th >90%); close ALL & reset every 1h
 int    InpHourlyPlanDIntervalSeconds      = 60;     // Plan D check interval in seconds (60 = every 1 minute)
 int    InpHourlyPlanDCycleMinutes         = 60;     // Plan D hourly reset cycle in minutes (60 = reset at top of every hour back to min 1)
-double InpHourlyPlanDStartPct             = 100;//10;//6;//15.0;   // Plan D: 1st minute (:00) Day equity profit threshold % (> 21.0%)
+double InpHourlyPlanDStartPct             = 5;//10;//6;//15.0;   // Plan D: 1st minute (:00) Day equity profit threshold % (> 21.0%)
 double InpHourlyPlanDStepPerMinPct        = 1.0;    // Plan D: Minute step increment % (+1.0% per min -> min 2 >32%, ..., min 59 >89%, min 60 >90%)
 double InpHourlyPlanDMaxPct               = 90.0;   // Plan D: Maximum threshold cap % at 60th minute (> 90.0%)
 bool   InpHourlyPlanDOncePerHour          = true;   // Plan D repeat mode (Option 3): true = trigger max 1x/hour then wait for :00 hourly reset (false = repeat inside hour)
@@ -12240,6 +12240,10 @@ void CheckForNewDayOld()
 
       Print("NEW DAY detected. Opening Balance = ",
             DoubleToString(g_dayOpeningBalance, 2));
+            
+            InpHourlyPlanADayProfitPct=InpHourlyPlanADayProfitPct+2;
+            InpHourlyPlanCDayProfitPct =InpHourlyPlanCDayProfitPct+2;
+              InpHourlyPlanDStartPct= InpHourlyPlanDStartPct+2;
      }
   }
 
