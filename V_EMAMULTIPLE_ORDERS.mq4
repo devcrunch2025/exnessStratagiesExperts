@@ -48,7 +48,7 @@ string glbVersion = "VMULTI-1173 - Daily Equity Profit Pause at Target";
 
 
 
-double DailyEquityStopUSD  =50;//  $50 /10;//10%;//percentage //1000;//50;//20*2.5;//10;//20;// 10;//30.0; close all orders at $50Xmultipler
+double DailyEquityStopUSD  =10;//50;//  $50 /10;//10%;//percentage //1000;//50;//20*2.5;//10;//20;// 10;//30.0; close all orders at $50Xmultipler
 double TargetProfitPerFlipUSD =50;//;//percentage////1000;//20;//10;//10*2;//10;//5;//20;// 10.0; close all orders at $20Xmultipler
 
 double protectgapOnOrderclose=31;//30;//101;//1000;//303;//11111111111111
@@ -15783,11 +15783,11 @@ int SafeOrderSend(string symbol,int orderType,double lots,double price,int slipp
 
 
 
-   if(GetTotalSellOrders()==0 && EMADirection==1 && requestedDirection==-1)
+   if(GetTotalSellOrders()==0 && EMADirection==1 && requestedDirection==-1 && MathAbs(GlobalEmaAngle30)>3 )
       return -1;
 
 
-   if(GetTotalBuyOrders()==0 && EMADirection==-1 && requestedDirection==1)
+   if(GetTotalBuyOrders()==0 && EMADirection==-1 && requestedDirection==1 && MathAbs(GlobalEmaAngle30)>3 )
       return -1;
 
 
