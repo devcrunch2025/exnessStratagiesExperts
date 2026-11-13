@@ -259,19 +259,19 @@ double InpCloseSellMaxLossUSD                     = 1.0;           // Max loss i
 double InpNewEqlBuyOrderLotBase                   = 0.06;//0.03;//0.06;          // Base lot for immediate SSL Long (0.06 * multiplier)
 double InpHorizontalOrderSameTypeMinGapUSD        =100;// 200.0;               // Minimum price gap in USD ($200) between 2 horizontal EQH orders of same type
 bool   InpEnableModifySLOnLineEnded               = true;          // When horizontal line ends: modify open horizontal order SL with $50 gap
-double InpHorizontalLineEndedSLGapRaw             =2000;//1000;//200;// 50.0;          // StopLoss raw price gap ($50) when horizontal line ends
+double InpHorizontalLineEndedSLGapRaw             =3000;//1000;//200;// 50.0;          // StopLoss raw price gap ($50) when horizontal line ends
 double InpHorizontalLineMinEmaGapRaw             = 0.0;           // Min raw price gap ( = disabled) between horizontal line & EMA (Do not create orders if < min gap)
 double InpHorizontalLineIgnoreEmaGapAngle        = 4;//3.0;           // USER RULE: Ignore EMA Distance Runway filter if MathAbs(EMAangle) > 4.0
 int    InpHorizontalLineMaxDurationSeconds        = 300;           // Max allowed duration (300s = 5 min) since horizontal line initiated to create order (0 = no limit)
 int    InpHorizontalLineMinActiveWaitSeconds      = 150;           // Activation warm-up wait (120-180s = 2-3 min; default 150s) after line activates before creating horizontal orders (0 = immediate)
 bool   InpModifyOppositeOrderSLToLinePrice        = true;          // On new/active horizontal line: try to modify opposite order SL to Line price
 bool   InpModifyLinePriceSLOnlyFirstOrder         = true;          // Modify SL with Line Price ONLY for the FIRST (oldest) open order
-double InpLinePriceSLOffsetRaw                    = 2000;//1000;//200;//100;//50.0;          // Offset in USD ($50) added to Line Price for StopLoss modification (Line Price + 50)
+double InpLinePriceSLOffsetRaw                    = 3000;//1000;//200;//100;//50.0;          // Offset in USD ($50) added to Line Price for StopLoss modification (Line Price + 50)
 bool   InpEnableHorizontalLineRecovery            = true;          // When horizontal line starts: create recovery order for open losing order with smallest loss
 bool   InpOpenLineOrderIfRecoveryCreated          = false;         // If recovery order created, also open standard line order (default: false to enforce 1-order-per-line)
 bool   InpEnableLineEndedBreakoutSLModify         = true;          // When line ends & price moves > $100 past line: modify ALL open orders SL to LinePrice +/- $200
 double InpLineEndedBreakoutTriggerGapRaw          = 500;//100.0;         // Price breakout distance ($100 raw) past ended line to trigger SL modification
-double InpLineEndedBreakoutSLOffsetRaw            = 2000;//1000;//200.0;         // StopLoss offset in USD ($200) from ended line price (Red: Line+200, Green: Line-200)
+double InpLineEndedBreakoutSLOffsetRaw            = 3000;//1000;//200.0;         // StopLoss offset in USD ($200) from ended line price (Red: Line+200, Green: Line-200)
 bool   InpLineEndedBreakoutDeletePending          = true;          // When line-ended breakout triggers: delete pending orders
 bool   InpLineEndedBreakoutDeleteAllPending       = false;         // false = delete breakout side pending (SELL for Red, BUY for Green); true = delete ALL pending
 bool   InpBlockBuyNearActiveRedLine               = true;          // While active Red EQH-R line is running: block BUY orders
@@ -293,7 +293,7 @@ bool   InpDeleteOppositePendingOnHLineStart       = true;          // Delete ope
 bool   InpEnableEmaFlipWideBreathingSL     = true;   // On EMA flip, modify losing orders with wide breathing SL
 double InpEmaFlipWideBreathingMultiplier   = 4.0;    // Multiplier for EMA distance buffer (4X buffer)
 double InpEmaFlipWideBreathingSafeExtraRaw = 100.0;  // Extra safe distance in USD ($100 raw) added to buffer
-double InpEmaFlipWideBreathingMinFloorRaw  = 2000;//1000.0; // Minimum Stop Loss breathing buffer in USD ($1000 raw) on EMA flip
+double InpEmaFlipWideBreathingMinFloorRaw  = 3000;//2000;//1000.0; // Minimum Stop Loss breathing buffer in USD ($1000 raw) on EMA flip
 bool   InpEnableEmaFlipHalfDistPartialCut  = false;  // Close 50% of LOT if LOT > 0.01 when moved 2X EMA distance (half buffer) towards loss (Disabled)
 bool   InpKeepWideLossCushionSL            = false;  // Universal Ratchet Rule: Always allow tightening SL towards profit/breakeven, strictly block widening loss
 bool   InpLimitSLToEmaHighestDistance      = true;   // Cap BUY SL >= EMA - HighestDistance, SELL SL <= EMA + HighestDistance
@@ -601,7 +601,7 @@ int      InpDubaiNightIconFontSize           = 10;    // Chart icon text font si
 // ===== SPREAD & RISK SETTINGS =====
 double MaxAllowedSpreadUSD = 35.0;
 int AccountMultiplierLOT = 1001;//400;//200;//500;
-double OriginalStopLossUSD = 20;//6;//4;
+double OriginalStopLossUSD = 30;//0;//6;//4;
 double StopLossRawPriceGap =3000;// 2000.0;   // Raw price gap ($2000 BTC price points) for StopLoss
 double TakeProfitRawPriceGap = 5000.0;  // Raw price gap ($500 BTC price points) for TakeProfit
 double StopLossUSD =30;//20;//10;//6;//10;//6;//5;//10;//2;// 10;
@@ -748,7 +748,7 @@ double   PostOrderSLTPVerifyLots[MAX_POST_ORDER_SLTP_VERIFY];
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
-bool EnableRecoveryOrders = true; // Retired in favor of high-performing Type 2 (LSD Structural Recovery)
+bool EnableRecoveryOrders =false;// true; // Retired in favor of high-performing Type 2 (LSD Structural Recovery)
 double RecoveryTriggerLossUSD =1;//2;//1;//0.50;// 2;
 double RecoveryLotMultiplier = 2;
 int MaxRecoveryOrders =10;// 5;//1;
