@@ -44,7 +44,7 @@ CheckBasketProfitClose  Total open basket profit
 
 
 
-string glbVersion = "VMULTI-1172- Partialloss with Emaangle";
+string glbVersion = "VMULTI-1173 - Daily Equity Profit Pause at Target";
 
 
 
@@ -12255,9 +12255,9 @@ bool IsDailyEquityStopReached()
      {
       g_dailyEquityTradingBlocked = true;
 
-      Print("IsDailyEquityStopReached");
+      Print("[DAILY EQUITY PROFIT TARGET HIT] Closing all orders and pausing until new day.");
 
-      ModifyOpenOrdersToSecureProfit();
+      CloseAndDeleteAllEAOrdersOnTradingStop();
 
       return true;
      }
@@ -12270,7 +12270,12 @@ bool IsDailyEquityStopReached()
 void OnTick()
   {
 CheckForNewDay();
-if(g_dailyEquityTradingBlocked) return ;
+IsDailyEquityStopReached(); // Check target every tick; sets g_dailyEquityTradingBlocked and closes all orders if hit
+if(g_dailyEquityTradingBlocked)
+  {
+   UpdateDubaiTradingPauseDashboard(); // Keep dashboard updated while paused
+   return ;
+  }
 
    if(AccountEquity()<=0)
       return ;
@@ -12338,7 +12343,7 @@ if(g_dailyEquityTradingBlocked) return ;
    
 //ManageDubaiNightOneSideCloseAll();
 
-   IsDailyEquityStopReached();
+// IsDailyEquityStopReached(); // Moved to top of OnTick() for immediate close on first hit tick
 
    UpdateMomentumBackground();
    UpdateDubaiTradingPauseDashboard();
@@ -15706,13 +15711,7 @@ int SafeOrderSend(string symbol,int orderType,double lots,double price,int slipp
      }
 
    if(g_dailyEquityTradingBlocked)
-
-
-
-      // ADD THIS LINE: Block re-entry orders if EMA Ladder is halted
-      if(TradingHaltedUntilNextFlip)
-         return -1;
-   ;
+      return -1;
 
 
    if(TradeOperationFailedThisTick)
@@ -21908,9 +21907,6 @@ void CloseAndDeleteAllEAOrdersOnTradingStop()
   {
 
    Print("CloseAndDeleteAllEAOrdersOnTradingStop");
-   ModifyOpenOrdersToSecureProfit();
-
-   return ;
 
    int freshPendingTickets[1000];
    int freshPendingCount = 0;
