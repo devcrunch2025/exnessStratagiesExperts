@@ -44,7 +44,7 @@ CheckBasketProfitClose  Total open basket profit
 
 
 
-string glbVersion = "VMULTI-1171- Day Profit Lock $50";
+string glbVersion = "VMULTI-1172- Partialloss with Emaangle";
 
 
 
@@ -116,9 +116,9 @@ void   DrawEquityProfitLadder5HitIcon(int step, double curEquity, double lowestE
 //chance 6 - basket//IMPORTANT TO CLOSE ONE SIDE OPEN ORDERS as soon as possible
 double basketBUYorSELLProfitModifyUSD=1;//1*10; //if all combined basket BUY OR SELL Only basket is profit >0 then modify stoploss
 bool   InpEnableBasketProfitClose = true;        // Close open Buy/Sell/Total orders when basket profit target reached
-double InpBasketProfitTargetUSD     =1;//5;// 2.0*10;         // Base target profit ($2.00 Golden Sweet Spot) multiplied by balancelomultipler
+double InpBasketProfitTargetUSD     =5;//1;//5;// 2.0*10;         // Base target profit ($2.00 Golden Sweet Spot) multiplied by balancelomultipler
 bool   InpEnableBasketMicroTrailing = true;        // Enable basket micro-trailing to let profitable baskets ride past $2 into $3-$5
-double InpBasketTrailActivationUSD  = 1;//5;//2.0*10;         // Net profit in USD to activate basket trailing ($2.00 * multiplier)
+double InpBasketTrailActivationUSD  =5;// 1;//5;//2.0*10;         // Net profit in USD to activate basket trailing ($2.00 * multiplier)
 double InpBasketTrailStepUSD        = 1;//0.50;        // Pullback distance in USD from peak profit to close ($0.50 * multiplier)
 
 
@@ -261,7 +261,7 @@ double InpHorizontalOrderSameTypeMinGapUSD        =100;// 200.0;               /
 bool   InpEnableModifySLOnLineEnded               = true;          // When horizontal line ends: modify open horizontal order SL with $50 gap
 double InpHorizontalLineEndedSLGapRaw             =3000;//1000;//200;// 50.0;          // StopLoss raw price gap ($50) when horizontal line ends
 double InpHorizontalLineMinEmaGapRaw             = 0.0;           // Min raw price gap ( = disabled) between horizontal line & EMA (Do not create orders if < min gap)
-double InpHorizontalLineIgnoreEmaGapAngle        = 4;//3.0;           // USER RULE: Ignore EMA Distance Runway filter if MathAbs(EMAangle) > 4.0
+double InpHorizontalLineIgnoreEmaGapAngle        = 2;//4;//3.0;           // USER RULE: Ignore EMA Distance Runway filter if MathAbs(EMAangle) > 4.0
 int    InpHorizontalLineMaxDurationSeconds        = 300;           // Max allowed duration (300s = 5 min) since horizontal line initiated to create order (0 = no limit)
 int    InpHorizontalLineMinActiveWaitSeconds      = 150;           // Activation warm-up wait (120-180s = 2-3 min; default 150s) after line activates before creating horizontal orders (0 = immediate)
 bool   InpModifyOppositeOrderSLToLinePrice        = true;          // On new/active horizontal line: try to modify opposite order SL to Line price
@@ -339,13 +339,13 @@ int    InpEqDdHitFontSize                 = 10;     // Chart icon text font size
 bool   InpEnableHourlySideLossCut         = true;   // Run Hourly Profit Close Engine: Plan A (1H >5%), Plan C (30M >10%), Plan D (1M 15-90% HrReset) [Plan B Loss Cut controlled below]
 int    InpHourlySideLossIntervalMinutes   = 60;     // Plan A/B execution interval in minutes (60 = every 1 hour)
 bool   InpEnableHourlyPlanADayProfitClose = true;   // Plan A: If Day Equity Profit > 5% vs Dubai 00:00 opening equity, close ALL open orders (every 1 hour)
-double InpHourlyPlanADayProfitPct         = 5.0;    // Plan A: Day equity profit threshold % (> 5.0%, e.g. $500 -> >$525)
+double InpHourlyPlanADayProfitPct         = 1;//5.0;    // Plan A: Day equity profit threshold % (> 5.0%, e.g. $500 -> >$525)
 bool   InpHourlyPlanAOncePerDay           = false;  // Plan A repeat mode: false = evaluate every 1 hour without daily lock (true = max 1x/Dubai day)
 color  InpHourlyPlanAIconColor            = clrLime;// Plan A: Chart icon & label color when Hour Target HIT (Day Equity >5%) executes
 bool   InpDrawHourlyPlanAIcon             = true;   // Plan A: Draw chart icon & label whenever 1H Hour Target HIT (DayEq >5%) triggers
 bool   InpDrawHourlyPlanAIconWhenFlat     = true;   // Plan A: Also draw Hour Target HIT chart icon when triggered with 0 open orders
 int    InpHourlyPlanAIconCode             = 171;    // Plan A: Chart icon Wingdings code (171=star, 251=check, 238=shield)
-bool   InpEnableHourlyPlanBSideLossCut    = false;  // Plan B: DISABLED (1H Per-Side Floating Loss >20% Cut 20% LOT - profit closes only)
+bool   InpEnableHourlyPlanBSideLossCut    = true;//false;  // Plan B: DISABLED (1H Per-Side Floating Loss >20% Cut 20% LOT - profit closes only)
 double InpHourlySideLossThresholdPct      = 20.0;   // Plan B: Floating loss % of Balance trigger (> 20.0%, BUY and SELL evaluated separately)
 double InpHourlySideLossCutPct            = 20.0;   // Plan B: Percentage of each losing order's lots to close (20% LOT)
 double InpHourlySideLossMinLot            = 0.01;   // Plan B: Minimum partial-close lot step & minimum preserved remaining order lot (0.01)
@@ -355,12 +355,12 @@ color  InpHourlySideLossIconColor         = clrOrangeRed; // Plan B: Chart icon 
 int    InpHourlySideLossIconFontSize      = 10;     // Chart icon text font size
 bool   InpEnableHourlyPlanCDayProfitClose = true;   // Plan C (Extra): Check every 15 min; if Day Equity Profit > 10% vs Dubai 00:00 opening equity, close ALL open orders
 int    InpHourlyPlanCIntervalMinutes      = 30;//15;     // Plan C execution interval in minutes (15 = every 15 minutes)
-double InpHourlyPlanCDayProfitPct         = 10.0;   // Plan C: Day equity profit threshold % (> 10.0%, e.g. $500 -> >$550)
+double InpHourlyPlanCDayProfitPct         = 3.0;   // Plan C: Day equity profit threshold % (> 10.0%, e.g. $500 -> >$550)
 bool   InpHourlyPlanCOncePerDay           = false;  // Plan C repeat mode: false = evaluate every 15 min without daily lock (true = max 1x/Dubai day)
 color  InpHourlyPlanCIconColor            = clrGold;// Plan C: Chart icon & label color when 15M Plan C (DayEq >10%) executes
 bool   InpDrawHourlyPlanCIcon             = true;   // Plan C: Draw chart icon & label whenever 15M Plan C (>10% Close All) executes
 int    InpHourlyPlanCIconCode             = 252;    // Plan C: Chart icon Wingdings code (252=checkmark, 171=star, 238=shield)
-bool   InpEnableHourlyPlanDDayProfitClose = false;//true;   // Plan D (Extra): Check every 1 min (1st min >31%, 2nd >32%, ..., 60th >90%); close ALL & reset every 1h
+bool   InpEnableHourlyPlanDDayProfitClose = true;//false;//true;   // Plan D (Extra): Check every 1 min (1st min >31%, 2nd >32%, ..., 60th >90%); close ALL & reset every 1h
 int    InpHourlyPlanDIntervalSeconds      = 60;     // Plan D check interval in seconds (60 = every 1 minute)
 int    InpHourlyPlanDCycleMinutes         = 60;     // Plan D hourly reset cycle in minutes (60 = reset at top of every hour back to min 1)
 double InpHourlyPlanDStartPct             = 6;//15.0;   // Plan D: 1st minute (:00) Day equity profit threshold % (> 21.0%)
@@ -24177,6 +24177,13 @@ void ManagePartialClosesLoss()
 
 
 
+if( MathAbs( GlobalEmaAngle30)<6)
+{
+
+return ; 
+
+}
+
    for(int i = OrdersTotal() - 1; i >= 0; i--)
      {
       if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
@@ -24192,12 +24199,12 @@ void ManagePartialClosesLoss()
          continue;
 
 
-      if(orderType == OP_BUY && GetOpenPL(OP_BUY)>-(50*balancelomultipler))
-         continue;
+      //if(orderType == OP_BUY && GetOpenPL(OP_BUY)>-(50*balancelomultipler))
+        // continue;
 
 
-      if(orderType == OP_SELL && GetOpenPL(OP_SELL)>-(50*balancelomultipler))
-         continue;
+      //if(orderType == OP_SELL && GetOpenPL(OP_SELL)>-(50*balancelomultipler))
+        // continue;
 
       // Exclude recovery orders from regular scalp partial loss cuts
       if(IsAnyRecoveryOrder(OrderTicket(), OrderComment()))
@@ -24221,7 +24228,7 @@ void ManagePartialClosesLoss()
       string triggerReason = "";
       if(MathAbs(orderLots - (0.06 * baseMult)) < 0.000001)
         {
-         if(rawLossDistance >= 600.0)
+         if(rawLossDistance >= 600.0/2)
            {
             conditionMet = true;
             triggerReason = StringFormat("0.06L Raw Dist $%.1f >= $600", rawLossDistance);
@@ -24231,7 +24238,7 @@ void ManagePartialClosesLoss()
 
          if(MathAbs(orderLots - (0.05 * baseMult)) < 0.000001)
            {
-            if(rawLossDistance >= 1000.0)
+            if(rawLossDistance >= 1000.0/2)
               {
                conditionMet = true;
                triggerReason = StringFormat("0.05L Raw Dist $%.1f >= $1000", rawLossDistance);
@@ -24249,7 +24256,7 @@ void ManagePartialClosesLoss()
             else
                if(MathAbs(orderLots - (0.03 * baseMult)) < 0.000001)
                  {
-                  if(rawLossDistance >= 1800.0)
+                  if(rawLossDistance >= 1800.0/2)
                     {
                      conditionMet = true;
                      triggerReason = StringFormat("0.03L Raw Dist $%.1f >= $1800", rawLossDistance);
@@ -24259,7 +24266,7 @@ void ManagePartialClosesLoss()
                   if(MathAbs(orderLots - (0.02 * baseMult)) < 0.000001)
                     {
                      double dollarLossLimit = -20.0 * baseMult;
-                     if(currentProfit < dollarLossLimit || rawLossDistance >= 2200.0)
+                     if(currentProfit < dollarLossLimit || rawLossDistance >= 2200.0/2)
                        {
                         conditionMet = true;
                         triggerReason = StringFormat("0.02L (P/L $%.2f < $%.2f OR Raw Dist $%.1f >= $2200)", currentProfit, dollarLossLimit, rawLossDistance);
