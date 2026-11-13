@@ -261,7 +261,7 @@ double InpHorizontalOrderSameTypeMinGapUSD        =100;// 200.0;               /
 bool   InpEnableModifySLOnLineEnded               = true;          // When horizontal line ends: modify open horizontal order SL with $50 gap
 double InpHorizontalLineEndedSLGapRaw             =3000;//1000;//200;// 50.0;          // StopLoss raw price gap ($50) when horizontal line ends
 double InpHorizontalLineMinEmaGapRaw             = 0.0;           // Min raw price gap ( = disabled) between horizontal line & EMA (Do not create orders if < min gap)
-double InpHorizontalLineIgnoreEmaGapAngle        = 2;//4;//3.0;           // USER RULE: Ignore EMA Distance Runway filter if MathAbs(EMAangle) > 4.0
+double InpHorizontalLineIgnoreEmaGapAngle        = 4;//4;//3.0;           // USER RULE: Ignore EMA Distance Runway filter if MathAbs(EMAangle) > 4.0
 int    InpHorizontalLineMaxDurationSeconds        = 300;           // Max allowed duration (300s = 5 min) since horizontal line initiated to create order (0 = no limit)
 int    InpHorizontalLineMinActiveWaitSeconds      = 150;           // Activation warm-up wait (120-180s = 2-3 min; default 150s) after line activates before creating horizontal orders (0 = immediate)
 bool   InpModifyOppositeOrderSLToLinePrice        = true;          // On new/active horizontal line: try to modify opposite order SL to Line price
@@ -360,7 +360,7 @@ bool   InpHourlyPlanCOncePerDay           = false;  // Plan C repeat mode: false
 color  InpHourlyPlanCIconColor            = clrGold;// Plan C: Chart icon & label color when 15M Plan C (DayEq >10%) executes
 bool   InpDrawHourlyPlanCIcon             = true;   // Plan C: Draw chart icon & label whenever 15M Plan C (>10% Close All) executes
 int    InpHourlyPlanCIconCode             = 252;    // Plan C: Chart icon Wingdings code (252=checkmark, 171=star, 238=shield)
-bool   InpEnableHourlyPlanDDayProfitClose = true;//false;//true;   // Plan D (Extra): Check every 1 min (1st min >31%, 2nd >32%, ..., 60th >90%); close ALL & reset every 1h
+bool   InpEnableHourlyPlanDDayProfitClose = false;//true;//false;//true;   // Plan D (Extra): Check every 1 min (1st min >31%, 2nd >32%, ..., 60th >90%); close ALL & reset every 1h
 int    InpHourlyPlanDIntervalSeconds      = 60;     // Plan D check interval in seconds (60 = every 1 minute)
 int    InpHourlyPlanDCycleMinutes         = 60;     // Plan D hourly reset cycle in minutes (60 = reset at top of every hour back to min 1)
 double InpHourlyPlanDStartPct             = 6;//15.0;   // Plan D: 1st minute (:00) Day equity profit threshold % (> 21.0%)
@@ -12355,8 +12355,20 @@ if(g_dailyEquityTradingBlocked) return ;
    SyncSweepOppositeBlockState();
    SyncHorizontalLineStartPendingCleanup();
 // ManageLsdSweepLineStopLossProtection(); // DISABLED: LSD Sweep lines only create FlipBasketSupport, DO NOT modify/close orders
+
+if((MathAbs(GlobalEmaAngle30)<=3 && EMADirection==-1  ) || MathAbs(GlobalEmaAngle30)> 6 && EMADirection==1   )
+{
+
+ CheckNewGreenLineCloseSellAndOpenBuy(); // USER RULE: On new EQH-G green line: close SELL if loss < $1*mult & open SSL Long 0.02*mult
+}
+
+if((MathAbs(GlobalEmaAngle30)<=3 && EMADirection==1  ) || MathAbs(GlobalEmaAngle30)> 6 && EMADirection==-1   )
+{
+
    CheckNewRedLineCloseBuyAndOpenSell();
-   CheckNewGreenLineCloseSellAndOpenBuy(); // USER RULE: On new EQH-G green line: close SELL if loss < $1*mult & open SSL Long 0.02*mult
+  
+ }  
+   
    if(InpEnableLsdSweepFlipBasketSupport)
       CheckLsdSweepFlipBasketSupportOrder(); // Stage 2: Line Active support order creation (Disabled)
    ManageHorizontalOrderEndedStopLoss(); // USER RULE: When horizontal line ends, modify open horizontal order with $50 gap SL
@@ -24265,6 +24277,7 @@ return ;
                else
                   if(MathAbs(orderLots - (0.02 * baseMult)) < 0.000001)
                     {
+                    
                      double dollarLossLimit = -20.0 * baseMult;
                      if(currentProfit < dollarLossLimit || rawLossDistance >= 2200.0/2)
                        {
