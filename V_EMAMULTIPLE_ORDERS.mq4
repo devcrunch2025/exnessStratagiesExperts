@@ -44,7 +44,7 @@ CheckBasketProfitClose  Total open basket profit
 
 
 
-string glbVersion = "VMULTI-1175 - FINAL Daily Equity Profit Pause at Target $10";
+string glbVersion = "VMULTI-1175 - FINAL Dabai Daily Equity Profit Pause at Target $10";
 
 
 
@@ -12193,11 +12193,37 @@ bool IsHorizontalLineOrder(int ticket, string comment = "")
 
    return false;
   }
+void CheckForNewDay()
+{
+   // Convert broker server time to Dubai time (UTC+4)
+   datetime dubaiTime = TimeGMT() + 4 * 3600;
 
+   // Trading day starts at 16:00 Dubai time
+   datetime tradingDayStart = dubaiTime - (16 * 3600);
+
+   int today = TimeYear(tradingDayStart) * 10000
+             + TimeMonth(tradingDayStart) * 100
+             + TimeDay(tradingDayStart);
+
+   if(today != g_dayNumber)
+   {
+      // NEW TRADING DAY
+      g_dayNumber = today;
+
+      // Capture opening balance
+      g_dayOpeningBalance = AccountBalance();
+
+      // Reset daily protection
+      g_dailyEquityTradingBlocked = false;
+
+      Print("NEW TRADING DAY detected (Dubai 4 PM). Opening Balance = ",
+            DoubleToString(g_dayOpeningBalance, 2));
+   }
+}
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
-void CheckForNewDay()
+void CheckForNewDayOld()
   {
    int today = TimeDayOfYear(TimeCurrent());
 
