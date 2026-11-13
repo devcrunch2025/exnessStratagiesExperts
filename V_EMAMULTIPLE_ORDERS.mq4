@@ -44,7 +44,7 @@ CheckBasketProfitClose  Total open basket profit
 
 
 
-string glbVersion = "VMULTI-1180 - FINAL Dabai Day profit $50  Without DD";
+string glbVersion = "VMULTI-1180 - FINAL No opposite rders in 4PM to 6PM";
 
 
 
@@ -12241,9 +12241,9 @@ void CheckForNewDayOld()
       Print("NEW DAY detected. Opening Balance = ",
             DoubleToString(g_dayOpeningBalance, 2));
             
-            InpHourlyPlanADayProfitPct=InpHourlyPlanADayProfitPct+2;
-            InpHourlyPlanCDayProfitPct =InpHourlyPlanCDayProfitPct+2;
-              InpHourlyPlanDStartPct= InpHourlyPlanDStartPct+2;
+            //InpHourlyPlanADayProfitPct=InpHourlyPlanADayProfitPct+2;
+            //InpHourlyPlanCDayProfitPct =InpHourlyPlanCDayProfitPct+2;
+              //InpHourlyPlanDStartPct= InpHourlyPlanDStartPct+2;
      }
   }
 
@@ -15847,6 +15847,19 @@ int SafeOrderSend(string symbol,int orderType,double lots,double price,int slipp
 
    if(MathAbs(Get30MinutePriceDifference())<100)
       ignoreFlipTime = true;
+      
+      
+        datetime dubaiTime = TimeCurrent() + (ServerToDubaiOffsetHours * 3600);
+   int currentHour = TimeHour(dubaiTime);
+      if(currentHour ==14 || currentHour==16 || currentHour==17)
+      {
+      
+      
+      if(EMADirection==1 && requestedDirection==-1)
+      return -1;
+      
+      
+      }
 
 
 
@@ -19403,6 +19416,9 @@ void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep,s
 
 
 
+ datetime dubaiTime1 = TimeCurrent() + (ServerToDubaiOffsetHours * 3600);
+   int currentHour1 = TimeHour(dubaiTime1);
+       
 
 
 
@@ -19411,8 +19427,8 @@ void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep,s
 
 
 
-
-   if(IsEmaWEAKDistanceReduced50PercentFromPeak(orderType) && GlobalSSLDirection == EMADirection)//weak
+   if(IsEmaWEAKDistanceReduced50PercentFromPeak(orderType) && GlobalSSLDirection == EMADirection && currentHour1 !=14 )//weak
+   
      {
       Lots = 0.01;
 
@@ -19603,16 +19619,30 @@ void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep,s
         }
      }
      
-     if(EMADirection==-1  && TimeCurrent() - EmaFlipTime < 60*5 && GetOpenPL(OP_SELL)==0 &&  GetOpenPL(OP_BUY)<0 && GlobalEmaAngle30>0)
+     
+     //if((currentHour1==15 || currentHour1==16 || currentHour1==17) && !IsEmaWEAKDistanceReduced50PercentFromPeak(orderType))
+
+ //Lots = 0.04;
+    
+     
+     if(EMADirection==-1  && TimeCurrent() - EmaFlipTime < 60*5 && GetOpenPL(OP_SELL)==0 &&  GetOpenPL(OP_BUY)<0 && GlobalEmaAngle30>0 && GetDistanceToEMAPrice(requestedDirection, true)<30 && !IsEmaWEAKDistanceReduced50PercentFromPeak(orderType))
      {
      Lots = 0.01;
      
      }
-      if(EMADirection==1  && TimeCurrent() - EmaFlipTime < 60*5 && GetOpenPL(OP_BUY)==0  &&  GetOpenPL(OP_SELL)<0&& GlobalEmaAngle30<0)
+      if(EMADirection==1  && TimeCurrent() - EmaFlipTime < 60*5 && GetOpenPL(OP_BUY)==0  &&  GetOpenPL(OP_SELL)<0&& GlobalEmaAngle30<0  && GetDistanceToEMAPrice(requestedDirection, true)<30 && !IsEmaWEAKDistanceReduced50PercentFromPeak(orderType))
      {
      Lots = 0.01;
      
      }
+     
+     
+    
+       
+
+
+
+ 
 
 
 //----------------------------------------------------------------------------------------
@@ -29522,6 +29552,21 @@ void CheckNewRedLineCloseBuyAndOpenSell()
   {
    if(!InpCloseBuyOnNewEqhRedLine)
       return;
+      
+      
+      
+
+ datetime dubaiTime1 = TimeCurrent() + (ServerToDubaiOffsetHours * 3600);
+   int currentHour1 = TimeHour(dubaiTime1);
+       
+
+
+
+if(currentHour1==15 || currentHour1==16 || currentHour1==17)
+
+ return;
+
+      
    if(!EAStartupComplete)
       return;
 
@@ -29876,6 +29921,17 @@ void CheckNewGreenLineCloseSellAndOpenBuy()
       return;
    if(!EAStartupComplete)
       return;
+      
+      
+       datetime dubaiTime1 = TimeCurrent() + (ServerToDubaiOffsetHours * 3600);
+   int currentHour1 = TimeHour(dubaiTime1);
+       
+
+
+
+if(currentHour1==15 || currentHour1==16 || currentHour1==17)
+
+ return;
 
    SyncHorizontalLineActivationTimers();
 
