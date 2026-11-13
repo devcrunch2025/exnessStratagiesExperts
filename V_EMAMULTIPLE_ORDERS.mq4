@@ -44,7 +44,7 @@ CheckBasketProfitClose  Total open basket profit
 
 
 
-string glbVersion = "VMULTI-1174 - Daily Equity Profit Pause at Target";
+string glbVersion = "VMULTI-1175 - FINAL Daily Equity Profit Pause at Target $10";
 
 
 
@@ -382,13 +382,13 @@ color  InpPriceGapCloseIconColor          = clrAqua; // Chart icon & label color
 int    InpPriceGapCloseIconFontSize       = 10;      // Chart icon text font size
 
 // ===== ADVERSE PRICE-CHANGE STEP LOSS CUTTER (RUNAWAY TREND STEP-BY-STEP PROTECTION) =====
-bool   InpEnableAdversePriceStepLossCut    = true;      // Monitor market change & cut losing orders step-by-step on runaway trends
+bool   InpEnableAdversePriceStepLossCut    = false;//true;      // Monitor market change & cut losing orders step-by-step on runaway trends
 double InpStepLossRawGap                   = 3000.0;    // Normal mode: Adverse raw price move per step cut (3000.0)
 double InpStepLossActivateSidePct          = 10.0;      // Activate step-cutting when BUY-only or SELL-only loss > 10.0% of Balance
 double InpStepLossCutPct                   = 20.0;      // Normal mode: % of each >0.01L losing order's lots to close per step (20%)
 int    InpStepLossMinLotClosePerStep       = 1;         // Normal mode: Worst losing 0.01L order(s) to full-close per step (1)
 double InpStepLossEmergencyDdPct           = 30.0;      // Emergency trigger: Equity drawdown > 30.0% of Balance accelerates step cuts
-double InpStepLossEmergencyRawGap          = 2000.0;    // Emergency mode: Faster adverse price step (2000.0 raw) when Equity DD > 30%
+double InpStepLossEmergencyRawGap          = 4000;//2000.0;    // Emergency mode: Faster adverse price step (2000.0 raw) when Equity DD > 30%
 double InpStepLossEmergencyCutPct          = 35.0;      // Emergency mode: Stronger partial-close % on >0.01L losing orders (35%)
 int    InpStepLossEmergMinLotClosePerStep  = 2;         // Emergency mode: Worst losing 0.01L order(s) to full-close per step (2)
 double InpStepLossMinLot                   = 0.01;      // Minimum lot size step & preserved partial floor (0.01)
@@ -15792,6 +15792,12 @@ int SafeOrderSend(string symbol,int orderType,double lots,double price,int slipp
 
 
 
+if(EMADirection!=requestedDirection && MathAbs(GlobalEmaAngle30)>6)
+{
+
+return -1;
+}
+
    /*
       if(EMADirection != requestedDirection && MathAbs(GlobalEmaAngle30)>2)
         {
@@ -15825,6 +15831,8 @@ int SafeOrderSend(string symbol,int orderType,double lots,double price,int slipp
 
       */
 
+
+/*
    if(!isReverse100Order)
      {
       if(!IsEmaWEAKDistanceReduced50PercentFromPeak() && EMADirection != requestedDirection)
@@ -15855,7 +15863,7 @@ int SafeOrderSend(string symbol,int orderType,double lots,double price,int slipp
         }
      }
 
-
+*/
 
 
 
