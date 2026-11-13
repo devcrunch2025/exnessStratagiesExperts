@@ -44,7 +44,7 @@ CheckBasketProfitClose  Total open basket profit
 
 
 
-string glbVersion = "VMULTI-1173 - Daily Equity Profit Pause at Target";
+string glbVersion = "VMULTI-1174 - Daily Equity Profit Pause at Target";
 
 
 
@@ -24255,7 +24255,7 @@ return ;
          else
             if(MathAbs(orderLots - (0.04 * baseMult)) < 0.000001)
               {
-               if(rawLossDistance >= 1400.0)
+               if(rawLossDistance >= 1400.0/2)
                  {
                   conditionMet = true;
                   triggerReason = StringFormat("0.04L Raw Dist $%.1f >= $1400", rawLossDistance);
@@ -24264,7 +24264,7 @@ return ;
             else
                if(MathAbs(orderLots - (0.03 * baseMult)) < 0.000001)
                  {
-                  if(rawLossDistance >= 1800.0/2)
+                  if(rawLossDistance >= 1800.0)
                     {
                      conditionMet = true;
                      triggerReason = StringFormat("0.03L Raw Dist $%.1f >= $1800", rawLossDistance);
@@ -24274,8 +24274,8 @@ return ;
                   if(MathAbs(orderLots - (0.02 * baseMult)) < 0.000001)
                     {
                     
-                     double dollarLossLimit = -20.0 * baseMult;
-                     if(currentProfit < dollarLossLimit || rawLossDistance >= 2200.0/2)
+                     double dollarLossLimit = -60.0 * baseMult;
+                     if(currentProfit < dollarLossLimit || rawLossDistance >= 2200.0)
                        {
                         conditionMet = true;
                         triggerReason = StringFormat("0.02L (P/L $%.2f < $%.2f OR Raw Dist $%.1f >= $2200)", currentProfit, dollarLossLimit, rawLossDistance);
@@ -27697,9 +27697,36 @@ void UpdateLeftLiveOrdersDashboard()
    CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"DUBAI_TIME", leftDubaiTimeTxt, tx, y+87, 8, leftDubaiTimeClr);
    CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"DUBAI_STAT", leftDubaiStatTxt, x+252, y+87, 8, leftDubaiStatClr);
 
-   CreateLeftLivePanel(LEFT_LIVE_PREFIX+"DUBAI_NIGHTBAR", x, y+104, width, 22, C'12,24,38');
-   CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"DUBAI_NIGHT_L", nightLeftTxt, tx, y+109, 8, nightLeftClr);
-   CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"DUBAI_NIGHT_R", nightRightTxt, x+width-168, y+109, 8, nightRightClr);
+// ===== DAY EQUITY TARGET BAR =====
+   {
+    double deqOpenBase   = (g_dayOpeningBalance > 0.0) ? g_dayOpeningBalance : AccountBalance();
+    double deqMult       = (balancelomultipler > 0) ? balancelomultipler : 1;
+    double deqTarget     = deqOpenBase + (DailyEquityStopUSD * deqMult);
+    double deqCurrent    = AccountEquity();
+    double deqProfit     = deqCurrent - deqOpenBase;
+    double deqRemaining  = MathMax(0.0, deqTarget - deqCurrent);
+    double deqPct        = (DailyEquityStopUSD * deqMult > 0.0) ? (deqProfit / (DailyEquityStopUSD * deqMult) * 100.0) : 0.0;
+    string deqSign       = (deqProfit >= 0.0) ? "+" : "";
+    string deqStatusTxt;
+    color  deqBarClr;
+    color  deqTxtClr;
+    if(g_dailyEquityTradingBlocked)      { deqStatusTxt="PAUSED"; deqBarClr=C'50,15,15'; deqTxtClr=clrTomato; }
+    else if(deqPct >= 90.0)              { deqStatusTxt="NEAR";   deqBarClr=C'50,40,10'; deqTxtClr=clrGold;   }
+    else if(deqProfit > 0.0)             { deqStatusTxt="ACTIVE"; deqBarClr=C'12,32,20'; deqTxtClr=clrLime;   }
+    else                                 { deqStatusTxt="WAIT";   deqBarClr=C'18,22,34'; deqTxtClr=clrSilver; }
+    string deqLeftTxt  = StringFormat("DAY EQ TGT : [%s] Base:$%.0f  Tgt:$%.0f  ($%.0fx%d)",
+                                      deqStatusTxt, deqOpenBase, deqTarget, DailyEquityStopUSD, (int)deqMult);
+    string deqRightTxt = StringFormat("P/L:%s$%.2f (%.0f%%)  Rem:$%.2f",
+                                      deqSign, deqProfit, MathMax(0.0,MathMin(deqPct,100.0)), deqRemaining);
+    color  deqRightClr = g_dailyEquityTradingBlocked ? clrTomato : (deqPct>=90.0 ? clrGold : (deqProfit>0.0 ? clrLime : clrSilver));
+    CreateLeftLivePanel(LEFT_LIVE_PREFIX+"DEQTGT_BAR", x, y+104, width, 22, deqBarClr);
+    CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"DEQTGT_L",   deqLeftTxt,  tx,          y+109, 8, deqTxtClr);
+    CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"DEQTGT_R",   deqRightTxt, x+width-220, y+109, 8, deqRightClr);
+   }
+
+   CreateLeftLivePanel(LEFT_LIVE_PREFIX+"DUBAI_NIGHTBAR", x, y+126, width, 22, C'12,24,38');
+   CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"DUBAI_NIGHT_L", nightLeftTxt, tx, y+131, 8, nightLeftClr);
+   CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"DUBAI_NIGHT_R", nightRightTxt, x+width-168, y+131, 8, nightRightClr);
 
    double pGapLeftMid    = (Bid > 0.0 && Ask > 0.0) ? ((Bid + Ask) * 0.5)
                            : ((Bars > 0 && Close[0] > 0.0) ? Close[0] : Bid);
