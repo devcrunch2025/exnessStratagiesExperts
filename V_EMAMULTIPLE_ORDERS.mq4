@@ -44,7 +44,7 @@ CheckBasketProfitClose  Total open basket profit
 
 
 
-string glbVersion = "VMULTI-1175 - FINAL Dabai Daily Equity Profit Pause at Target $10";
+string glbVersion = "VMULTI-1176 - FINAL Dabai   Profit Pause at Target $10 Sat,Sun /2";
 
 
 
@@ -12268,6 +12268,43 @@ bool IsDailyEquityStopReacheddmanual()
 //|                                                                  |
 //+------------------------------------------------------------------+
 bool IsDailyEquityStopReached()
+{
+   double dailyTarget = DailyEquityStopUSD;
+
+   // Get Dubai time (UTC+4)
+   datetime dubaiTime = TimeGMT() + (4 * 3600);
+
+   int dayOfWeek = TimeDayOfWeek(dubaiTime);
+
+   // Saturday = 6, Sunday = 0
+   if(dayOfWeek == 6 || dayOfWeek == 0)
+   {
+      dailyTarget = DailyEquityStopUSD / 2.0;
+   }
+
+   // Calculate target equity
+   double targetEquity = g_dayOpeningBalance
+                       + (dailyTarget * balancelomultipler);
+
+   // Check equity target
+   if(AccountEquity() >= targetEquity)
+   {
+      g_dailyEquityTradingBlocked = true;
+
+      Print("[DAILY EQUITY PROFIT TARGET HIT]",
+            " Target: ", DoubleToString(targetEquity, 2),
+            " Current Equity: ", DoubleToString(AccountEquity(), 2),
+            " Daily Target: ", DoubleToString(dailyTarget, 2),
+            " Day: ", dayOfWeek);
+
+      CloseAndDeleteAllEAOrdersOnTradingStop();
+
+      return true;
+   }
+
+   return g_dailyEquityTradingBlocked;
+}
+bool IsDailyEquityStopReachedAlldays()
   {
 // Calculates the ceiling equity (e.g., 100 * (1.0 + 0.05) = 105)
    double targetEquity = g_dayOpeningBalance * (1.0 + (DailyEquityStopUSD / 100.0));
