@@ -48,7 +48,7 @@ string glbVersion = "VMULTI-1177 - FINAL Dabai   Profit Pause at Target $20 Sat,
 
 
 
-double DailyEquityStopUSD  =10;//50;//  $50 /10;//10%;//percentage //1000;//50;//20*2.5;//10;//20;// 10;//30.0; close all orders at $50Xmultipler
+double DailyEquityStopUSD  =20;//10;//50;//  $50 /10;//10%;//percentage //1000;//50;//20*2.5;//10;//20;// 10;//30.0; close all orders at $50Xmultipler
 double TargetProfitPerFlipUSD =50;//;//percentage////1000;//20;//10;//10*2;//10;//5;//20;// 10.0; close all orders at $20Xmultipler
 
 double protectgapOnOrderclose=31;//30;//101;//1000;//303;//11111111111111
