@@ -44,7 +44,7 @@ CheckBasketProfitClose  Total open basket profit
 
 
 
-string glbVersion = "VMULTI-1189 - Restore Live Dashboard Updates and Full On-Chart Display";
+string glbVersion = "VMULTI-1190 - Pure In-Memory EA Variables in RAM (Zero Terminal Globals)";
 
 
 
@@ -222,7 +222,7 @@ enum ENUM_SWEEP_LINE_ACTION
    SWEEP_LINE_MODIFY_SL_CURRENT_PRICE = 1  // Modify StopLoss to Current Price (Trail/Lock at Market)
   };
 
-bool   InpManageSweepTerminalGlobals   = true;   // Manage MT4 Terminal Global Variables for Sweep Signals
+bool   InpManageSweepTerminalGlobals   = false;  // Disabled: Pure In-Memory EA Variables in RAM
 bool   InpEnableLsdSweepLotAdjustment  = true;   // Enable LSD Sweep Lot Adjustment in ChangeLots
 double InpLsdSweepLotSize              = 0.05;   // LSD Sweep Lot Size (0.05)
 bool   InpLsdSweepMatchDirectionOnly   = true;   // Apply 0.05 only when Order aligns with Sweep Signal
@@ -1948,9 +1948,6 @@ bool HasOrderReceived90PctCut(int ticket, string comment = "")
          return true;
      }
 
-   if(GlobalVariableCheck("EA_90PCT_CUT_" + IntegerToString(ticket)))
-      return true;
-
    int parentTkt = GetOriginalTicket(ticket, comment);
    if(parentTkt > 0 && parentTkt != ticket)
      {
@@ -1959,8 +1956,6 @@ bool HasOrderReceived90PctCut(int ticket, string comment = "")
          if(g_orders90PctCutTickets[i] == parentTkt)
             return true;
         }
-      if(GlobalVariableCheck("EA_90PCT_CUT_" + IntegerToString(parentTkt)))
-         return true;
      }
    return false;
   }
@@ -1981,8 +1976,6 @@ void RegisterOrder90PctCut(int ticket)
      {
       g_orders90PctCutTickets[g_orders90PctCutCount++] = ticket;
      }
-// Persist to terminal GlobalVariable so order is strictly modified ONE TIME ONLY
-   GlobalVariableSet("EA_90PCT_CUT_" + IntegerToString(ticket), 1.0);
   }
 
 //+------------------------------------------------------------------+
@@ -2264,16 +2257,6 @@ int GetEqDdSingleTicketTier(int ticket)
       if(g_eqDdTrackedTickets[i] == ticket)
          return g_eqDdTrackedTiers[i];
      }
-
-// Bypass shared Terminal GlobalVariables during Strategy Tester/Optimization runs
-   if(IsTesting() || IsOptimization())
-      return 0;
-
-   string gvName = EqDdGvKey(ticket);
-   if(GlobalVariableCheck(gvName))
-     {
-      return (int)MathRound(GlobalVariableGet(gvName));
-     }
    return 0;
   }
 
@@ -2351,8 +2334,6 @@ void SetEqDdOrderExecutedTier(int ticket, int tier, int sideType = -1)
         }
      }
 
-   bool useGv = (!IsTesting() && !IsOptimization());
-
    for(int i = 0; i < g_eqDdTrackedCount; i++)
      {
       if(g_eqDdTrackedTickets[i] == ticket)
@@ -2361,8 +2342,6 @@ void SetEqDdOrderExecutedTier(int ticket, int tier, int sideType = -1)
             g_eqDdTrackedTiers[i] = tier;
          if(sideType == OP_BUY || sideType == OP_SELL)
             g_eqDdTrackedSides[i] = sideType;
-         if(useGv)
-            GlobalVariableSet(EqDdGvKey(ticket), (double)g_eqDdTrackedTiers[i]);
          return;
         }
      }
@@ -2374,8 +2353,6 @@ void SetEqDdOrderExecutedTier(int ticket, int tier, int sideType = -1)
       g_eqDdTrackedSides[g_eqDdTrackedCount]   = sideType;
       g_eqDdTrackedCount++;
      }
-   if(useGv)
-      GlobalVariableSet(EqDdGvKey(ticket), (double)tier);
   }
 
 //+------------------------------------------------------------------+
@@ -2400,12 +2377,7 @@ void ResetEqDdSideCycleState(int sideType, string reason = "")
    for(int i = 0; i < g_eqDdTrackedCount; i++)
      {
       bool matchesSide = (g_eqDdTrackedSides[i] == sideType);
-      if(matchesSide)
-        {
-         if(!IsTesting() && !IsOptimization() && g_eqDdTrackedTickets[i] > 0)
-            GlobalVariableDel(EqDdGvKey(g_eqDdTrackedTickets[i]));
-        }
-      else
+      if(!matchesSide)
         {
          g_eqDdTrackedTickets[kept] = g_eqDdTrackedTickets[i];
          g_eqDdTrackedTiers[kept]   = g_eqDdTrackedTiers[i];
@@ -3254,56 +3226,8 @@ void ExecuteEqDdFreshDayReset(datetime nowServer, datetime dubaiTime, int dubaiD
    g_eqDdPriorDayPeakPct = g_eqDdSessionPeakPct;
    g_eqDdPriorDayLotsCut = g_eqDdTotalLotsReduced;
 
-// 1. Wipe open-order and "from #parent" ancestor GVs persisted across restarts
-   if(!isTestRun)
-     {
-      int prevSel = OrderTicket();
-      for(int i = OrdersTotal() - 1; i >= 0; i--)
-        {
-         if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
-            continue;
-         if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber)
-            continue;
-
-         int    curTicket = OrderTicket();
-         string curComm   = OrderComment();
-         for(int hop = 0; hop < 16; hop++)
-           {
-            if(curTicket <= 0)
-               break;
-            string tkGv = EqDdGvKey(curTicket);
-            if(GlobalVariableCheck(tkGv))
-               GlobalVariableDel(tkGv);
-
-            if(curComm == "")
-              {
-               if(OrderSelect(curTicket, SELECT_BY_TICKET, MODE_TRADES))
-                  curComm = OrderComment();
-               else
-                  if(OrderSelect(curTicket, SELECT_BY_TICKET, MODE_HISTORY))
-                     curComm = OrderComment();
-              }
-
-            int pos = StringFind(curComm, "from #");
-            if(pos < 0)
-               break;
-            int parentTkt = (int)StringToInteger(StringSubstr(curComm, pos + 6));
-            if(parentTkt <= 0 || parentTkt == curTicket)
-               break;
-            curTicket = parentTkt;
-            curComm   = "";
-           }
-        }
-      if(prevSel > 0)
-        {
-         if(!OrderSelect(prevSel, SELECT_BY_TICKET, MODE_TRADES))
-           {
-            bool hSel = OrderSelect(prevSel, SELECT_BY_TICKET, MODE_HISTORY);
-           }
-        }
-     }
-
-// 2. Reset tracked ticket array and BUY/SELL/aggregate cycle state
+// In-memory RAM tracking only
+   // 2. Reset tracked ticket array and BUY/SELL/aggregate cycle state
    ResetEqDdCycleState(triggerReason);
 
 // 3. Reset all daily/session stats, counters, hit/reset history to fresh start
@@ -3348,13 +3272,6 @@ void ExecuteEqDdFreshDayReset(datetime nowServer, datetime dubaiTime, int dubaiD
 
    g_eqDdDayKey         = dubaiDayKey;
    g_eqDdDailyResetTime = nowServer;
-
-   if(!isTestRun)
-     {
-      GlobalVariableSet(EqDdDailyGvKey("DAYKEY"), (double)dubaiDayKey);
-      GlobalVariableSet(EqDdDailyGvKey("RSTT"), (double)nowServer);
-     }
-
    LastDashboardUpdateMs = 0;
 
    PrintFormat(">>> [EQ-DD DAILY RESET] %s | DubaiTime=%s (DayKey=%d) | PriorDay Peak=%.2f%% Cuts=%d (-%.2fL) | All tier locks, peaks & counters RESET to Fresh Start.",
@@ -3375,60 +3292,23 @@ void CheckEqDdDailyReset()
 
    datetime dubaiTime   = nowServer + (ServerToDubaiOffsetHours * 3600);
    int      dubaiDayKey = TimeYear(dubaiTime) * 1000 + TimeDayOfYear(dubaiTime);
-   bool     isTestRun   = (IsTesting() || IsOptimization());
-   string   gvDayK      = EqDdDailyGvKey("DAYKEY");
-   string   gvRstK      = EqDdDailyGvKey("RSTT");
 
    if(!InpEqDdResetAllOnNewDay)
      {
       if(g_eqDdDayKey != dubaiDayKey)
-        {
          g_eqDdDayKey = dubaiDayKey;
-         if(!isTestRun)
-            GlobalVariableSet(gvDayK, (double)dubaiDayKey);
-        }
       return;
      }
 
    if(g_eqDdDayKey == -1)
      {
-      if(!isTestRun && GlobalVariableCheck(gvDayK))
-        {
-         int savedDay = (int)MathRound(GlobalVariableGet(gvDayK));
-         if(savedDay != dubaiDayKey)
-           {
-            ExecuteEqDdFreshDayReset(nowServer, dubaiTime, dubaiDayKey, isTestRun, "Overnight Restart Fresh Dubai Day");
-            return;
-           }
-         g_eqDdDayKey = dubaiDayKey;
-         if(g_eqDdDailyResetTime == 0 && GlobalVariableCheck(gvRstK))
-           {
-            datetime savedRst = (datetime)MathRound(GlobalVariableGet(gvRstK));
-            if(savedRst > 0)
-              {
-               datetime savedRstDubai = savedRst + (ServerToDubaiOffsetHours * 3600);
-               int      savedRstDay   = TimeYear(savedRstDubai) * 1000 + TimeDayOfYear(savedRstDubai);
-               if(savedRstDay == dubaiDayKey)
-                  g_eqDdDailyResetTime = savedRst;
-              }
-           }
-        }
-      else
-        {
-         g_eqDdDayKey = dubaiDayKey;
-         if(!isTestRun)
-           {
-            GlobalVariableSet(gvDayK, (double)dubaiDayKey);
-            if(GlobalVariableCheck(gvRstK))
-               GlobalVariableDel(gvRstK);
-           }
-        }
+      g_eqDdDayKey = dubaiDayKey;
       return;
      }
 
    if(dubaiDayKey != g_eqDdDayKey)
      {
-      ExecuteEqDdFreshDayReset(nowServer, dubaiTime, dubaiDayKey, isTestRun, "Dubai 00:00 Rollover");
+      ExecuteEqDdFreshDayReset(nowServer, dubaiTime, dubaiDayKey, false, "Dubai 00:00 Rollover");
      }
   }
 
@@ -3553,119 +3433,26 @@ void SyncDubaiDayOpeningState(datetime nowServer = 0)
 
    datetime dubaiTime   = nowServer + (ServerToDubaiOffsetHours * 3600);
    int      dubaiDayKey = TimeYear(dubaiTime) * 1000 + TimeDayOfYear(dubaiTime);
-   bool     isTestRun   = (IsTesting() || IsOptimization());
-   string   gvKey       = DubaiNightCloseGvKey();
-   string   gvOpenDayK  = "EA_DUBAI_OPEN_DAY_"  + IntegerToString(MagicNumber) + "_" + Symbol();
-   string   gvOpenEqK   = "EA_DUBAI_OPEN_EQ_"   + IntegerToString(MagicNumber) + "_" + Symbol();
-   string   gvLastCutK  = "EA_DUBAI_LAST_CUT_"  + IntegerToString(MagicNumber) + "_" + Symbol();
-   string   gvCutCntK   = "EA_DUBAI_CUT_CNT_"   + IntegerToString(MagicNumber) + "_" + Symbol();
-   string   gvPlanADnK  = "EA_HRLY_PLANA_DONE_" + IntegerToString(MagicNumber) + "_" + Symbol();
-   string   gvPlanCDnK  = "EA_HRLY_PLANC_DONE_" + IntegerToString(MagicNumber) + "_" + Symbol();
-   string   gvPlanDDnK  = "EA_HRLY_PLAND_DONE_" + IntegerToString(MagicNumber) + "_" + Symbol();
-   string   gvPlanDHrK  = "EA_HRLYD_DONEH_"     + IntegerToString(MagicNumber) + "_" + Symbol();
    double   curEquity   = AccountEquity();
    double   seedEquity  = (curEquity > 0.0) ? curEquity : AccountBalance();
 
    if(g_dubaiNightCloseDayKey == -1)
      {
       g_dubaiNightCloseDayKey       = dubaiDayKey;
+      g_dubaiNightCloseDoneToday    = false;
       g_dubaiNightCloseRetryPending = false;
-      if(!isTestRun && GlobalVariableCheck(gvKey))
-        {
-         int savedDay = (int)MathRound(GlobalVariableGet(gvKey));
-         if(savedDay == dubaiDayKey)
-            g_dubaiNightCloseDoneToday = true;
-         else
-           {
-            GlobalVariableDel(gvKey);
-            g_dubaiNightCloseDoneToday = false;
-           }
-        }
-      else
-        {
-         g_dubaiNightCloseDoneToday = false;
-        }
+      g_hourlyPlanADoneToday        = false;
+      g_hourlyPlanCDoneToday        = false;
+      g_hourlyPlanDDoneToday        = false;
 
-      if(!isTestRun && GlobalVariableCheck(gvPlanADnK))
-        {
-         int savedPlanADay = (int)MathRound(GlobalVariableGet(gvPlanADnK));
-         if(savedPlanADay == dubaiDayKey)
-            g_hourlyPlanADoneToday = true;
-         else
-           {
-            GlobalVariableDel(gvPlanADnK);
-            g_hourlyPlanADoneToday = false;
-           }
-        }
-      else
-        {
-         g_hourlyPlanADoneToday = false;
-        }
-
-      if(!isTestRun && GlobalVariableCheck(gvPlanCDnK))
-        {
-         int savedPlanCDay = (int)MathRound(GlobalVariableGet(gvPlanCDnK));
-         if(savedPlanCDay == dubaiDayKey)
-            g_hourlyPlanCDoneToday = true;
-         else
-           {
-            GlobalVariableDel(gvPlanCDnK);
-            g_hourlyPlanCDoneToday = false;
-           }
-        }
-      else
-        {
-         g_hourlyPlanCDoneToday = false;
-        }
-
-      if(!isTestRun && GlobalVariableCheck(gvPlanDDnK))
-        {
-         int savedPlanDDay = (int)MathRound(GlobalVariableGet(gvPlanDDnK));
-         if(savedPlanDDay == dubaiDayKey)
-            g_hourlyPlanDDoneToday = true;
-         else
-           {
-            GlobalVariableDel(gvPlanDDnK);
-            g_hourlyPlanDDoneToday = false;
-           }
-        }
-      else
-        {
-         g_hourlyPlanDDoneToday = false;
-        }
-
-      if(!isTestRun && GlobalVariableCheck(gvOpenDayK) && GlobalVariableCheck(gvOpenEqK) &&
-         (int)MathRound(GlobalVariableGet(gvOpenDayK)) == dubaiDayKey &&
-         GlobalVariableGet(gvOpenEqK) > 0.0)
-        {
-         g_dubaiDayOpeningEquity   = GlobalVariableGet(gvOpenEqK);
-         g_dayOpeningBalance       = g_dubaiDayOpeningEquity;
-         g_dubaiNightLastCutTime   = GlobalVariableCheck(gvLastCutK) ? (datetime)MathRound(GlobalVariableGet(gvLastCutK)) : 0;
-         g_dubaiNightCutCountToday = GlobalVariableCheck(gvCutCntK)  ? (int)MathRound(GlobalVariableGet(gvCutCntK)) : 0;
-        }
-      else
-        {
-         double initBal = (AccountBalance() > 0.0) ? AccountBalance() : seedEquity;
-         g_dubaiDayOpeningEquity   = initBal;
-         g_dayOpeningBalance       = initBal;
-         g_dubaiNightLastCutTime   = 0;
-         g_dubaiNightCutCountToday = 0;
-         g_hourlyPlanAHitsToday    = 0;
-         g_hourlyPlanCHitsToday    = 0;
-         g_hourlyPlanDHitsToday    = 0;
-         if(!isTestRun)
-           {
-            if(GlobalVariableCheck(gvLastCutK))
-               GlobalVariableDel(gvLastCutK);
-            if(GlobalVariableCheck(gvCutCntK))
-               GlobalVariableDel(gvCutCntK);
-            if(initBal > 0.0)
-              {
-               GlobalVariableSet(gvOpenDayK, (double)dubaiDayKey);
-               GlobalVariableSet(gvOpenEqK,  initBal);
-              }
-           }
-        }
+      double initBal = (AccountBalance() > 0.0) ? AccountBalance() : seedEquity;
+      g_dubaiDayOpeningEquity   = initBal;
+      g_dayOpeningBalance       = initBal;
+      g_dubaiNightLastCutTime   = 0;
+      g_dubaiNightCutCountToday = 0;
+      g_hourlyPlanAHitsToday    = 0;
+      g_hourlyPlanCHitsToday    = 0;
+      g_hourlyPlanDHitsToday    = 0;
      }
    else
       if(dubaiDayKey != g_dubaiNightCloseDayKey)
@@ -3697,28 +3484,6 @@ void SyncDubaiDayOpeningState(datetime nowServer = 0)
          g_hourlyPlanDDoneToday        = false;
          g_hourlyPlanDHitsToday        = 0;
          g_hourlyPlanDDoneHourSlot     = -1;
-         if(!isTestRun)
-           {
-            if(GlobalVariableCheck(gvKey))
-               GlobalVariableDel(gvKey);
-            if(GlobalVariableCheck(gvLastCutK))
-               GlobalVariableDel(gvLastCutK);
-            if(GlobalVariableCheck(gvCutCntK))
-               GlobalVariableDel(gvCutCntK);
-            if(GlobalVariableCheck(gvPlanADnK))
-               GlobalVariableDel(gvPlanADnK);
-            if(GlobalVariableCheck(gvPlanCDnK))
-               GlobalVariableDel(gvPlanCDnK);
-            if(GlobalVariableCheck(gvPlanDDnK))
-               GlobalVariableDel(gvPlanDDnK);
-            if(GlobalVariableCheck(gvPlanDHrK))
-               GlobalVariableDel(gvPlanDHrK);
-            if(newDayOpenBal > 0.0)
-              {
-               GlobalVariableSet(gvOpenDayK, (double)dubaiDayKey);
-               GlobalVariableSet(gvOpenEqK,  newDayOpenBal);
-              }
-           }
 
          PrintFormat(">>> [DUBAI 00:00 DAY START] Next Day Rollover | DubaiTime=%s (DayKey=%d) | Day Opening Balance=$%.2f | Plans A/B/C/D Base Updated | PrevDone=%s (Cuts=%d) -> Status RESET",
                      TimeToString(dubaiTime, TIME_DATE|TIME_MINUTES|TIME_SECONDS),
@@ -3729,13 +3494,7 @@ void SyncDubaiDayOpeningState(datetime nowServer = 0)
            {
             double fallbackBal = (AccountBalance() > 0.0) ? AccountBalance() : seedEquity;
             g_dubaiDayOpeningEquity = fallbackBal;
-            if(g_dayOpeningBalance <= 0.0)
-               g_dayOpeningBalance  = fallbackBal;
-            if(!isTestRun)
-              {
-               GlobalVariableSet(gvOpenDayK, (double)dubaiDayKey);
-               GlobalVariableSet(gvOpenEqK,  fallbackBal);
-              }
+            g_dayOpeningBalance     = fallbackBal;
            }
   }
 
@@ -4431,8 +4190,6 @@ bool ExecuteHourlyPlanACloseAll(double dayOpenEq, double curEquity, double dayPr
       if(InpHourlyPlanAOncePerDay && remainingOpen == 0 && failCount == 0)
         {
          g_hourlyPlanADoneToday = true;
-         if(!isTestRun && g_dubaiNightCloseDayKey > 0)
-            GlobalVariableSet("EA_HRLY_PLANA_DONE_" + IntegerToString(MagicNumber) + "_" + Symbol(), (double)g_dubaiNightCloseDayKey);
         }
 
       double pAOpen = 0.0, pATgt = 0.0, pAVal = 0.0;
@@ -4583,8 +4340,6 @@ bool ExecuteHourlyPlanCCloseAll(double dayOpenEq, double curEquity, double dayPr
       if(InpHourlyPlanCOncePerDay && remainingOpen == 0 && failCount == 0)
         {
          g_hourlyPlanCDoneToday = true;
-         if(!isTestRun && g_dubaiNightCloseDayKey > 0)
-            GlobalVariableSet("EA_HRLY_PLANC_DONE_" + IntegerToString(MagicNumber) + "_" + Symbol(), (double)g_dubaiNightCloseDayKey);
         }
 
       double pCOpen = 0.0, pCTgt = 0.0, pCVal = 0.0;
@@ -4740,15 +4495,11 @@ bool ExecuteHourlyPlanDCloseAll(double dayOpenEq, double curEquity, double dayPr
       if(InpHourlyPlanDOncePerHour && remainingOpen == 0 && failCount == 0)
         {
          g_hourlyPlanDDoneHourSlot = curHourSlot;
-         if(!isTestRun)
-            GlobalVariableSet("EA_HRLYD_DONEH_" + IntegerToString(MagicNumber) + "_" + Symbol(), (double)curHourSlot);
         }
 
       if(InpHourlyPlanDOncePerDay && remainingOpen == 0 && failCount == 0)
         {
          g_hourlyPlanDDoneToday = true;
-         if(!isTestRun && g_dubaiNightCloseDayKey > 0)
-            GlobalVariableSet("EA_HRLY_PLAND_DONE_" + IntegerToString(MagicNumber) + "_" + Symbol(), (double)g_dubaiNightCloseDayKey);
         }
 
       double pDOpen = 0.0, pDTgt = 0.0, pDVal = 0.0;
@@ -4794,17 +4545,11 @@ bool ExecuteHourlyPlanDCloseAll(double dayOpenEq, double curEquity, double dayPr
 //+------------------------------------------------------------------+
 void ManageHourlySideLoss20PctCut()
   {
-   if(!InpEnableHourlySideLossCut)
-      return;
-
    datetime nowServer = TimeCurrent();
    if(nowServer <= 0)
       return;
 
-// Ensure Dubai 00:00 GST opening equity & midnight rollover are synced BEFORE any 1H Plan A/C/D check
    SyncDubaiDayOpeningState(nowServer);
-
-   bool isTestRun = (IsTesting() || IsOptimization());
 
 // ===== EXTRA PLAN D: Check every 1 min (Min 1 >31% .. Min 60 >90%, Reset every 1 hour) -> Close ALL =====
    int    intervalDSec = MathMax(1, InpHourlyPlanDIntervalSeconds);
@@ -4812,45 +4557,13 @@ void ManageHourlySideLoss20PctCut()
    int    minInHourD   = 1;
    long   curHourSlotD = 0;
    double planDThr     = ResolveHourlyPlanDMinuteAndThreshold(nowServer, minInHourD, curHourSlotD);
-   string gvSlotDK     = "EA_HRLYD_SLOT_"  + IntegerToString(MagicNumber) + "_" + Symbol() + "_" + IntegerToString(intervalDSec);
-   string gvRunDK      = "EA_HRLYD_RUN_"   + IntegerToString(MagicNumber) + "_" + Symbol() + "_" + IntegerToString(intervalDSec);
-   string gvPlanDHrK   = "EA_HRLYD_DONEH_" + IntegerToString(MagicNumber) + "_" + Symbol();
-   string gvPlanDCycK  = "EA_HRLYD_CYCH_"  + IntegerToString(MagicNumber) + "_" + Symbol();
    bool   planDClosedAllThisTick = false;
-
-   if(!g_hourlyPlanDDoneHourLoaded)
-     {
-      g_hourlyPlanDDoneHourLoaded = true;
-      if(!isTestRun)
-        {
-         if(GlobalVariableCheck(gvPlanDHrK))
-           {
-            long savedDoneH = (long)MathRound(GlobalVariableGet(gvPlanDHrK));
-            if(savedDoneH == curHourSlotD)
-               g_hourlyPlanDDoneHourSlot = savedDoneH;
-            else
-               GlobalVariableDel(gvPlanDHrK);
-           }
-         if(g_hourlyPlanDCycleHourSlot < 0 && GlobalVariableCheck(gvPlanDCycK))
-           {
-            long savedCycH = (long)MathRound(GlobalVariableGet(gvPlanDCycK));
-            if(savedCycH == curHourSlotD)
-               g_hourlyPlanDCycleHourSlot = savedCycH;
-           }
-        }
-     }
 
    if(g_hourlyPlanDCycleHourSlot != curHourSlotD)
      {
       long prevCycleHourD = g_hourlyPlanDCycleHourSlot;
       bool prevWasLockedD = (prevCycleHourD >= 0 && g_hourlyPlanDDoneHourSlot == prevCycleHourD);
       g_hourlyPlanDCycleHourSlot = curHourSlotD;
-      if(!isTestRun)
-        {
-         GlobalVariableSet(gvPlanDCycK, (double)curHourSlotD);
-         if(GlobalVariableCheck(gvPlanDHrK) && (long)MathRound(GlobalVariableGet(gvPlanDHrK)) != curHourSlotD)
-            GlobalVariableDel(gvPlanDHrK);
-        }
       if(prevCycleHourD >= 0 && InpEnableHourlyPlanDDayProfitClose)
         {
          datetime dubaiRstD = nowServer + (ServerToDubaiOffsetHours * 3600);
@@ -4859,37 +4572,6 @@ void ManageHourlySideLoss20PctCut()
                      TimeToString(nowServer, TIME_DATE|TIME_MINUTES|TIME_SECONDS),
                      minInHourD, planDThr, InpHourlyPlanDStartPct, InpHourlyPlanDMaxPct,
                      (prevWasLockedD ? "YES->UNLOCKED" : "NO"));
-        }
-     }
-
-   if(g_hourlyPlanDLastSlot < 0)
-     {
-      if(!isTestRun && GlobalVariableCheck(gvSlotDK))
-        {
-         long savedSlotD = (long)MathRound(GlobalVariableGet(gvSlotDK));
-         if(savedSlotD == curSlotD)
-           {
-            g_hourlyPlanDLastSlot      = curSlotD;
-            g_hourlyPlanDNextRunTime   = (datetime)((curSlotD + 1) * (long)intervalDSec);
-            g_hourlyPlanDLastMinIdx    = minInHourD;
-            g_hourlyPlanDLastThreshPct = planDThr;
-            if(GlobalVariableCheck(gvRunDK))
-               g_hourlyPlanDLastRunTime = (datetime)MathRound(GlobalVariableGet(gvRunDK));
-           }
-        }
-
-      if(g_hourlyPlanDLastSlot < 0 && intervalDSec >= 120)
-        {
-         long secsIntoSlotD = ((long)nowServer) % intervalDSec;
-         if(secsIntoSlotD > 60)
-           {
-            g_hourlyPlanDLastSlot      = curSlotD;
-            g_hourlyPlanDNextRunTime   = (datetime)((curSlotD + 1) * (long)intervalDSec);
-            g_hourlyPlanDLastMinIdx    = minInHourD;
-            g_hourlyPlanDLastThreshPct = planDThr;
-            if(!isTestRun)
-               GlobalVariableSet(gvSlotDK, (double)curSlotD);
-           }
         }
      }
 
@@ -4909,12 +4591,6 @@ void ManageHourlySideLoss20PctCut()
       if(InpEnableHourlyPlanDDayProfitClose)
         {
          g_hourlyPlanDCheckCount++;
-         if(!isTestRun)
-           {
-            GlobalVariableSet(gvSlotDK, (double)curSlotD);
-            GlobalVariableSet(gvRunDK, (double)nowServer);
-           }
-
          double curEqD    = AccountEquity();
          double dayOpenD  = 0.0, dayTgtD = 0.0, planDValUSD = 0.0;
          double reqEqD    = GetHourlyPlanRequiredEquity(planDThr, dayOpenD, dayTgtD, planDValUSD);
@@ -4935,36 +4611,7 @@ void ManageHourlySideLoss20PctCut()
 // ===== EXTRA PLAN C: Check every 15 min -> Day Equity Profit > 10% vs Dubai 00:00 opening equity -> Close ALL =====
    int    intervalCSec = MathMax(60, InpHourlyPlanCIntervalMinutes * 60);
    long   curSlotC     = (long)(((long)nowServer) / intervalCSec);
-   string gvSlotCK     = "EA_HRLYC_SLOT_" + IntegerToString(MagicNumber) + "_" + Symbol() + "_" + IntegerToString(InpHourlyPlanCIntervalMinutes);
-   string gvRunCK      = "EA_HRLYC_RUN_"  + IntegerToString(MagicNumber) + "_" + Symbol() + "_" + IntegerToString(InpHourlyPlanCIntervalMinutes);
    bool   planCClosedAllThisTick = false;
-
-   if(g_hourlyPlanCLastSlot < 0)
-     {
-      if(!isTestRun && GlobalVariableCheck(gvSlotCK))
-        {
-         long savedSlotC = (long)MathRound(GlobalVariableGet(gvSlotCK));
-         if(savedSlotC == curSlotC)
-           {
-            g_hourlyPlanCLastSlot    = curSlotC;
-            g_hourlyPlanCNextRunTime = (datetime)((curSlotC + 1) * (long)intervalCSec);
-            if(GlobalVariableCheck(gvRunCK))
-               g_hourlyPlanCLastRunTime = (datetime)MathRound(GlobalVariableGet(gvRunCK));
-           }
-        }
-
-      if(g_hourlyPlanCLastSlot < 0)
-        {
-         long secsIntoSlotC = ((long)nowServer) % intervalCSec;
-         if(secsIntoSlotC > 60)
-           {
-            g_hourlyPlanCLastSlot    = curSlotC;
-            g_hourlyPlanCNextRunTime = (datetime)((curSlotC + 1) * (long)intervalCSec);
-            if(!isTestRun)
-               GlobalVariableSet(gvSlotCK, (double)curSlotC);
-           }
-        }
-     }
 
    if(curSlotC == g_hourlyPlanCLastSlot)
      {
@@ -4976,11 +4623,6 @@ void ManageHourlySideLoss20PctCut()
       g_hourlyPlanCLastRunTime = nowServer;
       g_hourlyPlanCNextRunTime = (datetime)((curSlotC + 1) * (long)intervalCSec);
       g_hourlyPlanCCheckCount++;
-      if(!isTestRun)
-        {
-         GlobalVariableSet(gvSlotCK, (double)curSlotC);
-         GlobalVariableSet(gvRunCK, (double)nowServer);
-        }
 
       if(!planDClosedAllThisTick)
         {
@@ -5007,34 +4649,6 @@ void ManageHourlySideLoss20PctCut()
 // ===== 1-HOUR PLAN A / PLAN B TIMER GATE (60 MIN) =====
    int    intervalSec = MathMax(60, InpHourlySideLossIntervalMinutes * 60);
    long   curSlot     = (long)(((long)nowServer) / intervalSec);
-   string gvSlotK     = "EA_HRLY_LOSS_SLOT_" + IntegerToString(MagicNumber) + "_" + Symbol() + "_" + IntegerToString(InpHourlySideLossIntervalMinutes);
-   string gvRunK      = "EA_HRLY_LOSS_RUN_"  + IntegerToString(MagicNumber) + "_" + Symbol() + "_" + IntegerToString(InpHourlySideLossIntervalMinutes);
-
-   if(g_hourlySideLossLastSlot < 0)
-     {
-      if(!isTestRun && GlobalVariableCheck(gvSlotK))
-        {
-         long savedSlot = (long)MathRound(GlobalVariableGet(gvSlotK));
-         if(savedSlot == curSlot)
-           {
-            g_hourlySideLossLastSlot    = curSlot;
-            g_hourlySideLossNextRunTime = (datetime)((curSlot + 1) * (long)intervalSec);
-            if(GlobalVariableCheck(gvRunK))
-               g_hourlySideLossLastRunTime = (datetime)MathRound(GlobalVariableGet(gvRunK));
-            return;
-           }
-        }
-
-      long secsIntoSlot = ((long)nowServer) % intervalSec;
-      if(secsIntoSlot > 60)
-        {
-         g_hourlySideLossLastSlot    = curSlot;
-         g_hourlySideLossNextRunTime = (datetime)((curSlot + 1) * (long)intervalSec);
-         if(!isTestRun)
-            GlobalVariableSet(gvSlotK, (double)curSlot);
-         return;
-        }
-     }
 
    if(curSlot == g_hourlySideLossLastSlot)
      {
@@ -5046,11 +4660,6 @@ void ManageHourlySideLoss20PctCut()
    g_hourlySideLossLastRunTime = nowServer;
    g_hourlySideLossNextRunTime = (datetime)((curSlot + 1) * (long)intervalSec);
    g_hourlySideLossCheckCount++;
-   if(!isTestRun)
-     {
-      GlobalVariableSet(gvSlotK, (double)curSlot);
-      GlobalVariableSet(gvRunK, (double)nowServer);
-     }
 
 // If Plan D or Plan C already closed 100% of open market orders on this tick, avoid duplicate icon/close
    if(planDClosedAllThisTick || planCClosedAllThisTick)
@@ -5135,69 +4744,20 @@ string PriceGapCloseGvKey(string suffix)
 //|   cycle has not changed.                                         |
 //| - Resets cleanly to new EMA flip price on any new EMA flip.      |
 //+------------------------------------------------------------------+
-void SyncPriceGapCloseAnchor(double curFlipPrice, bool isTestRun)
+void SyncPriceGapCloseAnchor(double curFlipPrice, bool isTestRun = false)
   {
    if(curFlipPrice <= 0.0)
       return;
 
-   string   gvAnchorK   = PriceGapCloseGvKey("ANCHOR");
-   string   gvSrcFlipK  = PriceGapCloseGvKey("SRCFLIP");
-   string   gvFlipBarK  = PriceGapCloseGvKey("FLIPBAR");
    datetime curFlipBarT = GetActualEmaFlipTime();
    if(curFlipBarT <= 0 && EmaFlipTime > 0)
       curFlipBarT = EmaFlipTime;
 
    if(!g_priceGapCloseAnchorLoaded)
      {
-      bool restored = false;
-      if(!isTestRun && GlobalVariableCheck(gvAnchorK))
-        {
-         double   savedAnchor   = GlobalVariableGet(gvAnchorK);
-         double   savedSrcFlip  = GlobalVariableCheck(gvSrcFlipK) ? GlobalVariableGet(gvSrcFlipK) : 0.0;
-         datetime savedFlipBarT = GlobalVariableCheck(gvFlipBarK) ? (datetime)MathRound(GlobalVariableGet(gvFlipBarK)) : 0;
-
-         bool sameFlipCycle = false;
-         if(savedAnchor > 0.0)
-           {
-            if(savedFlipBarT > 0 && curFlipBarT > 0 && Bars > 0)
-              {
-               int savedBarIdx = iBarShift(Symbol(), Period(), savedFlipBarT, false);
-               int curBarIdx   = iBarShift(Symbol(), Period(), curFlipBarT, false);
-               if(savedBarIdx >= 0 && curBarIdx >= 0 && MathAbs(savedBarIdx - curBarIdx) <= 1)
-                  sameFlipCycle = true;
-              }
-            else
-               if(savedSrcFlip > 0.0)
-                 {
-                  double tol = MathMax(Point * 10.0, curFlipPrice * 0.001);
-                  if(MathAbs(savedSrcFlip - curFlipPrice) <= tol)
-                     sameFlipCycle = true;
-                 }
-           }
-
-         if(sameFlipCycle)
-           {
-            g_priceGapCloseAnchorPrice  = savedAnchor;
-            g_priceGapCloseSourceFlipPx = (savedSrcFlip > 0.0) ? savedSrcFlip : curFlipPrice;
-            g_priceGapCloseAnchorFlipT  = EmaFlipTime;
-            restored = true;
-           }
-        }
-
-      if(!restored)
-        {
-         g_priceGapCloseAnchorPrice  = curFlipPrice;
-         g_priceGapCloseSourceFlipPx = curFlipPrice;
-         g_priceGapCloseAnchorFlipT  = EmaFlipTime;
-         if(!isTestRun)
-           {
-            GlobalVariableSet(gvAnchorK,  g_priceGapCloseAnchorPrice);
-            GlobalVariableSet(gvSrcFlipK, g_priceGapCloseSourceFlipPx);
-            if(curFlipBarT > 0)
-               GlobalVariableSet(gvFlipBarK, (double)curFlipBarT);
-           }
-        }
-
+      g_priceGapCloseAnchorPrice  = curFlipPrice;
+      g_priceGapCloseSourceFlipPx = curFlipPrice;
+      g_priceGapCloseAnchorFlipT  = EmaFlipTime;
       g_priceGapCloseAnchorLoaded = true;
       return;
      }
@@ -5211,14 +4771,6 @@ void SyncPriceGapCloseAnchor(double curFlipPrice, bool isTestRun)
       g_priceGapCloseAnchorPrice  = curFlipPrice;
       g_priceGapCloseSourceFlipPx = curFlipPrice;
       g_priceGapCloseAnchorFlipT  = EmaFlipTime;
-
-      if(!isTestRun)
-        {
-         GlobalVariableSet(gvAnchorK,  g_priceGapCloseAnchorPrice);
-         GlobalVariableSet(gvSrcFlipK, g_priceGapCloseSourceFlipPx);
-         if(curFlipBarT > 0)
-            GlobalVariableSet(gvFlipBarK, (double)curFlipBarT);
-        }
 
       PrintFormat(">>> [PRICE GAP ANCHOR RESET ON EMA FLIP] PrevAnchor=%s -> NewFlipAnchor=%s",
                   DoubleToString(prevAnchor, Digits), DoubleToString(g_priceGapCloseAnchorPrice, Digits));
@@ -5442,8 +4994,6 @@ void ManagePriceGap1000DayProfit5PctCloseAll()
       if(remainingOpen == 0)
         {
          g_priceGapCloseAnchorPrice = newAnchor;
-         if(!isTestRun)
-            GlobalVariableSet(PriceGapCloseGvKey("ANCHOR"), g_priceGapCloseAnchorPrice);
         }
 
       g_priceGapCloseTotalSweeps++;
@@ -5604,9 +5154,7 @@ void ProcessAdversePriceStepCutForSide(int sideType, double balance, double equi
    bool   isBuy     = (sideType == OP_BUY);
    string sideName  = isBuy ? "BUY" : "SELL";
    string sideKeyCh = isBuy ? "B" : "S";
-   bool   isTestRun = (IsTesting() || IsOptimization());
-   string gvAncK    = StepLossGvKey(sideKeyCh + "_ANC");
-   string gvStpK    = StepLossGvKey(sideKeyCh + "_STP");
+   // Pure In-Memory EA Variables in RAM
 
    double curAnchor = isBuy ? g_stepLossBuyAnchor : g_stepLossSellAnchor;
    int    curSteps  = isBuy ? g_stepLossBuySteps  : g_stepLossSellSteps;
@@ -5647,13 +5195,6 @@ void ProcessAdversePriceStepCutForSide(int sideType, double balance, double equi
          g_stepLossLastReqSellGap = normRawGap;
         }
 
-      if(!isTestRun)
-        {
-         if(GlobalVariableCheck(gvAncK))
-            GlobalVariableDel(gvAncK);
-         if(GlobalVariableCheck(gvStpK))
-            GlobalVariableDel(gvStpK);
-        }
       return;
      }
 
@@ -5678,11 +5219,7 @@ void ProcessAdversePriceStepCutForSide(int sideType, double balance, double equi
          g_stepLossSellAnchor = curAnchor;
          g_stepLossSellSteps  = 0;
         }
-      if(!isTestRun)
-        {
-         GlobalVariableSet(gvAncK, curAnchor);
-         GlobalVariableSet(gvStpK, 0.0);
-        }
+      // In-memory RAM tracking only
      }
 
    double advMove     = MathMax(0.0, (isBuy ? (curAnchor - sidePrice) : (sidePrice - curAnchor)));
@@ -5947,11 +5484,7 @@ void ProcessAdversePriceStepCutForSide(int sideType, double balance, double equi
       g_stepLossLastHitLots     = lotsCutTot;
       g_stepLossLastHitPL       = estPLTot;
 
-      if(!isTestRun)
-        {
-         GlobalVariableSet(gvAncK, nextAnchor);
-         GlobalVariableSet(gvStpK, (double)nextStep);
-        }
+
 
       PrintFormat(">>> [ADVERSE STEP LOSS COMPLETE%s #%d] %s Dubai=%s (Broker=%s) | Adv=$%.1f (>= $%.0f) | %sLoss=%.2f%% EqDD=%.2f%% | Partial:%d Full0.01:%d (-%.2fL, EstPL=%s$%.2f, Fail=%d) | NextAnchor=%s",
                   (isEmergency ? " EMERGENCY" : ""), nextStep, sideName,
@@ -5994,28 +5527,7 @@ void ManageAdversePriceStepLossCut()
    if(nowServer <= 0)
       return;
 
-   bool isTestRun = (IsTesting() || IsOptimization());
-   if(!g_stepLossLoaded)
-     {
-      if(!isTestRun)
-        {
-         string bAncK = StepLossGvKey("B_ANC");
-         string bStpK = StepLossGvKey("B_STP");
-         string sAncK = StepLossGvKey("S_ANC");
-         string sStpK = StepLossGvKey("S_STP");
-         if(GlobalVariableCheck(bAncK) && GlobalVariableGet(bAncK) > 0.0)
-           {
-            g_stepLossBuyAnchor = GlobalVariableGet(bAncK);
-            g_stepLossBuySteps  = GlobalVariableCheck(bStpK) ? (int)MathRound(GlobalVariableGet(bStpK)) : 0;
-           }
-         if(GlobalVariableCheck(sAncK) && GlobalVariableGet(sAncK) > 0.0)
-           {
-            g_stepLossSellAnchor = GlobalVariableGet(sAncK);
-            g_stepLossSellSteps  = GlobalVariableCheck(sStpK) ? (int)MathRound(GlobalVariableGet(sStpK)) : 0;
-           }
-        }
-      g_stepLossLoaded = true;
-     }
+   g_stepLossLoaded = true;
 
    double balance = AccountBalance();
    double equity  = AccountEquity();
@@ -15305,8 +14817,7 @@ void ManageDubaiNightOneSideCloseAll()
          g_dubaiNightCloseLastHitTime  = nowServer;
          g_dubaiNightLastCloseTag      = isDayProfitTriggered ? StringFormat("DAY>%.0f%%", InpDubaiNightDayProfitPct)
                                          : StringFormat("%02d:%02d ALL", InpDubaiNightForceCloseHour, InpDubaiNightForceCloseMinute);
-         if(!isTestRun)
-            GlobalVariableSet(gvKey, (double)dubaiDayKey);
+
         }
       return;
      }
@@ -15408,8 +14919,7 @@ void ManageDubaiNightOneSideCloseAll()
          g_dubaiNightLastCloseOrders   = closedCount;
          g_dubaiNightLastCloseLots     = closedLots;
          g_dubaiNightLastClosePL       = closedPL;
-         if(!isTestRun)
-            GlobalVariableSet(gvKey, (double)dubaiDayKey);
+
 
          PrintFormat(">>> [DUBAI NIGHT %s] DubaiTime=%s (Broker=%s) | %s -> Closed ALL %d %s Open Order(s) (%.2fL, NetPL=%s$%.2f) | Locked 1x Today Until Next Day",
                      triggerTag,
@@ -15536,11 +15046,7 @@ void ManageDubaiNightOneSideCloseAll()
       g_dubaiNightLastCutOrders   = cutHits;
       g_dubaiNightLastCutLots     = cutLotsTotal;
       g_dubaiNightLastCutPL       = cutPLTotal;
-      if(!isTestRun)
-        {
-         GlobalVariableSet(gvLastCutK, (double)g_dubaiNightLastCutTime);
-         GlobalVariableSet(gvCutCntK, (double)g_dubaiNightCutCountToday);
-        }
+
 
       PrintFormat(">>> [DUBAI PATH-B -%.0f%% CUT #%d (%dm)] DubaiTime=%s (Broker=%s) | %s Open=0 | EMAang=%.2f | Cut %d Order(s) (-%.2fL, EstPL=%s$%.2f, MinLotKept:%d, Fail:%d) | Next Cut in %dm or Final Close @ %02d:%02d",
                   InpDubaiNightPartialCutPct, g_dubaiNightCutCountToday, InpDubaiNightCutIntervalMinutes,
@@ -21582,13 +21088,7 @@ void RegisterReverse100Trigger(int rootParentTicket, int currentParentTicket)
    if(currentParentTicket > 0 && currentParentTicket != rootParentTicket)
       RegisterParentRecoveryAttempt(currentParentTicket);
 
-   if(!(IsTesting() || IsOptimization()))
-     {
-      if(rootParentTicket > 0)
-         GlobalVariableSet(Reverse100GvKey(rootParentTicket), (double)TimeCurrent());
-      if(currentParentTicket > 0 && currentParentTicket != rootParentTicket)
-         GlobalVariableSet(Reverse100GvKey(currentParentTicket), (double)TimeCurrent());
-     }
+// In-memory RAM tracking only
   }
 
 //+------------------------------------------------------------------+
@@ -21647,19 +21147,7 @@ bool HasReverse100AlreadyTriggered(int rootParentTicket, int currentParentTicket
          return true;
      }
 
-   if(!(IsTesting() || IsOptimization()))
-     {
-      if(rootParentTicket > 0 && GlobalVariableCheck(Reverse100GvKey(rootParentTicket)))
-        {
-         RegisterReverse100TriggerMemory(rootParentTicket);
-         return true;
-        }
-      if(currentParentTicket > 0 && currentParentTicket != rootParentTicket && GlobalVariableCheck(Reverse100GvKey(currentParentTicket)))
-        {
-         RegisterReverse100TriggerMemory(currentParentTicket);
-         return true;
-        }
-     }
+// In-memory RAM tracking only
 
    string prefixRoot = (rootParentTicket > 0) ? ("RECOVERY_" + IntegerToString(rootParentTicket)) : "";
    string prefixCur  = (currentParentTicket > 0 && currentParentTicket != rootParentTicket) ? ("RECOVERY_" + IntegerToString(currentParentTicket)) : "";
@@ -22012,22 +21500,7 @@ int GetReverse100AdverseCutStep(int rootRevTicket)
          return g_rev100StepCutSteps[i];
      }
 
-   if(!(IsTesting() || IsOptimization()))
-     {
-      string gvKey = Reverse100StepGvKey(rootRevTicket);
-      if(GlobalVariableCheck(gvKey))
-        {
-         int gvStep = (int)MathRound(GlobalVariableGet(gvKey));
-         if(gvStep > 0)
-           {
-            ArrayResize(g_rev100StepCutRoots, sz + 1);
-            ArrayResize(g_rev100StepCutSteps, sz + 1);
-            g_rev100StepCutRoots[sz] = rootRevTicket;
-            g_rev100StepCutSteps[sz] = gvStep;
-            return gvStep;
-           }
-        }
-     }
+// In-memory RAM tracking only
    return 0;
   }
 
@@ -22059,8 +21532,7 @@ void SetReverse100AdverseCutStep(int rootRevTicket, int step)
       g_rev100StepCutSteps[sz] = step;
      }
 
-   if(!(IsTesting() || IsOptimization()))
-      GlobalVariableSet(Reverse100StepGvKey(rootRevTicket), (double)step);
+// In-memory RAM tracking only
   }
 
 //+------------------------------------------------------------------+
@@ -22344,13 +21816,7 @@ void ManageReverse100AdverseStepPartialClose()
                  }
               }
            }
-         else
-            if(!isTestRun)
-              {
-               string gvKey = Reverse100StepGvKey(rootTicket);
-               if(GlobalVariableCheck(gvKey))
-                  GlobalVariableDel(gvKey);
-              }
+         // In-memory RAM tracking only
 
          DrawReverse100StepCutIcon(closedTicket, rootTicket, origParentTicket, oType, nextStep, adverseDistance, stepTriggerRaw, closeLot, remAfter, openPrice, curPrice, estSlicePL, isRevOrder, nowServer);
 
@@ -28778,16 +28244,6 @@ void ManageSweepGlobalVariables(string signalType)
       GlobalSweepBuy    = true;
       GlobalSweepSell   = false;
       GlobalSweepSignal = "SWEEP buy signal";
-
-      if(InpManageSweepTerminalGlobals)
-        {
-         GlobalVariableSet(Symbol() + "_SWEEP_SIGNAL", 1.0);
-         GlobalVariableSet(Symbol() + "_SWEEP_BUY_SIGNAL", 1.0);
-         GlobalVariableSet(Symbol() + "_SWEEP_SELL_SIGNAL", 0.0);
-         GlobalVariableSet("SWEEP_SIGNAL", 1.0);
-         GlobalVariableSet("SWEEP_BUY_SIGNAL", 1.0);
-         GlobalVariableSet("SWEEP_SELL_SIGNAL", 0.0);
-        }
      }
    else
       if(signalType == "BSLS" || signalType == "BSL" || signalType == "SELL" || signalType == "SWEEP sell signal")
@@ -28795,32 +28251,12 @@ void ManageSweepGlobalVariables(string signalType)
          GlobalSweepBuy    = false;
          GlobalSweepSell   = true;
          GlobalSweepSignal = "SWEEP sell signal";
-
-         if(InpManageSweepTerminalGlobals)
-           {
-            GlobalVariableSet(Symbol() + "_SWEEP_SIGNAL", -1.0);
-            GlobalVariableSet(Symbol() + "_SWEEP_BUY_SIGNAL", 0.0);
-            GlobalVariableSet(Symbol() + "_SWEEP_SELL_SIGNAL", 1.0);
-            GlobalVariableSet("SWEEP_SIGNAL", -1.0);
-            GlobalVariableSet("SWEEP_BUY_SIGNAL", 0.0);
-            GlobalVariableSet("SWEEP_SELL_SIGNAL", 1.0);
-           }
         }
       else
         {
          GlobalSweepBuy    = false;
          GlobalSweepSell   = false;
          GlobalSweepSignal = "None";
-
-         if(InpManageSweepTerminalGlobals)
-           {
-            GlobalVariableSet(Symbol() + "_SWEEP_SIGNAL", 0.0);
-            GlobalVariableSet(Symbol() + "_SWEEP_BUY_SIGNAL", 0.0);
-            GlobalVariableSet(Symbol() + "_SWEEP_SELL_SIGNAL", 0.0);
-            GlobalVariableSet("SWEEP_SIGNAL", 0.0);
-            GlobalVariableSet("SWEEP_BUY_SIGNAL", 0.0);
-            GlobalVariableSet("SWEEP_SELL_SIGNAL", 0.0);
-           }
         }
   }
 
@@ -28829,15 +28265,9 @@ void ManageSweepGlobalVariables(string signalType)
 //+------------------------------------------------------------------+
 void ClearSweepGlobalVariables()
   {
-   if(InpManageSweepTerminalGlobals)
-     {
-      GlobalVariableDel(Symbol() + "_SWEEP_SIGNAL");
-      GlobalVariableDel(Symbol() + "_SWEEP_BUY_SIGNAL");
-      GlobalVariableDel(Symbol() + "_SWEEP_SELL_SIGNAL");
-      GlobalVariableDel("SWEEP_SIGNAL");
-      GlobalVariableDel("SWEEP_BUY_SIGNAL");
-      GlobalVariableDel("SWEEP_SELL_SIGNAL");
-     }
+   GlobalSweepBuy    = false;
+   GlobalSweepSell   = false;
+   GlobalSweepSignal = "None";
   }
 
 //+------------------------------------------------------------------+
@@ -29385,32 +28815,7 @@ int GetLsdSweepSignal()
    if(GlobalSweepSell || GlobalSweepSignal == "SWEEP sell signal" || g_rememberedSweepSignal == "BSLS" || g_lastSweepType == "BSLS")
       return -1;
 
-// 2. Check MT4 Terminal Global Variables (F3)
-   string sym = Symbol();
-   if(GlobalVariableCheck(sym + "_SWEEP_BUY_SIGNAL") && GlobalVariableGet(sym + "_SWEEP_BUY_SIGNAL") > 0.5)
-      return 1;
-   if(GlobalVariableCheck(sym + "_SWEEP_SELL_SIGNAL") && GlobalVariableGet(sym + "_SWEEP_SELL_SIGNAL") > 0.5)
-      return -1;
-   if(GlobalVariableCheck(sym + "_SWEEP_SIGNAL"))
-     {
-      double val = GlobalVariableGet(sym + "_SWEEP_SIGNAL");
-      if(val > 0.5)
-         return 1;
-      if(val < -0.5)
-         return -1;
-     }
-   if(GlobalVariableCheck("SWEEP_BUY_SIGNAL") && GlobalVariableGet("SWEEP_BUY_SIGNAL") > 0.5)
-      return 1;
-   if(GlobalVariableCheck("SWEEP_SELL_SIGNAL") && GlobalVariableGet("SWEEP_SELL_SIGNAL") > 0.5)
-      return -1;
-   if(GlobalVariableCheck("SWEEP_SIGNAL"))
-     {
-      double val = GlobalVariableGet("SWEEP_SIGNAL");
-      if(val > 0.5)
-         return 1;
-      if(val < -0.5)
-         return -1;
-     }
+// Terminal Globals disabled - Pure In-Memory EA Variables in RAM
 
 // 3. Fallback: Scan Chart Objects
    int chartSig = GetLsdSweepChartSignal();
