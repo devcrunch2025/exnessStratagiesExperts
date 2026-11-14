@@ -44,7 +44,7 @@ CheckBasketProfitClose  Total open basket profit
 
 
 
-string glbVersion = "VMULTI-1192 - Set 1H Plan B Side Loss Threshold to 30%";
+string glbVersion = "VMULTI-1193 - Top-Center Dubai Time Display";
 
 
 
@@ -826,6 +826,7 @@ int LeftDashboardX = 10;
 int LeftDashboardY = 20;
 int LeftDashboardWidth = 330;
 int LeftDashboardMaxRows = 20;
+bool ShowTopCenterDubaiTime = true; // Display Dubai Time centered at chart top between left and right dashboards
 
 double OriginalLots = 0.01;
 double OriginalLadder1ProfitUSD = 0.05;
@@ -2223,8 +2224,10 @@ int      g_eqDdSellLastHitOrders     = 0;
 double   g_eqDdSellLastHitLots       = 0.0;
 
 void UpdateLeftLiveOrdersDashboard(bool force = false);
+void UpdateTopCenterDubaiTimeDisplay();
 void DeleteDashboardObjects();
 void DeleteLeftLiveOrdersDashboardObjects();
+void DeleteTopCenterDubaiTimeObjects();
 void DeleteOurObjects();
 void ClearEMALineObjects();
 void RemoveDubaiTradingPauseDashboard();
@@ -11516,6 +11519,7 @@ void ResetAllRuntimeVariablesOnFreshStart()
    // 11. Chart Visual Objects Clean-up
    DeleteDashboardObjects();
    DeleteLeftLiveOrdersDashboardObjects();
+   DeleteTopCenterDubaiTimeObjects();
    RemoveDubaiTradingPauseDashboard();
    DeleteOurObjects();
    ClearEMALineObjects();
@@ -11813,6 +11817,7 @@ int OnInit()
      }
    DeleteDashboardObjects();
    DeleteLeftLiveOrdersDashboardObjects();
+   DeleteTopCenterDubaiTimeObjects();
    DeleteLiquiditySweepObjects();
    g_lastHandledSweepBlockBarTime = 0;
    g_lastHandledSweepBlockType    = "None";
@@ -11930,6 +11935,18 @@ void OnDeinit(const int reason)
                   (InpAdverseStep100AllOrders ? "YES" : "NO"),
                   g_rev100StepCutLastRecTicket, g_rev100StepCutLastStep, g_rev100StepCutLastAdvGap,
                   (g_rev100StepCutLastHitTime > 0 ? FormatDubaiShortDT(g_rev100StepCutLastHitTime, true) : "NONE"));
+     }
+  }
+
+//+------------------------------------------------------------------+
+//| Chart Event Handler: Dynamic Redraw on Window Resize             |
+//+------------------------------------------------------------------+
+void OnChartEvent(const int id, const long &lparam, const double &dparam, const string &sparam)
+  {
+   if(id == CHARTEVENT_CHART_CHANGE)
+     {
+      if(ShowTopCenterDubaiTime)
+         UpdateTopCenterDubaiTimeDisplay();
      }
   }
 
@@ -12425,6 +12442,8 @@ if(g_dailyEquityTradingBlocked)
   {
    UpdateDubaiTradingPauseDashboard(); // Keep dashboard updated while paused
    UpdateLeftLiveOrdersDashboard();    // Refresh live dashboard while paused
+   if(ShowTopCenterDubaiTime)
+      UpdateTopCenterDubaiTimeDisplay();
    return ;
   }
 
@@ -14058,6 +14077,8 @@ void UpdateDashboardsThrottled(DailyProtectionState &state, bool force = false)
       UpdateDashboard(state);
    if(ShowLeftLiveOrdersDashboard)
       UpdateLeftLiveOrdersDashboard(force);
+   if(ShowTopCenterDubaiTime)
+      UpdateTopCenterDubaiTimeDisplay();
   }
 
 //+------------------------------------------------------------------+
@@ -26983,6 +27004,157 @@ void DeleteLeftLiveOrdersDashboardObjects()
   }
 
 //+------------------------------------------------------------------+
+//| TOP-CENTER DUBAI TIME DISPLAY (CENTERED BETWEEN DASHBOARDS)      |
+//+------------------------------------------------------------------+
+string TOP_CENTER_DUBAI_PREFIX = "SSL_TOP_DUBAI_";
+
+void DeleteTopCenterDubaiTimeObjects()
+  {
+   int total = ObjectsTotal(0, -1, -1);
+   for(int i = total - 1; i >= 0; i--)
+     {
+      string name = ObjectName(0, i, -1, -1);
+      if(StringFind(name, TOP_CENTER_DUBAI_PREFIX, 0) == 0)
+         ObjectDelete(0, name);
+     }
+  }
+
+void CreateTopCenterDubaiLabel(string name, string text, int x, int y, int fontSize, color textColor, string font = "Consolas")
+  {
+   if(ObjectFind(0, name) < 0)
+     {
+      ObjectCreate(0, name, OBJ_LABEL, 0, 0, 0);
+      ObjectSetInteger(0, name, OBJPROP_CORNER, CORNER_LEFT_UPPER);
+      ObjectSetInteger(0, name, OBJPROP_ANCHOR, ANCHOR_UPPER);
+      ObjectSetInteger(0, name, OBJPROP_BACK, false);
+      ObjectSetInteger(0, name, OBJPROP_ZORDER, 1001);
+      ObjectSetInteger(0, name, OBJPROP_XDISTANCE, x);
+      ObjectSetInteger(0, name, OBJPROP_YDISTANCE, y);
+      ObjectSetString(0, name, OBJPROP_TEXT, text);
+      ObjectSetString(0, name, OBJPROP_FONT, font);
+      ObjectSetInteger(0, name, OBJPROP_FONTSIZE, fontSize);
+      ObjectSetInteger(0, name, OBJPROP_COLOR, textColor);
+      ObjectSetInteger(0, name, OBJPROP_SELECTABLE, false);
+      ObjectSetInteger(0, name, OBJPROP_HIDDEN, true);
+      return;
+     }
+   if(ObjectGetString(0, name, OBJPROP_TEXT) != text)
+      ObjectSetString(0, name, OBJPROP_TEXT, text);
+   if((color)ObjectGetInteger(0, name, OBJPROP_COLOR) != textColor)
+      ObjectSetInteger(0, name, OBJPROP_COLOR, textColor);
+   if((int)ObjectGetInteger(0, name, OBJPROP_XDISTANCE) != x)
+      ObjectSetInteger(0, name, OBJPROP_XDISTANCE, x);
+   if((int)ObjectGetInteger(0, name, OBJPROP_YDISTANCE) != y)
+      ObjectSetInteger(0, name, OBJPROP_YDISTANCE, y);
+   if((int)ObjectGetInteger(0, name, OBJPROP_FONTSIZE) != fontSize)
+      ObjectSetInteger(0, name, OBJPROP_FONTSIZE, fontSize);
+   if((ENUM_ANCHOR_POINT)ObjectGetInteger(0, name, OBJPROP_ANCHOR) != ANCHOR_UPPER)
+      ObjectSetInteger(0, name, OBJPROP_ANCHOR, ANCHOR_UPPER);
+  }
+
+void UpdateTopCenterDubaiTimeDisplay()
+  {
+   if(!ShowTopCenterDubaiTime)
+     {
+      DeleteTopCenterDubaiTimeObjects();
+      return;
+     }
+
+   int chartWidth = (int)ChartGetInteger(0, CHART_WIDTH_IN_PIXELS, 0);
+   if(chartWidth <= 0)
+      chartWidth = 1400;
+
+   // 1. Determine right boundary of Left Dashboard
+   int leftEnd = 0;
+   if(ShowLeftLiveOrdersDashboard && ObjectFind(0, LEFT_LIVE_PREFIX + "HEADER") >= 0)
+     {
+      int lX = (int)ObjectGetInteger(0, LEFT_LIVE_PREFIX + "HEADER", OBJPROP_XDISTANCE);
+      int lW = (int)ObjectGetInteger(0, LEFT_LIVE_PREFIX + "HEADER", OBJPROP_XSIZE);
+      leftEnd = lX + lW;
+     }
+   else if(ShowLeftLiveOrdersDashboard)
+     {
+      leftEnd = LeftDashboardX + MathMax(LeftDashboardWidth + 370, 700);
+     }
+
+   // 2. Determine left boundary of Right Dashboard
+   int rightStart = chartWidth;
+   if(ShowDashboard && ObjectFind(0, DASH_PREFIX + "HEADER") >= 0)
+     {
+      int rX      = (int)ObjectGetInteger(0, DASH_PREFIX + "HEADER", OBJPROP_XDISTANCE);
+      int rW      = (int)ObjectGetInteger(0, DASH_PREFIX + "HEADER", OBJPROP_XSIZE);
+      int rCorner = (int)ObjectGetInteger(0, DASH_PREFIX + "HEADER", OBJPROP_CORNER);
+      if(rCorner == CORNER_RIGHT_UPPER)
+         rightStart = chartWidth - (rX + rW);
+      else
+         rightStart = rX;
+     }
+   else if(ShowDashboard)
+     {
+      int rW = MathMax(DashboardWidth, 355);
+      rightStart = chartWidth - (DashboardRightGap + 10 + rW);
+     }
+
+   int panelWidth  = 240;
+   int panelHeight = 38;
+   int centerMidX  = 0;
+
+   if(rightStart > (leftEnd + panelWidth + 20))
+      centerMidX = (leftEnd + rightStart) / 2;
+   else
+      centerMidX = chartWidth / 2;
+
+   int panelX = MathMax(10, centerMidX - (panelWidth / 2));
+   int panelY = MathMin(LeftDashboardY, DashboardTopGap);
+
+   // Background Panel
+   string pnlName = TOP_CENTER_DUBAI_PREFIX + "PANEL";
+   if(ObjectFind(0, pnlName) < 0)
+     {
+      ObjectCreate(0, pnlName, OBJ_RECTANGLE_LABEL, 0, 0, 0);
+      ObjectSetInteger(0, pnlName, OBJPROP_CORNER, CORNER_LEFT_UPPER);
+      ObjectSetInteger(0, pnlName, OBJPROP_BACK, false);
+      ObjectSetInteger(0, pnlName, OBJPROP_ZORDER, 1000);
+      ObjectSetInteger(0, pnlName, OBJPROP_XDISTANCE, panelX);
+      ObjectSetInteger(0, pnlName, OBJPROP_YDISTANCE, panelY);
+      ObjectSetInteger(0, pnlName, OBJPROP_XSIZE, panelWidth);
+      ObjectSetInteger(0, pnlName, OBJPROP_YSIZE, panelHeight);
+      ObjectSetInteger(0, pnlName, OBJPROP_BGCOLOR, C'20,48,82');
+      ObjectSetInteger(0, pnlName, OBJPROP_BORDER_TYPE, BORDER_FLAT);
+      ObjectSetInteger(0, pnlName, OBJPROP_COLOR, C'45,95,155');
+      ObjectSetInteger(0, pnlName, OBJPROP_SELECTABLE, false);
+      ObjectSetInteger(0, pnlName, OBJPROP_HIDDEN, true);
+     }
+   else
+     {
+      if((int)ObjectGetInteger(0, pnlName, OBJPROP_XDISTANCE) != panelX)
+         ObjectSetInteger(0, pnlName, OBJPROP_XDISTANCE, panelX);
+      if((int)ObjectGetInteger(0, pnlName, OBJPROP_YDISTANCE) != panelY)
+         ObjectSetInteger(0, pnlName, OBJPROP_YDISTANCE, panelY);
+      if((int)ObjectGetInteger(0, pnlName, OBJPROP_XSIZE) != panelWidth)
+         ObjectSetInteger(0, pnlName, OBJPROP_XSIZE, panelWidth);
+      if((int)ObjectGetInteger(0, pnlName, OBJPROP_YSIZE) != panelHeight)
+         ObjectSetInteger(0, pnlName, OBJPROP_YSIZE, panelHeight);
+      if((color)ObjectGetInteger(0, pnlName, OBJPROP_BGCOLOR) != C'20,48,82')
+         ObjectSetInteger(0, pnlName, OBJPROP_BGCOLOR, C'20,48,82');
+     }
+
+   // Time Calculation
+   datetime nowServer = TimeCurrent();
+   datetime dubaiTime = (nowServer > 0) ? (nowServer + (ServerToDubaiOffsetHours * 3600)) : 0;
+   string   clockStr  = (dubaiTime > 0) ? TimeToString(dubaiTime, TIME_DATE|TIME_MINUTES|TIME_SECONDS) : "--:--:--";
+   string   headerStr = "DUBAI TIME (UTC+4)";
+
+   string tooltip = StringFormat("Dubai GST (UTC+4) | Day Rollover: 16:00 Dubai | Server Offset: %+dh", ServerToDubaiOffsetHours);
+   ObjectSetString(0, pnlName, OBJPROP_TOOLTIP, tooltip);
+
+   CreateTopCenterDubaiLabel(TOP_CENTER_DUBAI_PREFIX + "TITLE", headerStr, centerMidX, panelY + 4,  8, C'175,220,255', "Arial");
+   CreateTopCenterDubaiLabel(TOP_CENTER_DUBAI_PREFIX + "CLOCK", clockStr,  centerMidX, panelY + 18, 10, clrWhite,       "Consolas");
+   ObjectSetString(0, TOP_CENTER_DUBAI_PREFIX + "TITLE", OBJPROP_TOOLTIP, tooltip);
+   ObjectSetString(0, TOP_CENTER_DUBAI_PREFIX + "CLOCK", OBJPROP_TOOLTIP, tooltip);
+  }
+
+//+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
 struct LeftDashOrderSnapshot
@@ -28272,6 +28444,8 @@ void UpdateLeftLiveOrdersDashboard(bool force = false)
       CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"EMPTY", "NO ACTIVE EA ORDERS", tx, y+262, 9, clrSilver);
    else
       CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"EMPTY", "Showing "+IntegerToString(MathMin(total,rows))+" of "+IntegerToString(total)+" orders", tx, y+262+(rows*20)+4, 8, clrSilver);
+   if(ShowTopCenterDubaiTime)
+      UpdateTopCenterDubaiTimeDisplay();
    ChartRedraw(0);
   }
 //+------------------------------------------------------------------+
