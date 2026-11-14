@@ -1,4 +1,4 @@
-﻿//+------------------------------------------------------------------+
+//+------------------------------------------------------------------+
 //|                  SSL CHANNEL CROSS EA - CONTINUOUS EQUITY LADDER |
 //|                  TWO-STAGE PROFIT LADDER | CONTINUOUS RESET      |
 //+------------------------------------------------------------------+
@@ -44,11 +44,13 @@ CheckBasketProfitClose  Total open basket profit
 
 
 
-string glbVersion = "VMULTI-1180 - FINAL TESTED Oct 1st to 30th $500 to $800";
+string glbVersion = "VMULTI-1181 - Trailing Step $5 and 80% Retrace Day Stop";
 
 
 
-double DailyEquityStopUSD  =20;//10;//50;//  $50 /10;//10%;//percentage //1000;//50;//20*2.5;//10;//20;// 10;//30.0; close all orders at $50Xmultipler
+double DailyEquityStopUSD          = 20;//10;//50;//  $50 /10;//10%;//percentage //1000;//50;//20*2.5;//10;//20;// 10;//30.0; close all orders at $50Xmultipler
+double DailyEquityTrailStepUSD     = 5.0;  // Collect $5 step profit step-by-step after DailyEquityStopUSD hit
+double DailyEquityRetraceFloorPct  = 80.0; // Pause trading for the day when profit retraces to 80% of DailyEquityStopUSD
 double TargetProfitPerFlipUSD =50;//;//percentage////1000;//20;//10;//10*2;//10;//5;//20;// 10.0; close all orders at $20Xmultipler
 
 double protectgapOnOrderclose=31;//30;//101;//1000;//303;//11111111111111
@@ -125,6 +127,10 @@ double InpBasketTrailStepUSD        = 1;//0.50;        // Pullback distance in U
 int      g_dayNumber = -1;
 double   g_dayOpeningBalance = 0.0;
 bool     g_dailyEquityTradingBlocked = false;
+bool     g_dailyEquityTargetHitToday    = false; // Target equity reached today; trailing $5 steps active
+double   g_dailyEquityPeakEquity        = 0.0;   // Peak equity reached after target hit
+double   g_dailyEquityNextStepTarget    = 0.0;   // Next $5 step profit equity milestone
+int      g_dailyEquityStepCount         = 0;     // Number of $5 steps hit today
 
 bool EnableBounceBackDetection = false;
 
@@ -12215,6 +12221,10 @@ void CheckForNewDay()
 
       // Reset daily protection
       g_dailyEquityTradingBlocked = false;
+      g_dailyEquityTargetHitToday = false;
+      g_dailyEquityPeakEquity = 0.0;
+      g_dailyEquityNextStepTarget = 0.0;
+      g_dailyEquityStepCount = 0;
 
       Print("NEW TRADING DAY detected (Dubai 4 PM). Opening Balance = ",
             DoubleToString(g_dayOpeningBalance, 2));
@@ -12237,6 +12247,10 @@ void CheckForNewDayOld()
 
       // Reset daily protection
       g_dailyEquityTradingBlocked = false;
+      g_dailyEquityTargetHitToday = false;
+      g_dailyEquityPeakEquity = 0.0;
+      g_dailyEquityNextStepTarget = 0.0;
+      g_dailyEquityStepCount = 0;
 
       Print("NEW DAY detected. Opening Balance = ",
             DoubleToString(g_dayOpeningBalance, 2));
@@ -12271,8 +12285,110 @@ bool IsDailyEquityStopReacheddmanual()
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
+//+------------------------------------------------------------------+
+//| ModifyOpenOrdersToCurrentPriceSL                                 |
+//| Locks in profit by moving SL of all open market orders to        |
+//| current live market price (with minimum stop distance buffer).   |
+//| Called on DailyEquityStopUSD target hit and on each +$5 step hit.|
+//+------------------------------------------------------------------+
+void ModifyOpenOrdersToCurrentPriceSL(string reason = "Daily Equity Target Hit")
+{
+   RefreshRates();
+   double minDistance = GetRequiredStopDistance();
+   if(minDistance < 20.0)
+      minDistance = 20.0;
+
+   double curBid = MarketInfo(Symbol(), MODE_BID);
+   double curAsk = MarketInfo(Symbol(), MODE_ASK);
+   int modifiedCount = 0;
+
+   for(int i = OrdersTotal() - 1; i >= 0; i--)
+   {
+      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
+         continue;
+
+      if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber)
+         continue;
+
+      // Exclude recovery orders: they have their own recovery logic
+      if(IsAnyRecoveryOrder(OrderTicket(), OrderComment()))
+         continue;
+
+      // Exclude FLIPBasketSupport orders: they have dedicated step-trailing SL
+      if(IsFLIPBasketSupportOrder(OrderTicket(), OrderComment()))
+         continue;
+
+      int    tkt   = OrderTicket();
+      int    oType = OrderType();
+      double oOpen = OrderOpenPrice();
+      double curSL = OrderStopLoss();
+      double curTP = OrderTakeProfit();
+      double netPL = OrderProfit() + OrderSwap() + OrderCommission();
+
+      RefreshRates();
+      curBid = MarketInfo(Symbol(), MODE_BID);
+      curAsk = MarketInfo(Symbol(), MODE_ASK);
+
+      double proposedSL   = 0.0;
+      bool   shouldModify = false;
+
+      if(oType == OP_BUY)
+      {
+         proposedSL = NormalizeDouble(curBid - minDistance, Digits);
+         if((curBid - proposedSL) < minDistance)
+            proposedSL = NormalizeDouble(curBid - minDistance, Digits);
+
+         if(proposedSL >= curBid)
+            continue;
+
+         // For BUY: Set if no SL (0.0), or only move SL forward (higher) by at least 1 point
+         if(curSL == 0.0 || (proposedSL > curSL && (proposedSL - curSL) >= Point))
+         {
+            shouldModify = true;
+         }
+      }
+      else if(oType == OP_SELL)
+      {
+         proposedSL = NormalizeDouble(curAsk + minDistance, Digits);
+         if((proposedSL - curAsk) < minDistance)
+            proposedSL = NormalizeDouble(curAsk + minDistance, Digits);
+
+         if(proposedSL <= curAsk)
+            continue;
+
+         // For SELL: Set if no SL (0.0), or only move SL forward (lower) by at least 1 point
+         if(curSL == 0.0 || (proposedSL < curSL && (curSL - proposedSL) >= Point))
+         {
+            shouldModify = true;
+         }
+      }
+
+      if(shouldModify && proposedSL > 0.0)
+      {
+         ResetLastError();
+         bool modified = SafeOrderModify(tkt, oOpen, proposedSL, curTP, 0, (oType == OP_BUY ? clrLimeGreen : clrTomato));
+         if(modified)
+         {
+            modifiedCount++;
+            Print(StringFormat("[DAILY EQ STEP SL - %s] Ticket #%d | Type=%s | P/L=$%.2f | Old SL=%.2f -> New SL=%.2f",
+                  reason, tkt, (oType == OP_BUY ? "BUY" : "SELL"), netPL, curSL, proposedSL));
+         }
+      }
+   }
+}
+
+//+------------------------------------------------------------------+
+//| IsDailyEquityStopReached                                         |
+//| 1. On DailyEquityStopUSD reached: Modifies open orders SL to     |
+//|    current price, continues trading to collect $5 steps.         |
+//| 2. On +$5 step hit: Modifies SL to current price step-by-step.   |
+//| 3. On 80% Retrace: Closes all orders and pauses for the day.     |
+//+------------------------------------------------------------------+
 bool IsDailyEquityStopReached()
 {
+   if(g_dailyEquityTradingBlocked)
+      return true;
+
    double dailyTarget = DailyEquityStopUSD;
 
    // Get Dubai time (UTC+4)
@@ -12286,24 +12402,68 @@ bool IsDailyEquityStopReached()
       dailyTarget = DailyEquityStopUSD / 2.0;
    }
 
-   // Calculate target equity
-   double targetEquity = g_dayOpeningBalance
-                       + (dailyTarget * balancelomultipler);
+   int mult = (balancelomultipler > 0) ? balancelomultipler : 1;
+   double targetEquity = g_dayOpeningBalance + (dailyTarget * mult);
+   double stepUSD      = DailyEquityTrailStepUSD * mult;
+   double curEquity    = AccountEquity();
 
-   // Check equity target
-   if(AccountEquity() >= targetEquity)
+   // Retrace Floor: 80% of DailyEquityStopUSD (e.g. $50 target -> $40 profit floor)
+   double floorEquity  = g_dayOpeningBalance + (dailyTarget * (DailyEquityRetraceFloorPct / 100.0) * mult);
+
+   // ==============================================================
+   // PHASE 1: INITIAL TARGET HIT ($50 * multiplier reached)
+   // ==============================================================
+   if(!g_dailyEquityTargetHitToday)
    {
-      g_dailyEquityTradingBlocked = true;
+      if(curEquity >= targetEquity)
+      {
+         g_dailyEquityTargetHitToday = true;
+         g_dailyEquityPeakEquity     = curEquity;
+         g_dailyEquityStepCount      = 0;
+         g_dailyEquityNextStepTarget = curEquity + stepUSD; // Next $5 milestone
 
-      Print("[DAILY EQUITY PROFIT TARGET HIT]",
-            " Target: ", DoubleToString(targetEquity, 2),
-            " Current Equity: ", DoubleToString(AccountEquity(), 2),
-            " Daily Target: ", DoubleToString(dailyTarget, 2),
-            " Day: ", dayOfWeek);
+         Print(StringFormat("[DAILY EQUITY PROFIT TARGET HIT] Target=$%.2f | CurEquity=$%.2f (Profit=+$%.2f) | Modifying SL to Current Price | Trail Step=$%.2f | 80%% Floor=$%.2f | Continuing trading...",
+               targetEquity, curEquity, (curEquity - g_dayOpeningBalance), stepUSD, floorEquity));
 
-      CloseAndDeleteAllEAOrdersOnTradingStop();
+         // User Rule: Modify orders with stoploss price at current price
+         ModifyOpenOrdersToCurrentPriceSL("Initial Target Hit");
 
-      return true;
+         // Continue trading to collect $5 step profit step-by-step
+      }
+   }
+   // ==============================================================
+   // PHASE 2: TARGET HIT TODAY - COLLECT $5 STEPS / RETRACE TO 80%
+   // ==============================================================
+   else
+   {
+      // Track peak equity
+      if(curEquity > g_dailyEquityPeakEquity)
+         g_dailyEquityPeakEquity = curEquity;
+
+      // Collect +$5 step profit step-by-step
+      if(curEquity >= g_dailyEquityNextStepTarget && g_dailyEquityNextStepTarget > 0.0)
+      {
+         g_dailyEquityStepCount++;
+         Print(StringFormat("[DAILY EQUITY +$5 STEP #%d HIT] Equity=$%.2f | Peak=$%.2f | Modifying SL to Current Price | Next Step Target=$%.2f",
+               g_dailyEquityStepCount, curEquity, g_dailyEquityPeakEquity, (curEquity + stepUSD)));
+
+         g_dailyEquityNextStepTarget = curEquity + stepUSD;
+
+         ModifyOpenOrdersToCurrentPriceSL(StringFormat("+$5 Step #%d", g_dailyEquityStepCount));
+      }
+
+      // Stop trading and pause for the day when coming back to 80% of DailyEquityStopUSD
+      if(curEquity <= floorEquity)
+      {
+         g_dailyEquityTradingBlocked = true;
+
+         Print(StringFormat("[DAILY EQUITY 80%% RETRACE STOP] Target was reached earlier (Peak=$%.2f). Equity dropped to 80%% floor ($%.2f <= $%.2f). Closing all orders and pausing for the day.",
+               g_dailyEquityPeakEquity, curEquity, floorEquity));
+
+         CloseAndDeleteAllEAOrdersOnTradingStop();
+
+         return true;
+      }
    }
 
    return g_dailyEquityTradingBlocked;
@@ -12341,6 +12501,7 @@ IsDailyEquityStopReached(); // Check target every tick; sets g_dailyEquityTradin
 if(g_dailyEquityTradingBlocked)
   {
    UpdateDubaiTradingPauseDashboard(); // Keep dashboard updated while paused
+   UpdateLeftLiveOrdersDashboard();    // Refresh live dashboard while paused
    return ;
   }
 
@@ -13297,7 +13458,7 @@ void CheckMissedSignalMemory(DailyProtectionState &dailyState)
 datetime EmaAngleExtremeStartTime = 0;
 
 //+------------------------------------------------------------------+
-//| Close Opposite Orders on Extreme EMA Angle (> 5Â° for 30 Mins)    |
+//| Close Opposite Orders on Extreme EMA Angle (> 5° for 30 Mins)    |
 //+------------------------------------------------------------------+
 void ManageEmaAngleOppositeClose()
   {
@@ -13325,7 +13486,7 @@ void ManageEmaAngleOppositeClose()
                // If EMA angle > 5 continuously for 30m, close all SELL orders
                if(emaAngle > 5.0 && orderType == OP_SELL)
                  {
-                  Print("EMA ANGLE TRIGGER (> 5Â° for 30m): Closing SELL order. Angle: ", DoubleToString(emaAngle, 2));
+                  Print("EMA ANGLE TRIGGER (> 5° for 30m): Closing SELL order. Angle: ", DoubleToString(emaAngle, 2));
                   SafeOrderClose(OrderTicket(), OrderLots(), OP_SELL, Slippage, clrRed);
                  }
 
@@ -13333,7 +13494,7 @@ void ManageEmaAngleOppositeClose()
                else
                   if(emaAngle < -5.0 && orderType == OP_BUY)
                     {
-                     Print("EMA ANGLE TRIGGER (< -5Â° for 30m): Closing BUY order. Angle: ", DoubleToString(emaAngle, 2));
+                     Print("EMA ANGLE TRIGGER (< -5° for 30m): Closing BUY order. Angle: ", DoubleToString(emaAngle, 2));
                      SafeOrderClose(OrderTicket(), OrderLots(), OP_BUY, Slippage, clrRed);
                     }
               }
@@ -18256,10 +18417,10 @@ void ModifyOpenOrdersToSecureProfitNEW()
       double orderProfit = OrderProfit() + OrderSwap() + OrderCommission();
 
       //==============================================================
-      // LOSS ORDER â†’ WIDEN SL BY $50 GAP (1-Min Cooldown)
+      // LOSS ORDER → WIDEN SL BY $50 GAP (1-Min Cooldown)
       //==============================================================
       //==============================================================
-      // LOSS ORDER â†’ WIDEN SL BY $50 GAP FROM CURRENT TICK PRICE
+      // LOSS ORDER → WIDEN SL BY $50 GAP FROM CURRENT TICK PRICE
       //==============================================================
       if(orderProfit < 0.0)
         {
@@ -18321,7 +18482,7 @@ void ModifyOpenOrdersToSecureProfitNEW()
         }
 
       //==============================================================
-      // PROFIT ORDER â†’ MODIFY SL
+      // PROFIT ORDER → MODIFY SL
       //==============================================================
       if(orderProfit > 0.0)
         {
@@ -26987,7 +27148,7 @@ void UpdateLeftLiveOrdersDashboard()
       if(type==OP_BUY || type==OP_SELL)
          netPL+=orderPL;
      }
-   int x=LeftDashboardX, y=LeftDashboardY, tx=x+12, width=MathMax(LeftDashboardWidth+370, 700), panelHeight=rows*20+264;
+   int x=LeftDashboardX, y=LeftDashboardY, tx=x+12, width=MathMax(LeftDashboardWidth+370, 700), panelHeight=rows*20+286;
    color pnlColor=clrWhite;
    if(netPL>0)
       pnlColor=clrLime;
@@ -27830,18 +27991,57 @@ void UpdateLeftLiveOrdersDashboard()
     string deqStatusTxt;
     color  deqBarClr;
     color  deqTxtClr;
-    if(g_dailyEquityTradingBlocked)      { deqStatusTxt="PAUSED"; deqBarClr=C'50,15,15'; deqTxtClr=clrTomato; }
-    else if(deqPct >= 90.0)              { deqStatusTxt="NEAR";   deqBarClr=C'50,40,10'; deqTxtClr=clrGold;   }
-    else if(deqProfit > 0.0)             { deqStatusTxt="ACTIVE"; deqBarClr=C'12,32,20'; deqTxtClr=clrLime;   }
-    else                                 { deqStatusTxt="WAIT";   deqBarClr=C'18,22,34'; deqTxtClr=clrSilver; }
-    string deqLeftTxt  = StringFormat("DAY EQ TGT : [%s] Base:$%.0f  Tgt:$%.0f  ($%.0fx%d)",
-                                      deqStatusTxt, deqOpenBase, deqTarget, DailyEquityStopUSD, (int)deqMult);
-    string deqRightTxt = StringFormat("P/L:%s$%.2f (%.0f%%)  Rem:$%.2f",
-                                      deqSign, deqProfit, MathMax(0.0,MathMin(deqPct,100.0)), deqRemaining);
-    color  deqRightClr = g_dailyEquityTradingBlocked ? clrTomato : (deqPct>=90.0 ? clrGold : (deqProfit>0.0 ? clrLime : clrSilver));
-    CreateLeftLivePanel(LEFT_LIVE_PREFIX+"DEQTGT_BAR", x, y+104, width, 22, deqBarClr);
-    CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"DEQTGT_L",   deqLeftTxt,  tx,          y+109, 8, deqTxtClr);
-    CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"DEQTGT_R",   deqRightTxt, x+width-220, y+109, 8, deqRightClr);
+      double deqFloor80    = (deqTarget - deqOpenBase) * (DailyEquityRetraceFloorPct / 100.0);
+      string deqRightTxt   = "";
+      color  deqRightClr   = clrSilver;
+
+      if(g_dailyEquityTradingBlocked)
+        {
+         deqStatusTxt = "PAUSED";
+         deqBarClr    = C'50,15,15';
+         deqTxtClr    = clrTomato;
+         deqRightTxt  = StringFormat("P/L:%s$%.2f  PAUSED AT 80%% RETRACE", deqSign, deqProfit);
+         deqRightClr  = clrTomato;
+        }
+      else if(g_dailyEquityTargetHitToday)
+        {
+         deqStatusTxt = (g_dailyEquityStepCount > 0) ? StringFormat("+$5x%d", g_dailyEquityStepCount) : "TRAIL+$5";
+         deqBarClr    = C'20,40,12';
+         deqTxtClr    = clrGold;
+         deqRightTxt  = StringFormat("P/L:%s$%.2f (Peak:$%.2f) Floor80%%:$%.2f",
+                                     deqSign, deqProfit, (g_dailyEquityPeakEquity - deqOpenBase), deqFloor80);
+         deqRightClr  = clrGold;
+        }
+      else if(deqPct >= 90.0)
+        {
+         deqStatusTxt = "NEAR";
+         deqBarClr    = C'50,40,10';
+         deqTxtClr    = clrGold;
+         deqRightTxt  = StringFormat("P/L:%s$%.2f (%.0f%%)  Rem:$%.2f", deqSign, deqProfit, MathMax(0.0,MathMin(deqPct,100.0)), deqRemaining);
+         deqRightClr  = clrGold;
+        }
+      else if(deqProfit > 0.0)
+        {
+         deqStatusTxt = "ACTIVE";
+         deqBarClr    = C'12,32,20';
+         deqTxtClr    = clrLime;
+         deqRightTxt  = StringFormat("P/L:%s$%.2f (%.0f%%)  Rem:$%.2f", deqSign, deqProfit, MathMax(0.0,MathMin(deqPct,100.0)), deqRemaining);
+         deqRightClr  = clrLime;
+        }
+      else
+        {
+         deqStatusTxt = "WAIT";
+         deqBarClr    = C'18,22,34';
+         deqTxtClr    = clrSilver;
+         deqRightTxt  = StringFormat("P/L:%s$%.2f (%.0f%%)  Rem:$%.2f", deqSign, deqProfit, MathMax(0.0,MathMin(deqPct,100.0)), deqRemaining);
+         deqRightClr  = clrSilver;
+        }
+
+      string deqLeftTxt  = StringFormat("DAY EQ TGT : [%s] Base:$%.0f  Tgt:$%.0f  ($%.0fx%d)",
+                                        deqStatusTxt, deqOpenBase, deqTarget, DailyEquityStopUSD, (int)deqMult);
+      CreateLeftLivePanel(LEFT_LIVE_PREFIX+"DEQTGT_BAR", x, y+104, width, 22, deqBarClr);
+      CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"DEQTGT_L",   deqLeftTxt,  tx,          y+109, 8, deqTxtClr);
+      CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"DEQTGT_R",   deqRightTxt, x+width-240, y+109, 8, deqRightClr);
    }
 
    CreateLeftLivePanel(LEFT_LIVE_PREFIX+"DUBAI_NIGHTBAR", x, y+126, width, 22, C'12,24,38');
@@ -27909,9 +28109,9 @@ void UpdateLeftLiveOrdersDashboard()
             pGapRightClr = (pGapLeftRaw > pGapLeftReq || dDayEqPct > pGapLeftPctReq) ? clrGold : clrSilver;
            }
 
-   CreateLeftLivePanel(LEFT_LIVE_PREFIX+"PGAP_BAR", x, y+126, width, 22, C'14,22,36');
-   CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"PGAP_L", pGapLeftTxt, tx, y+131, 8, pGapLeftClr);
-   CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"PGAP_R", pGapRightTxt, x+width-168, y+131, 8, pGapRightClr);
+   CreateLeftLivePanel(LEFT_LIVE_PREFIX+"PGAP_BAR", x, y+148, width, 22, C'14,22,36');
+   CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"PGAP_L", pGapLeftTxt, tx, y+153, 8, pGapLeftClr);
+   CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"PGAP_R", pGapRightTxt, x+width-168, y+153, 8, pGapRightClr);
 
    double sLeftEqDdPct  = (liveBal > 0.0 && liveEq < liveBal) ? (((liveBal - liveEq) / liveBal) * 100.0) : 0.0;
    double sLeftActReq   = (InpStepLossActivateSidePct > 0.0) ? InpStepLossActivateSidePct : 10.0;
@@ -27975,15 +28175,15 @@ void UpdateLeftLiveOrdersDashboard()
                sLossRightClr = clrSilver;
               }
 
-   CreateLeftLivePanel(LEFT_LIVE_PREFIX+"SLOSS_BAR", x, y+148, width, 22, C'18,22,34');
-   CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"SLOSS_L", sLossLeftTxt, tx, y+153, 8, sLossLeftClr);
-   CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"SLOSS_R", sLossRightTxt, x+width-168, y+153, 8, sLossRightClr);
+   CreateLeftLivePanel(LEFT_LIVE_PREFIX+"SLOSS_BAR", x, y+170, width, 22, C'18,22,34');
+   CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"SLOSS_L", sLossLeftTxt, tx, y+175, 8, sLossLeftClr);
+   CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"SLOSS_R", sLossRightTxt, x+width-168, y+175, 8, sLossRightClr);
 
-   CreateLeftLivePanel(LEFT_LIVE_PREFIX+"SUMMARYBAR", x, y+170, width, 42, C'25,31,42');
+   CreateLeftLivePanel(LEFT_LIVE_PREFIX+"SUMMARYBAR", x, y+192, width, 42, C'25,31,42');
 
 // Top Row: Buy Lot and Buy P/L , sell LOT and sell P/l - Net P/L
    string topRowText = "BUY " + DoubleToString(buyLots,2) + " (P/L " + buyPLStr + ") , SELL " + DoubleToString(sellLots,2) + " (P/L " + sellPLStr + ") - NET " + netPLStr;
-   CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"TOTALS", topRowText, tx, y+177, 9, pnlColor);
+   CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"TOTALS", topRowText, tx, y+199, 9, pnlColor);
 
 // Second Row: Orders Count Summary
    int revMaxCap   = (InpReverse100MaxActiveOrders > 0) ? InpReverse100MaxActiveOrders : 1;
@@ -27996,17 +28196,17 @@ void UpdateLeftLiveOrdersDashboard()
                         "   SELL " + IntegerToString(sellCount) +
                         "   PEND " + IntegerToString(pendingCount) +
                         revBadge;
-   CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"SUMMARY", summaryText, tx, y+194, 8, clrWhite);
+   CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"SUMMARY", summaryText, tx, y+216, 8, clrWhite);
 
-   CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"HEAD_ID", "ORDER ID", tx, y+220, 8, clrSilver);
-   CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"HEAD", "TYPE     LOT       OPEN            SL     GAP      P/L", tx+76, y+220, 8, clrSilver);
-   CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"HEAD_CMT", "COMMENT", tx+422, y+220, 8, clrSilver);
+   CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"HEAD_ID", "ORDER ID", tx, y+242, 8, clrSilver);
+   CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"HEAD", "TYPE     LOT       OPEN            SL     GAP      P/L", tx+76, y+242, 8, clrSilver);
+   CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"HEAD_CMT", "COMMENT", tx+422, y+242, 8, clrSilver);
 
    for(int r=0; r<24; r++)
      {
-      CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"ID"+IntegerToString(r), "", tx, y+240+(r*20), 8, clrSilver);
-      CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"ROW"+IntegerToString(r), "", tx+76, y+240+(r*20), 8, clrWhite);
-      CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"VERIFY"+IntegerToString(r), "", tx+422, y+240+(r*20), 8, clrSilver);
+      CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"ID"+IntegerToString(r), "", tx, y+262+(r*20), 8, clrSilver);
+      CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"ROW"+IntegerToString(r), "", tx+76, y+262+(r*20), 8, clrWhite);
+      CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"VERIFY"+IntegerToString(r), "", tx+422, y+262+(r*20), 8, clrSilver);
      }
 
    int row=0;
