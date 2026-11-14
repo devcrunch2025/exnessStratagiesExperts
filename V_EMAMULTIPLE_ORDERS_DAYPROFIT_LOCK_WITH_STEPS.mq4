@@ -42,12 +42,12 @@ CheckBasketProfitClose  Total open basket profit
 */
 
 
-string glbVersion = "VMULTI-1182 - Dynamic 80% Trailing Floor on Total Profit Steps";
+string glbVersion = "VMULTI-1183 - Dynamic 70% Trailing Floor on Maximum Profit Steps";
 
 
 double DailyEquityStopUSD          = 20;//10;//50;//  $50 /10;//10%;//percentage //1000;//50;//20*2.5;//10;//20;// 10;//30.0; close all orders at $50Xmultipler
 double DailyEquityTrailStepUSD     = 5.0;  // Collect $5 step profit step-by-step after DailyEquityStopUSD hit
-double DailyEquityRetraceFloorPct  = 80.0; // Pause trading for the day when profit retraces to 80% of DailyEquityStopUSD
+double DailyEquityRetraceFloorPct  = 70.0; // Pause trading for the day when profit retraces to 70% of maximum profit hit (target + steps)
 double TargetProfitPerFlipUSD =50;//;//percentage////1000;//20;//10;//10*2;//10;//5;//20;// 10.0; close all orders at $20Xmultipler
 
 double protectgapOnOrderclose=31;//30;//101;//1000;//303;//11111111111111
@@ -11646,7 +11646,7 @@ void ModifyOpenOrdersToCurrentPriceSL(string reason = "Daily Equity Target Hit")
 //| 1. On DailyEquityStopUSD reached: Modifies open orders SL to     |
 //|    current price, continues trading to collect $5 steps.         |
 //| 2. On +$5 step hit: Modifies SL to current price step-by-step.   |
-//| 3. On 80% Retrace: Closes all orders and pauses for the day.     |
+//| 3. On 70% Retrace: Closes all orders and pauses for the day.     |
 //+------------------------------------------------------------------+
 bool IsDailyEquityStopReached()
 {
@@ -11675,7 +11675,7 @@ bool IsDailyEquityStopReached()
    if(g_dailyEquityTargetHitToday && curEquity > g_dailyEquityPeakEquity)
       g_dailyEquityPeakEquity = curEquity;
 
-   // Dynamic 80% Retrace Floor of Total Collected Profit (DailyEquityStopUSD + all $5 steps)
+   // Dynamic 70% Retrace Floor of Maximum Collected Profit (DailyEquityStopUSD + all $5 steps)
    double totalPeakProfit = (g_dailyEquityPeakEquity > g_dayOpeningBalance) ? (g_dailyEquityPeakEquity - g_dayOpeningBalance) : (dailyTarget * mult);
    if(totalPeakProfit < dailyTarget * mult)
       totalPeakProfit = dailyTarget * mult;
@@ -11699,7 +11699,7 @@ bool IsDailyEquityStopReached()
          floorProfit     = totalPeakProfit * (DailyEquityRetraceFloorPct / 100.0);
          floorEquity     = g_dayOpeningBalance + floorProfit;
 
-         Print(StringFormat("[DAILY EQUITY PROFIT TARGET HIT] Target=$%.2f | CurEquity=$%.2f (Profit=+$%.2f) | Modifying SL to Current Price | Trail Step=$%.2f | Dynamic 80%% Floor=$%.2f (80%% of $%.2f) | Continuing trading...",
+         Print(StringFormat("[DAILY EQUITY PROFIT TARGET HIT] Target=$%.2f | CurEquity=$%.2f (Profit=+$%.2f) | Modifying SL to Current Price | Trail Step=$%.2f | Dynamic 70%% Floor=$%.2f (70%% of $%.2f) | Continuing trading...",
                targetEquity, curEquity, (curEquity - g_dayOpeningBalance), stepUSD, floorEquity, totalPeakProfit));
 
          // User Rule: Modify orders with stoploss price at current price
@@ -11709,7 +11709,7 @@ bool IsDailyEquityStopReached()
       }
    }
    // ==============================================================
-   // PHASE 2: TARGET HIT TODAY - COLLECT $5 STEPS / RETRACE TO 80%
+   // PHASE 2: TARGET HIT TODAY - COLLECT $5 STEPS / RETRACE TO 70%
    // ==============================================================
    else
    {
@@ -11717,7 +11717,7 @@ bool IsDailyEquityStopReached()
       if(curEquity > g_dailyEquityPeakEquity)
          g_dailyEquityPeakEquity = curEquity;
 
-      // Recalculate dynamic 80% floor of total peak profit collected (Daily target + steps)
+      // Recalculate dynamic 70% floor of maximum peak profit collected (Daily target + steps)
       totalPeakProfit = g_dailyEquityPeakEquity - g_dayOpeningBalance;
       floorProfit     = totalPeakProfit * (DailyEquityRetraceFloorPct / 100.0);
       floorEquity     = g_dayOpeningBalance + floorProfit;
@@ -11726,7 +11726,7 @@ bool IsDailyEquityStopReached()
       if(curEquity >= g_dailyEquityNextStepTarget && g_dailyEquityNextStepTarget > 0.0)
       {
          g_dailyEquityStepCount++;
-         Print(StringFormat("[DAILY EQUITY +$5 STEP #%d HIT] Equity=$%.2f | Peak=$%.2f (+$%.2f) | Dynamic 80%% Floor=$%.2f (80%% of $%.2f) | Modifying SL to Current Price | Next Step Target=$%.2f",
+         Print(StringFormat("[DAILY EQUITY +$5 STEP #%d HIT] Equity=$%.2f | Peak=$%.2f (+$%.2f) | Dynamic 70%% Floor=$%.2f (70%% of $%.2f) | Modifying SL to Current Price | Next Step Target=$%.2f",
                g_dailyEquityStepCount, curEquity, g_dailyEquityPeakEquity, totalPeakProfit, floorEquity, totalPeakProfit, (curEquity + stepUSD)));
 
          g_dailyEquityNextStepTarget = curEquity + stepUSD;
@@ -11734,12 +11734,12 @@ bool IsDailyEquityStopReached()
          ModifyOpenOrdersToCurrentPriceSL(StringFormat("+$5 Step #%d", g_dailyEquityStepCount));
       }
 
-      // Stop trading and pause for the day when coming back to 80% of total collected profit
+      // Stop trading and pause for the day when coming back to 70% of maximum collected profit
       if(curEquity <= floorEquity)
       {
          g_dailyEquityTradingBlocked = true;
 
-         Print(StringFormat("[DAILY EQUITY 80%% RETRACE STOP] Total peak profit collected was $%.2f (Daily target + %d x $5 steps). Equity dropped to 80%% floor ($%.2f <= $%.2f). Closing all orders and pausing for the day.",
+         Print(StringFormat("[DAILY EQUITY 70%% RETRACE STOP] Maximum peak profit collected was $%.2f (Daily target + %d x $5 steps). Equity dropped to 70%% floor ($%.2f <= $%.2f). Closing all orders and pausing for the day.",
                totalPeakProfit, g_dailyEquityStepCount, curEquity, floorEquity));
 
          CloseAndDeleteAllEAOrdersOnTradingStop();
@@ -23732,7 +23732,7 @@ void UpdateLeftLiveOrdersDashboard()
     color  deqBarClr;
     color  deqTxtClr;
       double deqPeakProfit = (g_dailyEquityPeakEquity > deqOpenBase) ? (g_dailyEquityPeakEquity - deqOpenBase) : (deqTarget - deqOpenBase);
-      double deqFloor80    = deqPeakProfit * (DailyEquityRetraceFloorPct / 100.0);
+      double deqFloor70    = deqPeakProfit * (DailyEquityRetraceFloorPct / 100.0);
       string deqRightTxt   = "";
       color  deqRightClr   = clrSilver;
 
@@ -23741,7 +23741,7 @@ void UpdateLeftLiveOrdersDashboard()
          deqStatusTxt = "PAUSED";
          deqBarClr    = C'50,15,15';
          deqTxtClr    = clrTomato;
-         deqRightTxt  = StringFormat("P/L:%s$%.2f  PAUSED AT 80%% RETRACE", deqSign, deqProfit);
+         deqRightTxt  = StringFormat("P/L:%s$%.2f  PAUSED AT 70%% RETRACE", deqSign, deqProfit);
          deqRightClr  = clrTomato;
         }
       else if(g_dailyEquityTargetHitToday)
@@ -23749,8 +23749,8 @@ void UpdateLeftLiveOrdersDashboard()
          deqStatusTxt = (g_dailyEquityStepCount > 0) ? StringFormat("+$5x%d", g_dailyEquityStepCount) : "TRAIL+$5";
          deqBarClr    = C'20,40,12';
          deqTxtClr    = clrGold;
-         deqRightTxt  = StringFormat("P/L:%s$%.2f (Peak:$%.2f) Floor80%%:$%.2f",
-                                     deqSign, deqProfit, deqPeakProfit, deqFloor80);
+         deqRightTxt  = StringFormat("P/L:%s$%.2f (Peak:$%.2f) Floor70%%:$%.2f",
+                                     deqSign, deqProfit, deqPeakProfit, deqFloor70);
          deqRightClr  = clrGold;
         }
       else if(deqPct >= 90.0)
