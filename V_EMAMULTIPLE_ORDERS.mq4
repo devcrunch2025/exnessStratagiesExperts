@@ -44,7 +44,7 @@ CheckBasketProfitClose  Total open basket profit
 
 
 
-string glbVersion = "VMULTI-1186 - Daily Opening Balance Update on Every Day Change for Plans A B C D";
+string glbVersion = "VMULTI-1187 - Throttled 1-Minute Chart Dashboard Update Engine";
 
 
 
@@ -782,8 +782,10 @@ int  g_onTickSequence = 0;
 bool g_eqDdForceCloseBudget = false;
 int CachedTotalEAOrders = -1;
 int CachedTotalEAOrdersTick = -1;
-int DashboardUpdateIntervalMs = 500; // Throttled: 500ms refresh prevents micro-tick GUI freeze
-uint LastDashboardUpdateMs = 0;
+input int DashboardUpdateIntervalSeconds = 60; // Dashboard on-chart update interval (seconds; 60 = 1 minute refresh)
+int      DashboardUpdateIntervalMs      = 60000; // Throttled: 60,000ms (1 minute) refresh prevents GUI lag & speeds up tick execution
+uint     LastDashboardUpdateMs          = 0;
+datetime LastDashboardUpdateSec         = 0;
 int EMARedrawIntervalMs = 100;
 uint LastEMARedrawMs = 0;
 bool EnableTickPerformanceLog = false;
@@ -2218,7 +2220,7 @@ double   g_eqDdSellLastHitCutPct     = 0.0;
 int      g_eqDdSellLastHitOrders     = 0;
 double   g_eqDdSellLastHitLots       = 0.0;
 
-void UpdateLeftLiveOrdersDashboard();
+void UpdateLeftLiveOrdersDashboard(bool force = false);
 
 //+------------------------------------------------------------------+
 //|                                                                  |
@@ -3032,7 +3034,7 @@ void ManageEquityDrawdownForSide(int sideType)
                   minOrderLossUSD, skippedSmallLoss, skippedMinLot, skippedAlreadyCut);
       if(candCount == 0)
         {
-         LastDashboardUpdateMs = 0;
+         // LastDashboardUpdateMs = 0; // Throttled to 1-minute dashboard interval to maximize execution speed
          if(ShowLeftLiveOrdersDashboard)
             UpdateLeftLiveOrdersDashboard();
         }
@@ -3197,7 +3199,7 @@ void ManageEquityDrawdownForSide(int sideType)
                   balance, equity, sideName, sideDdPct, sideDdUSD, activeCutPct, sweepHits, sweepLotsCut, sidePeak);
 
       DrawEqDdHitIcon(activeTier, sideDdPct, sideDdUSD, balance, equity, activeCutPct, sweepHits, sweepLotsCut, hitTime, 0.0, sideName);
-      LastDashboardUpdateMs = 0;
+      // LastDashboardUpdateMs = 0; // Throttled to 1-minute dashboard interval to maximize execution speed
       if(ShowLeftLiveOrdersDashboard)
          UpdateLeftLiveOrdersDashboard();
      }
@@ -3340,7 +3342,7 @@ void ExecuteEqDdFreshDayReset(datetime nowServer, datetime dubaiTime, int dubaiD
       GlobalVariableSet(EqDdDailyGvKey("RSTT"), (double)nowServer);
      }
 
-   LastDashboardUpdateMs = 0;
+   // LastDashboardUpdateMs = 0; // Throttled to 1-minute dashboard interval to maximize execution speed
 
    PrintFormat(">>> [EQ-DD DAILY RESET] %s | DubaiTime=%s (DayKey=%d) | PriorDay Peak=%.2f%% Cuts=%d (-%.2fL) | All tier locks, peaks & counters RESET to Fresh Start.",
                triggerReason, TimeToString(dubaiTime, TIME_DATE|TIME_MINUTES|TIME_SECONDS),
@@ -4265,7 +4267,7 @@ void ExecuteHourlySideLossCutForSide(int sideType, double balance, double sideNe
                   skippedMinLot, cutFail);
 
       DrawHourlySideLossCutIcon(sideName, sideLossPct, sideLossUSD, balance, cutPct, cutHits, cutLotsTotal, cutEstPLTotal, nowServer, 0.0);
-      LastDashboardUpdateMs = 0;
+      // LastDashboardUpdateMs = 0; // Throttled to 1-minute dashboard interval to maximize execution speed
      }
   }
 
@@ -4431,7 +4433,7 @@ bool ExecuteHourlyPlanACloseAll(double dayOpenEq, double curEquity, double dayPr
                   (closedPL >= 0.0 ? "+" : "-"), MathAbs(closedPL), failCount, remainingOpen);
 
       DrawHourlyPlanACloseIcon(dayProfitPct, dayProfitUSD, dayOpenEq, curEquity, closedCount, closedLots, closedPL, nowServer, 0.0, g_hourlyPlanATargetHits);
-      LastDashboardUpdateMs = 0;
+      // LastDashboardUpdateMs = 0; // Throttled to 1-minute dashboard interval to maximize execution speed
       if(ShowLeftLiveOrdersDashboard)
          UpdateLeftLiveOrdersDashboard();
      }
@@ -4583,7 +4585,7 @@ bool ExecuteHourlyPlanCCloseAll(double dayOpenEq, double curEquity, double dayPr
                   (closedPL >= 0.0 ? "+" : "-"), MathAbs(closedPL), failCount, remainingOpen);
 
       DrawHourlyPlanCCloseIcon(dayProfitPct, dayProfitUSD, dayOpenEq, curEquity, closedCount, closedLots, closedPL, nowServer, 0.0, g_hourlyPlanCTotalSweeps);
-      LastDashboardUpdateMs = 0;
+      // LastDashboardUpdateMs = 0; // Throttled to 1-minute dashboard interval to maximize execution speed
       if(ShowLeftLiveOrdersDashboard)
          UpdateLeftLiveOrdersDashboard();
       return true;
@@ -4748,7 +4750,7 @@ bool ExecuteHourlyPlanDCloseAll(double dayOpenEq, double curEquity, double dayPr
                   ((InpHourlyPlanDOncePerHour && remainingOpen == 0 && failCount == 0) ? " [Hour Locked -> Next :00 Reset]" : ""));
 
       DrawHourlyPlanDCloseIcon(minInHour, planDThr, dayProfitPct, dayProfitUSD, dayOpenEq, curEquity, closedCount, closedLots, closedPL, nowServer, 0.0, g_hourlyPlanDTotalSweeps);
-      LastDashboardUpdateMs = 0;
+      // LastDashboardUpdateMs = 0; // Throttled to 1-minute dashboard interval to maximize execution speed
       if(ShowLeftLiveOrdersDashboard)
          UpdateLeftLiveOrdersDashboard();
       return true;
@@ -5455,7 +5457,7 @@ void ManagePriceGap1000DayProfit5PctCloseAll()
                   DoubleToString(g_priceGapCloseAnchorPrice, Digits));
 
       DrawPriceGap1000CloseIcon(g_priceGapCloseTotalSweeps, rawGap, usedAnchor, curPrice, dayProfitPct, dayProfitUSD, closedCount, closedLots, closedPL, nowServer);
-      LastDashboardUpdateMs = 0;
+      // LastDashboardUpdateMs = 0; // Throttled to 1-minute dashboard interval to maximize execution speed
       if(ShowLeftLiveOrdersDashboard)
          UpdateLeftLiveOrdersDashboard();
      }
@@ -5947,7 +5949,7 @@ void ProcessAdversePriceStepCutForSide(int sideType, double balance, double equi
                   failCount, DoubleToString(nextAnchor, Digits));
 
       DrawAdversePriceStepCutIcon(sideName, isEmergency, nextStep, advMove, sideDdPct, eqDdPct, partHits, fullHits, lotsCutTot, estPLTot, nowServer);
-      LastDashboardUpdateMs = 0;
+      // LastDashboardUpdateMs = 0; // Throttled to 1-minute dashboard interval to maximize execution speed
       if(ShowLeftLiveOrdersDashboard)
          UpdateLeftLiveOrdersDashboard();
      }
@@ -14190,17 +14192,34 @@ bool CanSendTradeRequest(string operation,string details="")
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
-void UpdateDashboardsThrottled(DailyProtectionState &state,bool force=false)
+void UpdateDashboardsThrottled(DailyProtectionState &state, bool force = false)
   {
-   uint now=GetTickCount();
-   uint interval = IsTesting() ? 1000 : (uint)MathMax(500, DashboardUpdateIntervalMs);
-   if(!force && LastDashboardUpdateMs!=0 && (uint)(now-LastDashboardUpdateMs)<interval)
-      return;
-   LastDashboardUpdateMs=now;
+   uint     nowMs      = GetTickCount();
+   datetime nowSec     = TimeCurrent();
+   int      intervalS  = (DashboardUpdateIntervalSeconds > 0) ? DashboardUpdateIntervalSeconds : 60;
+   uint     intervalMs = (uint)(intervalS * 1000);
+
+   if(!force)
+     {
+      if(IsTesting() || IsOptimization())
+        {
+         if(LastDashboardUpdateSec != 0 && (nowSec - LastDashboardUpdateSec) < intervalS)
+            return;
+        }
+      else
+        {
+         if(LastDashboardUpdateMs != 0 && (uint)(nowMs - LastDashboardUpdateMs) < intervalMs)
+            return;
+        }
+     }
+
+   LastDashboardUpdateMs  = nowMs;
+   LastDashboardUpdateSec = nowSec;
+
    if(ShowDashboard)
       UpdateDashboard(state);
    if(ShowLeftLiveOrdersDashboard)
-      UpdateLeftLiveOrdersDashboard();
+      UpdateLeftLiveOrdersDashboard(force);
   }
 
 //+------------------------------------------------------------------+
@@ -15121,7 +15140,7 @@ void ManageDubaiNightOneSideCloseAll()
             DrawDubaiNightCloseIcon((isDayProfitTriggered ? "PATH_A" : "FINAL"), g_dubaiNightCutCountToday, activeSideName,
                                     closedCount, closedLots, closedPL, dayProfitPct, curEmaAngle, nowServer, 0.0);
 
-         LastDashboardUpdateMs = 0;
+         // LastDashboardUpdateMs = 0; // Throttled to 1-minute dashboard interval to maximize execution speed
          if(ShowLeftLiveOrdersDashboard)
             UpdateLeftLiveOrdersDashboard();
         }
@@ -15253,7 +15272,7 @@ void ManageDubaiNightOneSideCloseAll()
       DrawDubaiNightCloseIcon("CUT", g_dubaiNightCutCountToday, zeroSideName,
                               cutHits, cutLotsTotal, cutPLTotal, dayProfitPct, curEmaAngle, nowServer, 0.0);
 
-      LastDashboardUpdateMs = 0;
+      // LastDashboardUpdateMs = 0; // Throttled to 1-minute dashboard interval to maximize execution speed
       if(ShowLeftLiveOrdersDashboard)
          UpdateLeftLiveOrdersDashboard();
      }
@@ -22073,7 +22092,7 @@ void ManageReverse100AdverseStepPartialClose()
      {
       InvalidateOrderCache();
       InvalidateTotalEAOrdersCache();
-      LastDashboardUpdateMs = 0;
+      // LastDashboardUpdateMs = 0; // Throttled to 1-minute dashboard interval to maximize execution speed
      }
   }
 
@@ -27192,14 +27211,31 @@ struct LeftDashOrderSnapshot
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
-void UpdateLeftLiveOrdersDashboard()
+void UpdateLeftLiveOrdersDashboard(bool force = false)
   {
-   static uint s_lastLeftDashUpdateMs = 0;
-   uint nowMs = GetTickCount();
-   uint minInterval = IsTesting() ? 1000 : 500;
-   if(s_lastLeftDashUpdateMs != 0 && (uint)(nowMs - s_lastLeftDashUpdateMs) < minInterval)
-      return;
-   s_lastLeftDashUpdateMs = nowMs;
+   static uint     s_lastLeftDashUpdateMs  = 0;
+   static datetime s_lastLeftDashUpdateSec = 0;
+   uint     nowMs      = GetTickCount();
+   datetime nowSec     = TimeCurrent();
+   int      intervalS  = (DashboardUpdateIntervalSeconds > 0) ? DashboardUpdateIntervalSeconds : 60;
+   uint     intervalMs = (uint)(intervalS * 1000);
+
+   if(!force)
+     {
+      if(IsTesting() || IsOptimization())
+        {
+         if(s_lastLeftDashUpdateSec != 0 && (nowSec - s_lastLeftDashUpdateSec) < intervalS)
+            return;
+        }
+      else
+        {
+         if(s_lastLeftDashUpdateMs != 0 && (uint)(nowMs - s_lastLeftDashUpdateMs) < intervalMs)
+            return;
+        }
+     }
+
+   s_lastLeftDashUpdateMs  = nowMs;
+   s_lastLeftDashUpdateSec = nowSec;
 
    static bool s_leftDashNightBarV3Reset = false;
    if(!s_leftDashNightBarV3Reset)
