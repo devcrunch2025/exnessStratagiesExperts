@@ -44,7 +44,7 @@ CheckBasketProfitClose  Total open basket profit
 
 
 
-string glbVersion = "VMULTI-1183 - Dynamic 70% Trailing Floor on Maximum Profit Steps";
+string glbVersion = "VMULTI-1184 - Optimized Chart Engine & Minimized Display";
 
 
 
@@ -197,10 +197,10 @@ int SSLPeriod = 10;
 bool InpUseEMA200Filter = false;
 int  InpEMA200Period = 200;
 int  InpEMAPriceShift = 0;
-bool ShowEMALine = true;
+bool ShowEMALine = false; // Minimized: Prevents drawing 500 trendline objects on chart
 color EMALineColor = clrGold;
 int EMALineWidth = 2;
-int EMALineBars = 500;
+int EMALineBars = 20; // Reduced from 500 to 20 bars
 string EMA_PREFIX = "SSL_EMA_LINE_";
 bool EnableTrading = true;
 
@@ -211,7 +211,7 @@ int    InpLsdSweepMaxDisplayMinutes    = 0;      // LSD Line Max Display Minutes
 int    InpSweepExtendBars              = 15;     // Extend Liquidity Levels (bars forward on M1 = 15 min)
 double InpSweepToleranceATR            = 0.15;   // Equal High/Low ATR Tolerance (multiplier of ATR 14)
 bool   InpShowSweepLevels              = true;   // Show Liquidity Levels (EQH / EQL lines)
-bool   InpShowSweepLabels              = true;   // Show Sweep Text Badges on Chart
+bool   InpShowSweepLabels              = false;  // Minimized: Prevents creating hundreds of historical text badges
 color  InpBslSweepColor                = clrRed; // BSL (Buy Side) Sweep Color -> Bearish Sweep (SWEEP sell signal)
 color  InpSslSweepColor                = clrLime;// SSL (Sell Side) Sweep Color -> Bullish Sweep (SWEEP buy signal)
 color  InpSweepSubTextColor            = clrDodgerBlue; // BSL / SSL Subtext Color
@@ -782,7 +782,7 @@ int  g_onTickSequence = 0;
 bool g_eqDdForceCloseBudget = false;
 int CachedTotalEAOrders = -1;
 int CachedTotalEAOrdersTick = -1;
-int DashboardUpdateIntervalMs = 250;
+int DashboardUpdateIntervalMs = 500; // Throttled: 500ms refresh prevents micro-tick GUI freeze
 uint LastDashboardUpdateMs = 0;
 int EMARedrawIntervalMs = 100;
 uint LastEMARedrawMs = 0;
@@ -2750,7 +2750,7 @@ void DrawEqDdHitIcon(int tier, double ddPct, double ddUSD, double bal, double eq
         }
       if(ObjectFind(0, baseName) >= 0)
          ObjectSetString(0, baseName, OBJPROP_TOOLTIP, tooltip);
-      ChartRedraw(0);
+      // ChartRedraw(0); // Async MT4 refresh
       Print(">>> [EQ-DD CHART ICON UPDATED] '", labelText, "' on bar ",
             TimeToString(barTime, TIME_DATE|TIME_MINUTES), " | DD: ", DoubleToString(ddPct, 2),
             "% (-$", DoubleToString(ddUSD, 2), ") | Lots Cut: ", DoubleToString(lotsCut, 2));
@@ -2778,7 +2778,7 @@ void DrawEqDdHitIcon(int tier, double ddPct, double ddUSD, double bal, double eq
    ObjectSetInteger(0, txtName, OBJPROP_HIDDEN, false);
    ObjectSetString(0, txtName, OBJPROP_TOOLTIP, tooltip);
 
-   ChartRedraw(0);
+   // ChartRedraw(0); // Async MT4 refresh
 
    Print(">>> [EQ-DD CHART ICON] Placed '", labelText, "' on chart at bar ",
          TimeToString(barTime, TIME_DATE|TIME_MINUTES), " | DD: ", DoubleToString(ddPct, 2),
@@ -3781,7 +3781,7 @@ void DrawHourlyPlanACloseIcon(double dayEqPct, double dayEqUSD, double dayOpenEq
         }
       if(ObjectFind(0, baseName) >= 0)
          ObjectSetString(0, baseName, OBJPROP_TOOLTIP, tooltip);
-      ChartRedraw(0);
+      // ChartRedraw(0); // Async MT4 refresh
       return;
      }
 
@@ -3805,7 +3805,7 @@ void DrawHourlyPlanACloseIcon(double dayEqPct, double dayEqUSD, double dayOpenEq
    ObjectSetInteger(0, txtName, OBJPROP_HIDDEN, false);
    ObjectSetString(0, txtName, OBJPROP_TOOLTIP, tooltip);
 
-   ChartRedraw(0);
+   // ChartRedraw(0); // Async MT4 refresh
 
    PrintFormat(">>> [1H TARGET HIT CHART ICON] Placed '%s' on bar %s (Dubai %s)",
                labelText, TimeToString(barTime, TIME_DATE|TIME_MINUTES),
@@ -3863,7 +3863,7 @@ void DrawHourlyPlanCCloseIcon(double dayEqPct, double dayEqUSD, double dayOpenEq
         }
       if(ObjectFind(0, baseName) >= 0)
          ObjectSetString(0, baseName, OBJPROP_TOOLTIP, tooltip);
-      ChartRedraw(0);
+      // ChartRedraw(0); // Async MT4 refresh
       return;
      }
 
@@ -3887,7 +3887,7 @@ void DrawHourlyPlanCCloseIcon(double dayEqPct, double dayEqUSD, double dayOpenEq
    ObjectSetInteger(0, txtName, OBJPROP_HIDDEN, false);
    ObjectSetString(0, txtName, OBJPROP_TOOLTIP, tooltip);
 
-   ChartRedraw(0);
+   // ChartRedraw(0); // Async MT4 refresh
 
    PrintFormat(">>> [15M PLAN-C CHART ICON] Placed '%s' on bar %s (Dubai %s)",
                labelText, TimeToString(barTime, TIME_DATE|TIME_MINUTES),
@@ -3986,7 +3986,7 @@ void DrawHourlyPlanDCloseIcon(int minInHour, double threshPct, double dayEqPct, 
         }
       if(ObjectFind(0, baseName) >= 0)
          ObjectSetString(0, baseName, OBJPROP_TOOLTIP, tooltip);
-      ChartRedraw(0);
+      // ChartRedraw(0); // Async MT4 refresh
       return;
      }
 
@@ -4010,7 +4010,7 @@ void DrawHourlyPlanDCloseIcon(int minInHour, double threshPct, double dayEqPct, 
    ObjectSetInteger(0, txtName, OBJPROP_HIDDEN, false);
    ObjectSetString(0, txtName, OBJPROP_TOOLTIP, tooltip);
 
-   ChartRedraw(0);
+   // ChartRedraw(0); // Async MT4 refresh
 
    PrintFormat(">>> [1M PLAN-D CHART ICON] Placed '%s' on bar %s (Dubai %s)",
                labelText, TimeToString(barTime, TIME_DATE|TIME_MINUTES),
@@ -4066,7 +4066,7 @@ void DrawHourlySideLossCutIcon(string sideTag, double ddPct, double ddUSD, doubl
         }
       if(ObjectFind(0, baseName) >= 0)
          ObjectSetString(0, baseName, OBJPROP_TOOLTIP, tooltip);
-      ChartRedraw(0);
+      // ChartRedraw(0); // Async MT4 refresh
       return;
      }
 
@@ -4089,7 +4089,7 @@ void DrawHourlySideLossCutIcon(string sideTag, double ddPct, double ddUSD, doubl
    ObjectSetInteger(0, txtName, OBJPROP_HIDDEN, false);
    ObjectSetString(0, txtName, OBJPROP_TOOLTIP, tooltip);
 
-   ChartRedraw(0);
+   // ChartRedraw(0); // Async MT4 refresh
   }
 
 //+------------------------------------------------------------------+
@@ -5236,7 +5236,7 @@ void DrawPriceGap1000CloseIcon(int sweepSeq, double gapRaw, double anchorPx, dou
    ObjectSetInteger(0, txtName, OBJPROP_HIDDEN, false);
    ObjectSetString(0, txtName, OBJPROP_TOOLTIP, tooltip);
 
-   ChartRedraw(0);
+   // ChartRedraw(0); // Async MT4 refresh
   }
 
 //+------------------------------------------------------------------+
@@ -5535,7 +5535,7 @@ void DrawAdversePriceStepCutIcon(string sideName, bool isEmergency, int stepNo, 
    ObjectSetInteger(0, txtName, OBJPROP_HIDDEN, false);
    ObjectSetString(0, txtName, OBJPROP_TOOLTIP, tooltip);
 
-   ChartRedraw(0);
+   // ChartRedraw(0); // Async MT4 refresh
   }
 
 //+------------------------------------------------------------------+
@@ -7678,7 +7678,7 @@ string TimeframeToString(int timeframe);
 double GetTrendAwareStopLoss(int orderType, double standardGapUSD, double curSL = 0.0, string callerName = "", double orderProfit = 0.0, double openPrice = 0.0);
 
 // Visual Chart Icons for Multi-Order Closes (+2, +3, +4...) from the 6 Methods
-bool   InpDrawMultiOrderClosedIcons         = true;   // Draw +2, +3 icons when closed with any of the 6 methods
+bool   InpDrawMultiOrderClosedIcons         = false;  // Minimized: Prevents pasting closed trade icons on chart
 color  InpMultiOrderClosedIconColor         = clrAqua;// Color for +2, +3 closed combination text
 int    InpMultiOrderClosedFontSize          = 10;     // Font size for +2, +3 closed combination text
 void   DrawMultiOrderClosedIcon(int orderCount, datetime closeTime, double closePrice, double netProfit, string methodName = "", int primaryTicket = 0);
@@ -8355,7 +8355,7 @@ void DrawMultiOrderClosedIcon(int orderCount, datetime closeTime, double closePr
    ObjectSetInteger(0, txtName, OBJPROP_HIDDEN, false);
    ObjectSetString(0, txtName, OBJPROP_TOOLTIP, tooltip);
 
-   ChartRedraw(0);
+   // ChartRedraw(0); // Async MT4 refresh
 
    Print(">>> [CHART ICON +", orderCount, "] Placed icon '+", orderCount, "' on chart at ",
          TimeToString(closeTime, TIME_DATE|TIME_MINUTES|TIME_SECONDS), " price ", DoubleToString(closePrice, Digits),
@@ -8422,7 +8422,7 @@ void DrawMethod6HitIcon(int orderCount, double comboProfit, datetime hitTime = 0
    ObjectSetInteger(0, txtName, OBJPROP_HIDDEN, false);
    ObjectSetString(0, txtName, OBJPROP_TOOLTIP, tooltip);
 
-   ChartRedraw(0);
+   // ChartRedraw(0); // Async MT4 refresh
 
    Print(">>> [M6 CHART ICON] Placed Method 6 Hit icon '", labelText, "' on chart at bar ",
          TimeToString(barTime, TIME_DATE|TIME_MINUTES), " | Profit: $", DoubleToString(comboProfit, 2));
@@ -8572,7 +8572,7 @@ void DrawDrawdownReliefIcon(string iconType, int orderCount, double peakDD, doub
    ObjectSetInteger(0, txtName, OBJPROP_HIDDEN, false);
    ObjectSetString(0, txtName, OBJPROP_TOOLTIP, tooltip);
 
-   ChartRedraw(0);
+   // ChartRedraw(0); // Async MT4 refresh
 
    Print(">>> [DRAWDOWN RELIEF SPECIAL CHART ICON] Placed '", labelText, "' on chart at bar ",
          TimeToString(barTime, TIME_DATE|TIME_MINUTES), " | Peak DD: $", DoubleToString(peakDD, 2),
@@ -10556,7 +10556,7 @@ void DrawTargetEquityHitCircle(datetime time, double price, double targetVal, in
          ObjectSetInteger(0, lblName, OBJPROP_HIDDEN, false);
         }
 
-      ChartRedraw(0);
+      // ChartRedraw(0); // Async MT4 refresh
       lastHitTime = time;
       lastHitTarget = targetVal;
      }
@@ -10899,7 +10899,7 @@ void UpdateEMALineOnChart()
    if(LastEMARedrawMs==0 || (uint)(now-LastEMARedrawMs)>=(uint)MathMax(0,EMARedrawIntervalMs))
      {
       LastEMARedrawMs=now;
-      ChartRedraw(0);
+      // ChartRedraw(0); // Async MT4 refresh
      }
   }
 
@@ -14143,7 +14143,8 @@ bool CanSendTradeRequest(string operation,string details="")
 void UpdateDashboardsThrottled(DailyProtectionState &state,bool force=false)
   {
    uint now=GetTickCount();
-   if(!force && LastDashboardUpdateMs!=0 && (uint)(now-LastDashboardUpdateMs)<(uint)MathMax(0,DashboardUpdateIntervalMs))
+   uint interval = IsTesting() ? 1000 : (uint)MathMax(500, DashboardUpdateIntervalMs);
+   if(!force && LastDashboardUpdateMs!=0 && (uint)(now-LastDashboardUpdateMs)<interval)
       return;
    LastDashboardUpdateMs=now;
    if(ShowDashboard)
@@ -14792,7 +14793,7 @@ void DrawDubaiNightCloseIcon(string eventKind, int cutSeq, string zeroSide, int 
         }
       if(ObjectFind(0, baseName) >= 0)
          ObjectSetString(0, baseName, OBJPROP_TOOLTIP, tooltip);
-      ChartRedraw(0);
+      // ChartRedraw(0); // Async MT4 refresh
       return;
      }
 
@@ -14819,7 +14820,7 @@ void DrawDubaiNightCloseIcon(string eventKind, int cutSeq, string zeroSide, int 
    ObjectSetInteger(0, txtName, OBJPROP_HIDDEN, false);
    ObjectSetString(0, txtName, OBJPROP_TOOLTIP, tooltip);
 
-   ChartRedraw(0);
+   // ChartRedraw(0); // Async MT4 refresh
 
    PrintFormat(">>> [DUBAI NIGHT CHART ICON] Placed '%s' on bar %s (Dubai %s)",
                labelText, TimeToString(barTime, TIME_DATE|TIME_MINUTES),
@@ -21437,7 +21438,7 @@ void DrawReverse100OrderIcon(int recTicket, int rootParentTicket, int recType, d
    ObjectSetInteger(0, txtName, OBJPROP_HIDDEN, false);
    ObjectSetString(0, txtName, OBJPROP_TOOLTIP, tooltip);
 
-   ChartRedraw(0);
+   // ChartRedraw(0); // Async MT4 refresh
   }
 
 //+------------------------------------------------------------------+
@@ -21772,7 +21773,7 @@ void DrawReverse100StepCutIcon(int closedTicket, int rootRevTicket, int origPare
    ObjectSetInteger(0, txtName, OBJPROP_HIDDEN, false);
    ObjectSetString(0, txtName, OBJPROP_TOOLTIP, tooltip);
 
-   ChartRedraw(0);
+   // ChartRedraw(0); // Async MT4 refresh
   }
 
 //+------------------------------------------------------------------+
@@ -22975,7 +22976,7 @@ void UpdateSSLChannelOnTick()
       DrawTrendSegment(PREFIX + "LIVE_UP_" + IntegerToString(i), Time[i], up1, Time[i + 1], up2, SSLUpColor);
       DrawTrendSegment(PREFIX + "LIVE_DOWN_" + IntegerToString(i), Time[i], down1, Time[i + 1], down2, SSLDownColor);
      }
-   ChartRedraw();
+   // ChartRedraw(); // Async MT4 refresh
   }
 
 //+------------------------------------------------------------------+
@@ -23751,7 +23752,7 @@ void DrawEquityProfitLadder5HitIcon(int step, double curEquity, double lowestEqu
    ObjectSetInteger(0, txtName, OBJPROP_HIDDEN, false);
    ObjectSetString(0, txtName, OBJPROP_TOOLTIP, tooltip);
 
-   ChartRedraw(0);
+   // ChartRedraw(0); // Async MT4 refresh
 
    Print(">>> [EQUITY PROFIT LADDER 5 CHART ICON] Placed '", labelText, "' on chart at bar ",
          TimeToString(barTime, TIME_DATE|TIME_MINUTES), " | Equity: $", DoubleToString(curEquity, 2),
@@ -25352,7 +25353,7 @@ void DrawHistoricalSignals()
             DrawHistoricalSignal(i, false);
         }
      }
-   ChartRedraw();
+   // ChartRedraw(); // Async MT4 refresh
   }
 //+------------------------------------------------------------------+
 //|                                                                  |
@@ -25478,7 +25479,7 @@ void DrawHistoricalSignal(int shift, bool isBuy)
      }
   }
 
-void DrawLiveSignal(int shift, bool isBuy) { DrawHistoricalSignal(shift, isBuy); ChartRedraw(); }
+void DrawLiveSignal(int shift, bool isBuy) { DrawHistoricalSignal(shift, isBuy); /* ChartRedraw(); */ }
 
 //+------------------------------------------------------------------+
 //|                                                                  |
@@ -25515,17 +25516,24 @@ string TimeframeToString(int timeframe)
 void CreateDashboardPanel(string name, int x, int y, int width, int height, color background)
   {
    if(ObjectFind(0, name) < 0)
+     {
       ObjectCreate(0, name, OBJ_RECTANGLE_LABEL, 0, 0, 0);
-   ObjectSetInteger(0, name, OBJPROP_CORNER, CORNER_RIGHT_UPPER);
-   ObjectSetInteger(0, name, OBJPROP_XDISTANCE, x+10);
-   ObjectSetInteger(0, name, OBJPROP_YDISTANCE, y);
-   ObjectSetInteger(0, name, OBJPROP_XSIZE, width);
-   ObjectSetInteger(0, name, OBJPROP_YSIZE, height);
-   ObjectSetInteger(0, name, OBJPROP_BGCOLOR, background);
-   ObjectSetInteger(0, name, OBJPROP_BORDER_TYPE, BORDER_FLAT);
-   ObjectSetInteger(0, name, OBJPROP_COLOR, clrDimGray);
-   ObjectSetInteger(0, name, OBJPROP_SELECTABLE, false);
-   ObjectSetInteger(0, name, OBJPROP_HIDDEN, true);
+      ObjectSetInteger(0, name, OBJPROP_CORNER, CORNER_RIGHT_UPPER);
+      ObjectSetInteger(0, name, OBJPROP_XDISTANCE, x+10);
+      ObjectSetInteger(0, name, OBJPROP_YDISTANCE, y);
+      ObjectSetInteger(0, name, OBJPROP_XSIZE, width);
+      ObjectSetInteger(0, name, OBJPROP_YSIZE, height);
+      ObjectSetInteger(0, name, OBJPROP_BGCOLOR, background);
+      ObjectSetInteger(0, name, OBJPROP_BORDER_TYPE, BORDER_FLAT);
+      ObjectSetInteger(0, name, OBJPROP_COLOR, clrDimGray);
+      ObjectSetInteger(0, name, OBJPROP_SELECTABLE, false);
+      ObjectSetInteger(0, name, OBJPROP_HIDDEN, true);
+      return;
+     }
+   if((color)ObjectGetInteger(0, name, OBJPROP_BGCOLOR) != background)
+      ObjectSetInteger(0, name, OBJPROP_BGCOLOR, background);
+   if((int)ObjectGetInteger(0, name, OBJPROP_YSIZE) != height)
+      ObjectSetInteger(0, name, OBJPROP_YSIZE, height);
   }
 
 
@@ -25659,33 +25667,8 @@ double GetEmaAngleDegrees(int lookbackBars = 5)
 //+------------------------------------------------------------------+
 void UpdateMomentumBackground()
   {
-   bool strongBuy  = IsStrongMomentum(OP_BUY);
-   bool strongSell = IsStrongMomentum(OP_SELL);
-   if(!strongBuy && !strongSell)
-      return;
-
-   string objName = PREFIX + "MOM_" + IntegerToString((int)Time[0]);
-   color momColor = strongBuy ? C'0,40,0' : C'40,0,0';
-   double buffer = (High[0] - Low[0]) * 0.1;
-   double topPrice = High[0] + buffer;
-   double botPrice = Low[0] - buffer;
-   datetime endTime = Time[0] + Period() * 60;
-
-   if(ObjectFind(0, objName) < 0)
-     {
-      ObjectCreate(0, objName, OBJ_RECTANGLE, 0, Time[0], topPrice, endTime, botPrice);
-      ObjectSetInteger(0, objName, OBJPROP_COLOR, momColor);
-      ObjectSetInteger(0, objName, OBJPROP_BACK, true);
-      ObjectSetInteger(0, objName, OBJPROP_SELECTABLE, false);
-      ObjectSetInteger(0, objName, OBJPROP_HIDDEN, true);
-      ObjectSetInteger(0, objName, OBJPROP_FILL, true);
-     }
-   else
-     {
-      ObjectMove(0, objName, 0, Time[0], topPrice);
-      ObjectMove(0, objName, 1, endTime, botPrice);
-      ObjectSetInteger(0, objName, OBJPROP_COLOR, momColor);
-     }
+   // Minimized: Disabled to eliminate expensive chart rectangle creation on every tick
+   return;
   }
 //+------------------------------------------------------------------+
 //|                                                                  |
@@ -25693,16 +25676,23 @@ void UpdateMomentumBackground()
 void CreateDashboardLabel(string name, string text, int x, int y, int fontSize, color textColor)
   {
    if(ObjectFind(0, name) < 0)
+     {
       ObjectCreate(0, name, OBJ_LABEL, 0, 0, 0);
-   ObjectSetInteger(0, name, OBJPROP_CORNER, CORNER_RIGHT_UPPER);
-   ObjectSetInteger(0, name, OBJPROP_XDISTANCE, x);
-   ObjectSetInteger(0, name, OBJPROP_YDISTANCE, y);
-   ObjectSetString(0, name, OBJPROP_TEXT, text);
-   ObjectSetString(0, name, OBJPROP_FONT, "Arial");
-   ObjectSetInteger(0, name, OBJPROP_FONTSIZE, fontSize);
-   ObjectSetInteger(0, name, OBJPROP_COLOR, textColor);
-   ObjectSetInteger(0, name, OBJPROP_SELECTABLE, false);
-   ObjectSetInteger(0, name, OBJPROP_HIDDEN, true);
+      ObjectSetInteger(0, name, OBJPROP_CORNER, CORNER_RIGHT_UPPER);
+      ObjectSetInteger(0, name, OBJPROP_XDISTANCE, x);
+      ObjectSetInteger(0, name, OBJPROP_YDISTANCE, y);
+      ObjectSetString(0, name, OBJPROP_TEXT, text);
+      ObjectSetString(0, name, OBJPROP_FONT, "Arial");
+      ObjectSetInteger(0, name, OBJPROP_FONTSIZE, fontSize);
+      ObjectSetInteger(0, name, OBJPROP_COLOR, textColor);
+      ObjectSetInteger(0, name, OBJPROP_SELECTABLE, false);
+      ObjectSetInteger(0, name, OBJPROP_HIDDEN, true);
+      return;
+     }
+   if(ObjectGetString(0, name, OBJPROP_TEXT) != text)
+      ObjectSetString(0, name, OBJPROP_TEXT, text);
+   if((color)ObjectGetInteger(0, name, OBJPROP_COLOR) != textColor)
+      ObjectSetInteger(0, name, OBJPROP_COLOR, textColor);
   }
 
 //+------------------------------------------------------------------+
@@ -26911,7 +26901,7 @@ void UpdateDashboard(DailyProtectionState &state)
               }
    CreateDashboardLabel(DASH_PREFIX+"STEP_LOSS", sLossDashTxt, tx, y+494, 8, sLossDashClr);
 
-   ChartRedraw(0);
+   // ChartRedraw(0); // Async MT4 refresh
 
   }
 //+------------------------------------------------------------------+
@@ -26950,19 +26940,30 @@ string LEFT_LIVE_PREFIX = "SSL_LEFT_LIVE_";
 void CreateLeftLivePanel(string name,int x,int y,int width,int height,color background)
   {
    if(ObjectFind(0,name)<0)
+     {
       ObjectCreate(0,name,OBJ_RECTANGLE_LABEL,0,0,0);
-   ObjectSetInteger(0,name,OBJPROP_CORNER,CORNER_LEFT_UPPER);
-   ObjectSetInteger(0,name,OBJPROP_BACK,false);
-   ObjectSetInteger(0,name,OBJPROP_ZORDER,1000);
-   ObjectSetInteger(0,name,OBJPROP_XDISTANCE,x);
-   ObjectSetInteger(0,name,OBJPROP_YDISTANCE,y);
-   ObjectSetInteger(0,name,OBJPROP_XSIZE,width);
-   ObjectSetInteger(0,name,OBJPROP_YSIZE,height);
-   ObjectSetInteger(0,name,OBJPROP_BGCOLOR,background);
-   ObjectSetInteger(0,name,OBJPROP_BORDER_TYPE,BORDER_FLAT);
-   ObjectSetInteger(0,name,OBJPROP_COLOR,clrDimGray);
-   ObjectSetInteger(0,name,OBJPROP_SELECTABLE,false);
-   ObjectSetInteger(0,name,OBJPROP_HIDDEN,true);
+      ObjectSetInteger(0,name,OBJPROP_CORNER,CORNER_LEFT_UPPER);
+      ObjectSetInteger(0,name,OBJPROP_BACK,false);
+      ObjectSetInteger(0,name,OBJPROP_ZORDER,1000);
+      ObjectSetInteger(0,name,OBJPROP_XDISTANCE,x);
+      ObjectSetInteger(0,name,OBJPROP_YDISTANCE,y);
+      ObjectSetInteger(0,name,OBJPROP_XSIZE,width);
+      ObjectSetInteger(0,name,OBJPROP_YSIZE,height);
+      ObjectSetInteger(0,name,OBJPROP_BGCOLOR,background);
+      ObjectSetInteger(0,name,OBJPROP_BORDER_TYPE,BORDER_FLAT);
+      ObjectSetInteger(0,name,OBJPROP_COLOR,clrDimGray);
+      ObjectSetInteger(0,name,OBJPROP_SELECTABLE,false);
+      ObjectSetInteger(0,name,OBJPROP_HIDDEN,true);
+      return;
+     }
+   if((color)ObjectGetInteger(0,name,OBJPROP_BGCOLOR) != background)
+      ObjectSetInteger(0,name,OBJPROP_BGCOLOR,background);
+   if((int)ObjectGetInteger(0,name,OBJPROP_YDISTANCE) != y)
+      ObjectSetInteger(0,name,OBJPROP_YDISTANCE,y);
+   if((int)ObjectGetInteger(0,name,OBJPROP_XSIZE) != width)
+      ObjectSetInteger(0,name,OBJPROP_XSIZE,width);
+   if((int)ObjectGetInteger(0,name,OBJPROP_YSIZE) != height)
+      ObjectSetInteger(0,name,OBJPROP_YSIZE,height);
   }
 
 //+------------------------------------------------------------------+
@@ -26971,16 +26972,25 @@ void CreateLeftLivePanel(string name,int x,int y,int width,int height,color back
 void CreateLeftLiveLabel(string name,string text,int x,int y,int fontSize,color textColor)
   {
    if(ObjectFind(0,name)<0)
+     {
       ObjectCreate(0,name,OBJ_LABEL,0,0,0);
-   ObjectSetInteger(0,name,OBJPROP_CORNER,CORNER_LEFT_UPPER);
-   ObjectSetInteger(0,name,OBJPROP_XDISTANCE,x);
-   ObjectSetInteger(0,name,OBJPROP_YDISTANCE,y);
-   ObjectSetString(0,name,OBJPROP_TEXT,text);
-   ObjectSetString(0,name,OBJPROP_FONT,"Consolas");
-   ObjectSetInteger(0,name,OBJPROP_FONTSIZE,fontSize);
-   ObjectSetInteger(0,name,OBJPROP_COLOR,textColor);
-   ObjectSetInteger(0,name,OBJPROP_SELECTABLE,false);
-   ObjectSetInteger(0,name,OBJPROP_HIDDEN,true);
+      ObjectSetInteger(0,name,OBJPROP_CORNER,CORNER_LEFT_UPPER);
+      ObjectSetInteger(0,name,OBJPROP_XDISTANCE,x);
+      ObjectSetInteger(0,name,OBJPROP_YDISTANCE,y);
+      ObjectSetString(0,name,OBJPROP_TEXT,text);
+      ObjectSetString(0,name,OBJPROP_FONT,"Consolas");
+      ObjectSetInteger(0,name,OBJPROP_FONTSIZE,fontSize);
+      ObjectSetInteger(0,name,OBJPROP_COLOR,textColor);
+      ObjectSetInteger(0,name,OBJPROP_SELECTABLE,false);
+      ObjectSetInteger(0,name,OBJPROP_HIDDEN,true);
+      return;
+     }
+   if(ObjectGetString(0,name,OBJPROP_TEXT) != text)
+      ObjectSetString(0,name,OBJPROP_TEXT,text);
+   if((color)ObjectGetInteger(0,name,OBJPROP_COLOR) != textColor)
+      ObjectSetInteger(0,name,OBJPROP_COLOR,textColor);
+   if((int)ObjectGetInteger(0,name,OBJPROP_YDISTANCE) != y)
+      ObjectSetInteger(0,name,OBJPROP_YDISTANCE,y);
   }
 //+------------------------------------------------------------------+
 //| Check if price expanded away after EMA flip (>= 60 mins), and    |
@@ -27108,8 +27118,30 @@ void DeleteLeftLiveOrdersDashboardObjects()
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
+struct LeftDashOrderSnapshot
+  {
+   int      ticket;
+   int      type;
+   double   lots;
+   double   openPrice;
+   double   sl;
+   double   pl;
+   datetime openTime;
+   string   comment;
+  };
+
+//+------------------------------------------------------------------+
+//|                                                                  |
+//+------------------------------------------------------------------+
 void UpdateLeftLiveOrdersDashboard()
   {
+   static uint s_lastLeftDashUpdateMs = 0;
+   uint nowMs = GetTickCount();
+   uint minInterval = IsTesting() ? 1000 : 500;
+   if(s_lastLeftDashUpdateMs != 0 && (uint)(nowMs - s_lastLeftDashUpdateMs) < minInterval)
+      return;
+   s_lastLeftDashUpdateMs = nowMs;
+
    static bool s_leftDashNightBarV3Reset = false;
    if(!s_leftDashNightBarV3Reset)
      {
@@ -27132,6 +27164,9 @@ void UpdateLeftLiveOrdersDashboard()
       rows=1;
    if(rows>24)
       rows=24;
+   LeftDashOrderSnapshot dashOrders[64];
+   int dashOrderCount = 0;
+
    for(int i=OrdersTotal()-1; i>=0; i--)
      {
       if(!OrderSelect(i,SELECT_BY_POS,MODE_TRADES))
@@ -27165,8 +27200,21 @@ void UpdateLeftLiveOrdersDashboard()
             pendingCount++;
       if(type==OP_BUY || type==OP_SELL)
          netPL+=orderPL;
+
+      if(dashOrderCount < 64)
+        {
+         dashOrders[dashOrderCount].ticket    = OrderTicket();
+         dashOrders[dashOrderCount].type      = type;
+         dashOrders[dashOrderCount].lots      = orderLots;
+         dashOrders[dashOrderCount].openPrice = OrderOpenPrice();
+         dashOrders[dashOrderCount].sl        = OrderStopLoss();
+         dashOrders[dashOrderCount].pl        = orderPL;
+         dashOrders[dashOrderCount].openTime  = OrderOpenTime();
+         dashOrders[dashOrderCount].comment   = OrderComment();
+         dashOrderCount++;
+        }
      }
-   int x=LeftDashboardX, y=LeftDashboardY, tx=x+12, width=MathMax(LeftDashboardWidth+370, 700), panelHeight=rows*20+286;
+   int x=LeftDashboardX, y=LeftDashboardY, tx=x+12, width=MathMax(LeftDashboardWidth+370, 700), panelHeight=rows*20+206;
    color pnlColor=clrWhite;
    if(netPL>0)
       pnlColor=clrLime;
@@ -28063,146 +28111,26 @@ void UpdateLeftLiveOrdersDashboard()
       CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"DEQTGT_R",   deqRightTxt, x+width-240, y+109, 8, deqRightClr);
    }
 
-   CreateLeftLivePanel(LEFT_LIVE_PREFIX+"DUBAI_NIGHTBAR", x, y+126, width, 22, C'12,24,38');
-   CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"DUBAI_NIGHT_L", nightLeftTxt, tx, y+131, 8, nightLeftClr);
-   CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"DUBAI_NIGHT_R", nightRightTxt, x+width-168, y+131, 8, nightRightClr);
-
-   double pGapLeftMid    = (Bid > 0.0 && Ask > 0.0) ? ((Bid + Ask) * 0.5)
-                           : ((Bars > 0 && Close[0] > 0.0) ? Close[0] : Bid);
-   double pGapLeftAnc    = (g_priceGapCloseAnchorPrice > 0.0) ? g_priceGapCloseAnchorPrice : GetEmaFlipPrice();
-   double pGapLeftRaw    = (pGapLeftAnc > 0.0 && pGapLeftMid > 0.0) ? MathAbs(pGapLeftMid - pGapLeftAnc) : 0.0;
-   double pGapLeftReq    = (InpPriceGapCloseRawGap > 0.0) ? InpPriceGapCloseRawGap : 1000.0;
-   double pGapLeftPctReq = (InpPriceGapCloseDayProfitPct > 0.0) ? InpPriceGapCloseDayProfitPct : 5.0;
-   bool   pGapLeftArmed  = (InpEnablePriceGapDayProfitClose && pGapLeftRaw > pGapLeftReq && dOpenEq > 0.0 && dDayEqPct > pGapLeftPctReq);
-   bool   pGapAtFlipAnc  = (g_priceGapCloseSourceFlipPx > 0.0 && MathAbs(pGapLeftAnc - g_priceGapCloseSourceFlipPx) <= MathMax(Point, 0.5));
-   string pGapAncTag     = pGapAtFlipAnc ? "Flip" : "Next";
-
-   string pGapLeftTxt  = "";
-   color  pGapLeftClr  = clrLightGray;
-   string pGapRightTxt = "";
-   color  pGapRightClr = clrSilver;
-
-   if(!InpEnablePriceGapDayProfitClose)
+   static bool s_cleanedObsoleteBars = false;
+   if(!s_cleanedObsoleteBars)
      {
-      pGapLeftTxt  = StringFormat("GAP CLOSE  : OFF (Raw>%.0f & DayEq>%.0f%%)", pGapLeftReq, pGapLeftPctReq);
-      pGapLeftClr  = clrSilver;
-      pGapRightTxt = "Disabled";
-      pGapRightClr = clrSilver;
+      ObjectDelete(0, LEFT_LIVE_PREFIX+"DUBAI_NIGHTBAR");
+      ObjectDelete(0, LEFT_LIVE_PREFIX+"DUBAI_NIGHT_L");
+      ObjectDelete(0, LEFT_LIVE_PREFIX+"DUBAI_NIGHT_R");
+      ObjectDelete(0, LEFT_LIVE_PREFIX+"PGAP_BAR");
+      ObjectDelete(0, LEFT_LIVE_PREFIX+"PGAP_L");
+      ObjectDelete(0, LEFT_LIVE_PREFIX+"PGAP_R");
+      ObjectDelete(0, LEFT_LIVE_PREFIX+"SLOSS_BAR");
+      ObjectDelete(0, LEFT_LIVE_PREFIX+"SLOSS_L");
+      ObjectDelete(0, LEFT_LIVE_PREFIX+"SLOSS_R");
+      s_cleanedObsoleteBars = true;
      }
-   else
-      if(pGapLeftArmed)
-        {
-         pGapLeftTxt  = StringFormat("GAP CLOSE  : ARMED Anc %s | Gap %.1f/%.0f | DayEq:%s%.1f%%>%.0f%%",
-                                     DoubleToString(pGapLeftAnc, Digits), pGapLeftRaw, pGapLeftReq,
-                                     dSign, dDayEqPct, pGapLeftPctReq);
-         pGapLeftClr  = clrLime;
-         pGapRightTxt = StringFormat("Hits:%d CLOSE ALL", g_priceGapCloseTotalSweeps);
-         pGapRightClr = clrLime;
-        }
-      else
-         if(g_priceGapCloseLastHitTime > 0)
-           {
-            pGapLeftTxt  = StringFormat("GAP CLOSE  : Anc %s (%s) Gap %.1f/%.0f | Last x%d -%.2fL @%s",
-                                        DoubleToString(pGapLeftAnc, Digits), pGapAncTag,
-                                        pGapLeftRaw, pGapLeftReq,
-                                        g_priceGapCloseLastOrders, g_priceGapCloseLastLots,
-                                        FormatDubaiShortDT(g_priceGapCloseLastHitTime, false));
-            pGapLeftClr  = clrAqua;
-            pGapRightTxt = StringFormat("Hits:%d Ord:%d Eq:%s%.1f%%",
-                                        g_priceGapCloseTotalSweeps, g_priceGapCloseTotalOrders, dSign, dDayEqPct);
-            pGapRightClr = clrAqua;
-           }
-         else
-           {
-            pGapLeftTxt  = StringFormat("GAP CLOSE  : Anc %s (%s) | Gap %.1f/%.0f | DayEq:%s%.2f%%/%.0f%%",
-                                        DoubleToString(pGapLeftAnc, Digits), pGapAncTag,
-                                        pGapLeftRaw, pGapLeftReq, dSign, dDayEqPct, pGapLeftPctReq);
-            pGapLeftClr  = (pGapLeftRaw > pGapLeftReq || dDayEqPct > pGapLeftPctReq) ? clrGold : clrLightGray;
-            if(pGapLeftRaw > pGapLeftReq)
-               pGapRightTxt = StringFormat("Wait Eq>%.0f%%", pGapLeftPctReq);
-            else
-               if(dDayEqPct > pGapLeftPctReq)
-                  pGapRightTxt = StringFormat("Wait Gap>%.0f", pGapLeftReq);
-               else
-                  pGapRightTxt = StringFormat("Gap>%.0f + Eq>%.0f%%", pGapLeftReq, pGapLeftPctReq);
-            pGapRightClr = (pGapLeftRaw > pGapLeftReq || dDayEqPct > pGapLeftPctReq) ? clrGold : clrSilver;
-           }
 
-   CreateLeftLivePanel(LEFT_LIVE_PREFIX+"PGAP_BAR", x, y+148, width, 22, C'14,22,36');
-   CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"PGAP_L", pGapLeftTxt, tx, y+153, 8, pGapLeftClr);
-   CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"PGAP_R", pGapRightTxt, x+width-168, y+153, 8, pGapRightClr);
-
-   double sLeftEqDdPct  = (liveBal > 0.0 && liveEq < liveBal) ? (((liveBal - liveEq) / liveBal) * 100.0) : 0.0;
-   double sLeftActReq   = (InpStepLossActivateSidePct > 0.0) ? InpStepLossActivateSidePct : 10.0;
-   double sLeftEmgReq   = (InpStepLossEmergencyDdPct > 0.0) ? InpStepLossEmergencyDdPct : 30.0;
-   double sLeftNormGap  = (InpStepLossRawGap > 0.0) ? InpStepLossRawGap : 3000.0;
-   double sLeftEmgGap   = (InpStepLossEmergencyRawGap > 0.0) ? InpStepLossEmergencyRawGap : 2000.0;
-   bool   sLeftEmerg    = (InpEnableAdversePriceStepLossCut && sLeftEqDdPct > sLeftEmgReq);
-   bool   sLeftActive   = (InpEnableAdversePriceStepLossCut && (liveBuyDdPct > sLeftActReq || liveSellDdPct > sLeftActReq));
-   string sLossLeftTxt  = "";
-   color  sLossLeftClr  = clrLightGray;
-   string sLossRightTxt = "";
-   color  sLossRightClr = clrSilver;
-
-   if(!InpEnableAdversePriceStepLossCut)
-     {
-      sLossLeftTxt  = StringFormat("STEP LOSS  : OFF (Adv %.0f/%.0f Cut %.0f%%/%.0f%% + Worst 0.01L)",
-                                   sLeftNormGap, sLeftEmgGap, InpStepLossCutPct, InpStepLossEmergencyCutPct);
-      sLossLeftClr  = clrSilver;
-      sLossRightTxt = "Disabled";
-      sLossRightClr = clrSilver;
-     }
-   else
-      if(sLeftEmerg)
-        {
-         sLossLeftTxt  = StringFormat("STEP LOSS  : EMERGENCY EqDD %.1f%%>%.0f%% | B:%.0f/%.0f S:%.0f/%.0f",
-                                      sLeftEqDdPct, sLeftEmgReq,
-                                      g_stepLossLastBuyAdv, g_stepLossLastReqBuyGap,
-                                      g_stepLossLastSellAdv, g_stepLossLastReqSellGap);
-         sLossLeftClr  = clrRed;
-         sLossRightTxt = StringFormat("-%.0f%%L + %d Worst 0.01", InpStepLossEmergencyCutPct, InpStepLossEmergMinLotClosePerStep);
-         sLossRightClr = clrRed;
-        }
-      else
-         if(g_stepLossLastHitTime > 0)
-           {
-            sLossLeftTxt  = StringFormat("STEP LOSS  : Last %s#%d @%s | P%d/F%d -%.2fL | B:%.0f S:%.0f",
-                                         g_stepLossLastHitSide, g_stepLossTotalSweeps,
-                                         FormatDubaiShortDT(g_stepLossLastHitTime, false),
-                                         g_stepLossLastHitPartials, g_stepLossLastHitFulls, g_stepLossLastHitLots,
-                                         g_stepLossLastBuyAdv, g_stepLossLastSellAdv);
-            sLossLeftClr  = clrOrange;
-            sLossRightTxt = StringFormat("Sweeps:%d (-%.2fL Tot)", g_stepLossTotalSweeps, g_stepLossTotalLotsCut);
-            sLossRightClr = clrOrange;
-           }
-         else
-            if(sLeftActive)
-              {
-               sLossLeftTxt  = StringFormat("STEP LOSS  : ARMED B:%.1f%% (%.0f/%.0f) S:%.1f%% (%.0f/%.0f)",
-                                            liveBuyDdPct, g_stepLossLastBuyAdv, g_stepLossLastReqBuyGap,
-                                            liveSellDdPct, g_stepLossLastSellAdv, g_stepLossLastReqSellGap);
-               sLossLeftClr  = clrGold;
-               sLossRightTxt = StringFormat("-%.0f%%L + %d Worst 0.01", InpStepLossCutPct, InpStepLossMinLotClosePerStep);
-               sLossRightClr = clrGold;
-              }
-            else
-              {
-               sLossLeftTxt  = StringFormat("STEP LOSS  : MONITOR >%.0f%% Side / %.0f | Emerg >%.0f%% DD / %.0f",
-                                            sLeftActReq, sLeftNormGap, sLeftEmgReq, sLeftEmgGap);
-               sLossLeftClr  = clrLightGray;
-               sLossRightTxt = StringFormat("%.0f%%L + Worst 0.01L", InpStepLossCutPct);
-               sLossRightClr = clrSilver;
-              }
-
-   CreateLeftLivePanel(LEFT_LIVE_PREFIX+"SLOSS_BAR", x, y+170, width, 22, C'18,22,34');
-   CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"SLOSS_L", sLossLeftTxt, tx, y+175, 8, sLossLeftClr);
-   CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"SLOSS_R", sLossRightTxt, x+width-168, y+175, 8, sLossRightClr);
-
-   CreateLeftLivePanel(LEFT_LIVE_PREFIX+"SUMMARYBAR", x, y+192, width, 42, C'25,31,42');
+   CreateLeftLivePanel(LEFT_LIVE_PREFIX+"SUMMARYBAR", x, y+128, width, 42, C'25,31,42');
 
 // Top Row: Buy Lot and Buy P/L , sell LOT and sell P/l - Net P/L
    string topRowText = "BUY " + DoubleToString(buyLots,2) + " (P/L " + buyPLStr + ") , SELL " + DoubleToString(sellLots,2) + " (P/L " + sellPLStr + ") - NET " + netPLStr;
-   CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"TOTALS", topRowText, tx, y+199, 9, pnlColor);
+   CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"TOTALS", topRowText, tx, y+134, 9, pnlColor);
 
 // Second Row: Orders Count Summary
    int revMaxCap   = (InpReverse100MaxActiveOrders > 0) ? InpReverse100MaxActiveOrders : 1;
@@ -28215,31 +28143,30 @@ void UpdateLeftLiveOrdersDashboard()
                         "   SELL " + IntegerToString(sellCount) +
                         "   PEND " + IntegerToString(pendingCount) +
                         revBadge;
-   CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"SUMMARY", summaryText, tx, y+216, 8, clrWhite);
+   CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"SUMMARY", summaryText, tx, y+151, 8, clrWhite);
 
-   CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"HEAD_ID", "ORDER ID", tx, y+242, 8, clrSilver);
-   CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"HEAD", "TYPE     LOT       OPEN            SL     GAP      P/L", tx+76, y+242, 8, clrSilver);
-   CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"HEAD_CMT", "COMMENT", tx+422, y+242, 8, clrSilver);
+   CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"HEAD_ID", "ORDER ID", tx, y+174, 8, clrSilver);
+   CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"HEAD", "TYPE     LOT       OPEN            SL     GAP      P/L", tx+76, y+174, 8, clrSilver);
+   CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"HEAD_CMT", "COMMENT", tx+422, y+174, 8, clrSilver);
 
-   for(int r=0; r<24; r++)
+   for(int r = rows; r < 24; r++)
      {
-      CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"ID"+IntegerToString(r), "", tx, y+262+(r*20), 8, clrSilver);
-      CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"ROW"+IntegerToString(r), "", tx+76, y+262+(r*20), 8, clrWhite);
-      CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"VERIFY"+IntegerToString(r), "", tx+422, y+262+(r*20), 8, clrSilver);
+      ObjectDelete(0, LEFT_LIVE_PREFIX+"ID"+IntegerToString(r));
+      ObjectDelete(0, LEFT_LIVE_PREFIX+"ROW"+IntegerToString(r));
+      ObjectDelete(0, LEFT_LIVE_PREFIX+"VERIFY"+IntegerToString(r));
+     }
+
+   for(int r = 0; r < rows; r++)
+     {
+      CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"ID"+IntegerToString(r), "", tx, y+194+(r*20), 8, clrSilver);
+      CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"ROW"+IntegerToString(r), "", tx+76, y+194+(r*20), 8, clrWhite);
+      CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"VERIFY"+IntegerToString(r), "", tx+422, y+194+(r*20), 8, clrSilver);
      }
 
    int row=0;
-   for(int j=OrdersTotal()-1; j>=0; j--)
+   for(int j = 0; j < dashOrderCount && row < rows; j++)
      {
-      if(!OrderSelect(j,SELECT_BY_POS,MODE_TRADES))
-         continue;
-      if(OrderSymbol()!=Symbol() || OrderMagicNumber()!=MagicNumber)
-         continue;
-      int type=OrderType();
-      if(type!=OP_BUY && type!=OP_SELL && type!=OP_BUYSTOP && type!=OP_SELLSTOP && type!=OP_BUYLIMIT && type!=OP_SELLLIMIT)
-         continue;
-      if(row>=rows)
-         break;
+      int type = dashOrders[j].type;
       string typeText="";
       if(type==OP_BUY)
          typeText="BUY";
@@ -28259,12 +28186,10 @@ void UpdateLeftLiveOrdersDashboard()
                      if(type==OP_SELLLIMIT)
                         typeText="SELL LM";
 
-      double lots=OrderLots();
-      double open=OrderOpenPrice();
-      double sl=OrderStopLoss();
-      double pl=0;
-      if(type==OP_BUY || type==OP_SELL)
-         pl=OrderProfit()+OrderSwap()+OrderCommission();
+      double lots=dashOrders[j].lots;
+      double open=dashOrders[j].openPrice;
+      double sl=dashOrders[j].sl;
+      double pl=dashOrders[j].pl;
 
       // SL Column: Displays Previous Display(New Display) -> e.g. 2028(-) or 150(+1.50)
       double slDiffPoints = 0;
@@ -28283,21 +28208,17 @@ void UpdateLeftLiveOrdersDashboard()
       if(sl > 0)
          slDiffText = DoubleToString(slDiffPoints, 0) + "(" + slProfitStr + ")";
 
-      int currentTicket=OrderTicket();
-      datetime currentOpenTime=OrderOpenTime();
+      int currentTicket=dashOrders[j].ticket;
+      datetime currentOpenTime=dashOrders[j].openTime;
       datetime bestPrevTime=0;
       int bestPrevTicket=0;
       double prevSameOrderPrice=-1.0;
 
-      for(int k=OrdersTotal()-1; k>=0; k--)
+      for(int k=0; k<dashOrderCount; k++)
         {
          if(k==j)
             continue;
-         if(!OrderSelect(k,SELECT_BY_POS,MODE_TRADES))
-            continue;
-         if(OrderSymbol()!=Symbol() || OrderMagicNumber()!=MagicNumber)
-            continue;
-         int prevType=OrderType();
+         int prevType=dashOrders[k].type;
          bool sameDir=false;
          if((type==OP_BUY || type==OP_BUYSTOP || type==OP_BUYLIMIT) &&
             (prevType==OP_BUY || prevType==OP_BUYSTOP || prevType==OP_BUYLIMIT))
@@ -28310,20 +28231,18 @@ void UpdateLeftLiveOrdersDashboard()
          if(!sameDir)
             continue;
 
-         datetime ot=OrderOpenTime();
-         int tk=OrderTicket();
+         datetime ot=dashOrders[k].openTime;
+         int tk=dashOrders[k].ticket;
          if(ot<currentOpenTime || (ot==currentOpenTime && tk<currentTicket))
            {
             if(bestPrevTime==0 || ot>bestPrevTime || (ot==bestPrevTime && tk>bestPrevTicket))
               {
                bestPrevTime=ot;
                bestPrevTicket=tk;
-               prevSameOrderPrice=OrderOpenPrice();
+               prevSameOrderPrice=dashOrders[k].openPrice;
               }
            }
         }
-      if(!OrderSelect(j,SELECT_BY_POS,MODE_TRADES))
-         continue;
 
       string gapText="-";
       if(prevSameOrderPrice>0.0)
@@ -28336,25 +28255,9 @@ void UpdateLeftLiveOrdersDashboard()
       if(type==OP_BUY || type==OP_SELL)
          plText=(pl>=0?"+":"")+DoubleToString(pl,2);
 
-      string verifiedStatus="N/A";
+      string verifiedStatus=dashOrders[j].comment;
       color verifiedColor=clrSilver;
-      if(type==OP_BUY || type==OP_SELL)
-        {
-         verifiedStatus=GetPostOrderSLTPVerificationStatus(OrderTicket());
-         if(verifiedStatus=="VERIFIED")
-            verifiedColor=clrLime;
-         else
-            if(verifiedStatus=="FAILED")
-               verifiedColor=clrTomato;
-            else
-               if(verifiedStatus=="CHECKING")
-                  verifiedColor=clrGold;
-               else
-                  if(verifiedStatus=="NOT CHECKED")
-                     verifiedColor=clrOrange;
-        }
 
-      verifiedStatus=OrderComment();
       string orderIdText="#"+IntegerToString(currentTicket);
       string rowText=StringFormat("%-7s %5.2f %10s %13s %7s %8s", typeText, lots, DoubleToString(open,Digits), slDiffText, gapText, plText);
       color rowColor=clrWhite;
@@ -28370,16 +28273,16 @@ void UpdateLeftLiveOrdersDashboard()
          rowColor=clrLime;
       if((type==OP_BUY || type==OP_SELL) && pl<0)
          rowColor=clrOrangeRed;
-      CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"ID"+IntegerToString(row), orderIdText, tx, y+240+(row*20), 8, rowColor);
-      CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"ROW"+IntegerToString(row), rowText, tx+76, y+240+(row*20), 8, rowColor);
-      CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"VERIFY"+IntegerToString(row), verifiedStatus, tx+422, y+240+(row*20), 8, verifiedColor);
+      CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"ID"+IntegerToString(row), orderIdText, tx, y+194+(row*20), 8, rowColor);
+      CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"ROW"+IntegerToString(row), rowText, tx+76, y+194+(row*20), 8, rowColor);
+      CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"VERIFY"+IntegerToString(row), verifiedStatus, tx+422, y+194+(row*20), 8, verifiedColor);
       row++;
      }
    if(total==0)
-      CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"EMPTY", "NO ACTIVE EA ORDERS", tx, y+240, 9, clrSilver);
+      CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"EMPTY", "NO ACTIVE EA ORDERS", tx, y+194, 9, clrSilver);
    else
-      CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"EMPTY", "Showing "+IntegerToString(MathMin(total,rows))+" of "+IntegerToString(total)+" orders", tx, y+240+(rows*20)+4, 8, clrSilver);
-   ChartRedraw(0);
+      CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"EMPTY", "Showing "+IntegerToString(MathMin(total,rows))+" of "+IntegerToString(total)+" orders", tx, y+194+(rows*20)+4, 8, clrSilver);
+   // ChartRedraw(0); // Async MT4 refresh
   }
 //+------------------------------------------------------------------+
 //| LIQUIDITY SWEEP DETECTOR & GLOBAL VARIABLE MANAGEMENT           |
