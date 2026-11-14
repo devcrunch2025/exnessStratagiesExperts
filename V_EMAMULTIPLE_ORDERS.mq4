@@ -44,7 +44,7 @@ CheckBasketProfitClose  Total open basket profit
 
 
 
-string glbVersion = "VMULTI-1185 - Hourly Plans A C D Target With Day Target Profit Base";
+string glbVersion = "VMULTI-1186 - Daily Opening Balance Update on Every Day Change for Plans A B C D";
 
 
 
@@ -3624,12 +3624,15 @@ void SyncDubaiDayOpeningState(datetime nowServer = 0)
          GlobalVariableGet(gvOpenEqK) > 0.0)
         {
          g_dubaiDayOpeningEquity   = GlobalVariableGet(gvOpenEqK);
+         g_dayOpeningBalance       = g_dubaiDayOpeningEquity;
          g_dubaiNightLastCutTime   = GlobalVariableCheck(gvLastCutK) ? (datetime)MathRound(GlobalVariableGet(gvLastCutK)) : 0;
          g_dubaiNightCutCountToday = GlobalVariableCheck(gvCutCntK)  ? (int)MathRound(GlobalVariableGet(gvCutCntK)) : 0;
         }
       else
         {
-         g_dubaiDayOpeningEquity   = seedEquity;
+         double initBal = (AccountBalance() > 0.0) ? AccountBalance() : seedEquity;
+         g_dubaiDayOpeningEquity   = initBal;
+         g_dayOpeningBalance       = initBal;
          g_dubaiNightLastCutTime   = 0;
          g_dubaiNightCutCountToday = 0;
          g_hourlyPlanAHitsToday    = 0;
@@ -3641,10 +3644,10 @@ void SyncDubaiDayOpeningState(datetime nowServer = 0)
                GlobalVariableDel(gvLastCutK);
             if(GlobalVariableCheck(gvCutCntK))
                GlobalVariableDel(gvCutCntK);
-            if(seedEquity > 0.0)
+            if(initBal > 0.0)
               {
                GlobalVariableSet(gvOpenDayK, (double)dubaiDayKey);
-               GlobalVariableSet(gvOpenEqK,  g_dubaiDayOpeningEquity);
+               GlobalVariableSet(gvOpenEqK,  initBal);
               }
            }
         }
@@ -3659,7 +3662,9 @@ void SyncDubaiDayOpeningState(datetime nowServer = 0)
          g_dubaiNightCloseRetryPending = false;
          g_dubaiNightLastCutTime       = 0;
          g_dubaiNightCutCountToday     = 0;
-         g_dubaiDayOpeningEquity       = seedEquity;
+         double newDayOpenBal          = (AccountBalance() > 0.0) ? AccountBalance() : seedEquity;
+         g_dubaiDayOpeningEquity       = newDayOpenBal;
+         g_dayOpeningBalance           = newDayOpenBal;
          g_dubaiNightLastCloseTag      = "";
          g_dubaiNightLastCloseOrders   = 0;
          g_dubaiNightLastCloseLots     = 0.0;
@@ -3693,25 +3698,28 @@ void SyncDubaiDayOpeningState(datetime nowServer = 0)
                GlobalVariableDel(gvPlanDDnK);
             if(GlobalVariableCheck(gvPlanDHrK))
                GlobalVariableDel(gvPlanDHrK);
-            if(seedEquity > 0.0)
+            if(newDayOpenBal > 0.0)
               {
                GlobalVariableSet(gvOpenDayK, (double)dubaiDayKey);
-               GlobalVariableSet(gvOpenEqK,  g_dubaiDayOpeningEquity);
+               GlobalVariableSet(gvOpenEqK,  newDayOpenBal);
               }
            }
 
-         PrintFormat(">>> [DUBAI NIGHT CLOSE RESET] Next Day Start | DubaiTime=%s (DayKey=%d) | NewOpeningEq=$%.2f | PrevDone=%s (Cuts=%d) -> Status RESET",
+         PrintFormat(">>> [DUBAI 00:00 DAY START] Next Day Rollover | DubaiTime=%s (DayKey=%d) | Day Opening Balance=$%.2f | Plans A/B/C/D Base Updated | PrevDone=%s (Cuts=%d) -> Status RESET",
                      TimeToString(dubaiTime, TIME_DATE|TIME_MINUTES|TIME_SECONDS),
-                     dubaiDayKey, g_dubaiDayOpeningEquity, (wasDoneYesterday ? "YES" : "NO"), prevCuts);
+                     dubaiDayKey, g_dayOpeningBalance, (wasDoneYesterday ? "YES" : "NO"), prevCuts);
         }
       else
          if(g_dubaiDayOpeningEquity <= 0.0 && seedEquity > 0.0)
            {
-            g_dubaiDayOpeningEquity = seedEquity;
+            double fallbackBal = (AccountBalance() > 0.0) ? AccountBalance() : seedEquity;
+            g_dubaiDayOpeningEquity = fallbackBal;
+            if(g_dayOpeningBalance <= 0.0)
+               g_dayOpeningBalance  = fallbackBal;
             if(!isTestRun)
               {
                GlobalVariableSet(gvOpenDayK, (double)dubaiDayKey);
-               GlobalVariableSet(gvOpenEqK,  g_dubaiDayOpeningEquity);
+               GlobalVariableSet(gvOpenEqK,  fallbackBal);
               }
            }
   }
@@ -5051,17 +5059,18 @@ void ManageHourlySideLoss20PctCut()
       return; // Plan A triggered -> OR skips Plan B on this hourly evaluation
      }
 
-// ===== OR PLAN B: Per-Side Floating Loss > 20% -> Close 20% LOT (Min 0.01) =====
+// ===== OR PLAN B: Per-Side Floating Loss > 20% -> Close 20% LOT (Min 0.01) (Base: Day Opening Balance) =====
    if(!InpEnableHourlyPlanBSideLossCut)
       return;
 
-   double balance = AccountBalance();
-   if(balance <= 0.0)
+   double dayOpenBaseB = (g_dayOpeningBalance > 0.0) ? g_dayOpeningBalance :
+                         ((g_dubaiDayOpeningEquity > 0.0) ? g_dubaiDayOpeningEquity : AccountBalance());
+   if(dayOpenBaseB <= 0.0)
       return;
 
    double buyNetPL = 0.0, buyDdPct = 0.0, sellNetPL = 0.0, sellDdPct = 0.0;
    int    buyCount = 0, sellCount = 0;
-   CalcEqDdSideDrawdowns(balance, buyNetPL, buyDdPct, sellNetPL, sellDdPct, buyCount, sellCount);
+   CalcEqDdSideDrawdowns(dayOpenBaseB, buyNetPL, buyDdPct, sellNetPL, sellDdPct, buyCount, sellCount);
 
    double threshPct = (InpHourlySideLossThresholdPct > 0.0) ? InpHourlySideLossThresholdPct : 20.0;
    double cutPct    = (InpHourlySideLossCutPct > 0.0 && InpHourlySideLossCutPct <= 100.0) ? InpHourlySideLossCutPct : 20.0;
@@ -5069,10 +5078,10 @@ void ManageHourlySideLoss20PctCut()
 
 // Evaluate BUY only and SELL only independently (never combine BUY + SELL floating loss)
    if(buyCount > 0 && buyNetPL < 0.0 && buyDdPct > threshPct)
-      ExecuteHourlySideLossCutForSide(OP_BUY, balance, buyNetPL, buyDdPct, nowServer, cutPct, minLotCfg);
+      ExecuteHourlySideLossCutForSide(OP_BUY, dayOpenBaseB, buyNetPL, buyDdPct, nowServer, cutPct, minLotCfg);
 
    if(sellCount > 0 && sellNetPL < 0.0 && sellDdPct > threshPct)
-      ExecuteHourlySideLossCutForSide(OP_SELL, balance, sellNetPL, sellDdPct, nowServer, cutPct, minLotCfg);
+      ExecuteHourlySideLossCutForSide(OP_SELL, dayOpenBaseB, sellNetPL, sellDdPct, nowServer, cutPct, minLotCfg);
   }
 
 // ===== PRICE GAP (>1000 RAW) & DAY EQUITY PROFIT (>5%) CLOSE ALL STATE =====
@@ -12227,10 +12236,19 @@ bool IsHorizontalLineOrder(int ticket, string comment = "")
   }
 void CheckForNewDay()
 {
-   // Convert broker server time to Dubai time (UTC+4)
-   datetime dubaiTime = TimeGMT() + 4 * 3600;
+   datetime serverTime = TimeCurrent();
+   if(serverTime <= 0)
+      return;
 
-   // Trading day starts at 16:00 Dubai time
+   // Convert broker server time to Dubai time (UTC+4) - robust in tester & live
+   datetime dubaiTime = 0;
+   datetime gmt = TimeGMT();
+   if(gmt > 0 && !IsTesting() && !IsOptimization())
+      dubaiTime = gmt + (4 * 3600);
+   else
+      dubaiTime = serverTime + (ServerToDubaiOffsetHours * 3600);
+
+   // Trading day starts at 16:00 Dubai time (3 PM - 4 PM Dubai window)
    datetime tradingDayStart = dubaiTime - (15 * 3600);// 3PM - one hour before - 4PM dubai
 
    int today = TimeYear(tradingDayStart) * 10000
@@ -12243,7 +12261,8 @@ void CheckForNewDay()
       g_dayNumber = today;
 
       // Capture opening balance
-      g_dayOpeningBalance = AccountBalance();
+      g_dayOpeningBalance = (AccountBalance() > 0.0) ? AccountBalance() : AccountEquity();
+      g_dubaiDayOpeningEquity = g_dayOpeningBalance;
 
       // Reset daily protection
       g_dailyEquityTradingBlocked = false;
@@ -12252,8 +12271,8 @@ void CheckForNewDay()
       g_dailyEquityNextStepTarget = 0.0;
       g_dailyEquityStepCount = 0;
 
-      Print("NEW TRADING DAY detected (Dubai 4 PM). Opening Balance = ",
-            DoubleToString(g_dayOpeningBalance, 2));
+      PrintFormat(">>> [NEW TRADING DAY DETECTED (Dubai 4 PM)] DayKey=%d | DubaiTime=%s | Day Opening Balance = $%.2f",
+                  today, TimeToString(dubaiTime, TIME_DATE|TIME_MINUTES|TIME_SECONDS), g_dayOpeningBalance);
    }
 }
 //+------------------------------------------------------------------+
@@ -12417,8 +12436,13 @@ bool IsDailyEquityStopReached()
 
    double dailyTarget = DailyEquityStopUSD;
 
-   // Get Dubai time (UTC+4)
-   datetime dubaiTime = TimeGMT() + (4 * 3600);
+   // Get Dubai time (UTC+4) - robust in tester & live
+   datetime dubaiTime = 0;
+   datetime gmt = TimeGMT();
+   if(gmt > 0 && !IsTesting() && !IsOptimization())
+      dubaiTime = gmt + (4 * 3600);
+   else
+      dubaiTime = TimeCurrent() + (ServerToDubaiOffsetHours * 3600);
 
    int dayOfWeek = TimeDayOfWeek(dubaiTime);
 
@@ -26438,7 +26462,8 @@ void UpdateDashboard(DailyProtectionState &state)
    CreateDashboardLabel(DASH_PREFIX+"EQL_LINE2", eqlLine2, tx, y+414, 8, clrWhite);
 
 // --- EQ-DD Pure Per-Side (BUY / SELL) Current Status & Latest Chronological Event ---
-   double dashBal = AccountBalance();
+   double dashBal = (g_dayOpeningBalance > 0.0) ? g_dayOpeningBalance :
+                    ((g_dubaiDayOpeningEquity > 0.0) ? g_dubaiDayOpeningEquity : AccountBalance());
    double dashBuyPL = 0.0, dashBuyDdPct = 0.0, dashSellPL = 0.0, dashSellDdPct = 0.0;
    int    dashBuyCnt = 0, dashSellCnt = 0;
    CalcEqDdSideDrawdowns(dashBal, dashBuyPL, dashBuyDdPct, dashSellPL, dashSellDdPct, dashBuyCnt, dashSellCnt);
