@@ -1,4 +1,4 @@
-//+------------------------------------------------------------------+
+﻿//+------------------------------------------------------------------+
 //|                  SSL CHANNEL CROSS EA - CONTINUOUS EQUITY LADDER |
 //|                  TWO-STAGE PROFIT LADDER | CONTINUOUS RESET      |
 //+------------------------------------------------------------------+
@@ -44,13 +44,14 @@ CheckBasketProfitClose  Total open basket profit
 
 
 
-string glbVersion = "VMULTI-1190 - Pure In-Memory EA Variables in RAM (Zero Terminal Globals)";
+string glbVersion = "VMULTI-1191 - Dubai 16:00 Unified Day Rollover & $200 Adverse Day Protection";
 
 
 
-double DailyEquityStopUSD          = 20;//10;//50;//  $50 /10;//10%;//percentage //1000;//50;//20*2.5;//10;//20;// 10;//30.0; close all orders at $50Xmultipler
+double DailyEquityStopUSD          = 10;//20;//10;//50;//  $50 /10;//10%;//percentage //1000;//50;//20*2.5;//10;//20;// 10;//30.0; close all orders at $50Xmultipler
 double DailyEquityTrailStepUSD     = 5.0;  // Collect $5 step profit step-by-step after DailyEquityStopUSD hit
 double DailyEquityRetraceFloorPct  = 70.0; // Pause trading for the day when profit retraces to 70% of maximum profit hit (target + steps)
+double DailyEquityMaxLossUSD       = 200.0; // Adverse Day Protection ($200): Close all orders & pause trading till next day Dubai 16:00 if day equity drops $200
 double TargetProfitPerFlipUSD =50;//;//percentage////1000;//20;//10;//10*2;//10;//5;//20;// 10.0; close all orders at $20Xmultipler
 
 double protectgapOnOrderclose=31;//30;//101;//1000;//303;//11111111111111
@@ -126,9 +127,10 @@ double InpBasketTrailStepUSD        = 1;//0.50;        // Pullback distance in U
 
 int      g_dayNumber = -1;
 double   g_dayOpeningBalance = 0.0;
-bool     g_dailyEquityTradingBlocked = false;
-bool     g_dailyEquityTargetHitToday    = false; // Target equity reached today; trailing $5 steps active
-double   g_dailyEquityPeakEquity        = 0.0;   // Peak equity reached after target hit
+bool     g_dailyEquityTradingBlocked         = false;
+bool     g_dailyEquityTargetHitToday         = false; // Target equity reached today; trailing $5 steps active
+bool     g_dailyEquityAdverseLossHitToday    = false; // Adverse Day Protection hit today ($200 loss); trading paused till Dubai 16:00
+double   g_dailyEquityPeakEquity             = 0.0;   // Peak equity reached after target hit
 double   g_dailyEquityNextStepTarget    = 0.0;   // Next $5 step profit equity milestone
 int      g_dailyEquityStepCount         = 0;     // Number of $5 steps hit today
 
@@ -2653,6 +2655,20 @@ int ResolveNextEqDdTier(int curTier, int doneTier, double &nextThreshOut)
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
+//+------------------------------------------------------------------+
+//| GetDubai16TradingDayKey                                          |
+//| Computes unified trading day key for Dubai 16:00 session start:  |
+//| Session runs from Dubai 16:00 to next day Dubai 15:59:59.        |
+//| Returns integer YYYYMMDD (e.g. 20261001) for clean daily tracking|
+//+------------------------------------------------------------------+
+int GetDubai16TradingDayKey(datetime dubaiTime)
+  {
+   if(dubaiTime <= 0)
+      return -1;
+   datetime tradingDayStart = dubaiTime - (16 * 3600);
+   return (TimeYear(tradingDayStart) * 10000 + TimeMonth(tradingDayStart) * 100 + TimeDay(tradingDayStart));
+  }
+
 string FormatDubaiShortDT(datetime serverTime, bool withSeconds = false)
   {
    if(serverTime <= 0)
@@ -3220,7 +3236,7 @@ void ManageEquityDrawdownForSide(int sideType)
 //| Wipes all EQ-DD state, per-ticket/ancestor locks, session peaks, |
 //| cut counters & chronological history for a fresh Dubai day start.|
 //+------------------------------------------------------------------+
-void ExecuteEqDdFreshDayReset(datetime nowServer, datetime dubaiTime, int dubaiDayKey, bool isTestRun, string triggerReason = "Dubai 00:00 Rollover")
+void ExecuteEqDdFreshDayReset(datetime nowServer, datetime dubaiTime, int dubaiDayKey, bool isTestRun, string triggerReason = "Dubai 16:00 Rollover")
   {
    g_eqDdPriorDayCuts    = g_eqDdTotalPartialCuts + g_eqDdTotalCloseAllOrders;
    g_eqDdPriorDayPeakPct = g_eqDdSessionPeakPct;
@@ -3291,7 +3307,7 @@ void CheckEqDdDailyReset()
       return;
 
    datetime dubaiTime   = nowServer + (ServerToDubaiOffsetHours * 3600);
-   int      dubaiDayKey = TimeYear(dubaiTime) * 1000 + TimeDayOfYear(dubaiTime);
+   int      dubaiDayKey = GetDubai16TradingDayKey(dubaiTime);
 
    if(!InpEqDdResetAllOnNewDay)
      {
@@ -3432,7 +3448,7 @@ void SyncDubaiDayOpeningState(datetime nowServer = 0)
       return;
 
    datetime dubaiTime   = nowServer + (ServerToDubaiOffsetHours * 3600);
-   int      dubaiDayKey = TimeYear(dubaiTime) * 1000 + TimeDayOfYear(dubaiTime);
+   int      dubaiDayKey = GetDubai16TradingDayKey(dubaiTime);
    double   curEquity   = AccountEquity();
    double   seedEquity  = (curEquity > 0.0) ? curEquity : AccountBalance();
 
@@ -3485,7 +3501,7 @@ void SyncDubaiDayOpeningState(datetime nowServer = 0)
          g_hourlyPlanDHitsToday        = 0;
          g_hourlyPlanDDoneHourSlot     = -1;
 
-         PrintFormat(">>> [DUBAI 00:00 DAY START] Next Day Rollover | DubaiTime=%s (DayKey=%d) | Day Opening Balance=$%.2f | Plans A/B/C/D Base Updated | PrevDone=%s (Cuts=%d) -> Status RESET",
+         PrintFormat(">>> [DUBAI 16:00 DAY START] Next Day Rollover | DubaiTime=%s (DayKey=%d) | Day Opening Balance=$%.2f | Plans A/B/C/D Base Updated | PrevDone=%s (Cuts=%d) -> Status RESET",
                      TimeToString(dubaiTime, TIME_DATE|TIME_MINUTES|TIME_SECONDS),
                      dubaiDayKey, g_dayOpeningBalance, (wasDoneYesterday ? "YES" : "NO"), prevCuts);
         }
@@ -7282,12 +7298,13 @@ void   SetEqDdOrderExecutedTier(int ticket, int tier, int sideType = -1);
 bool   HasEqDdTrackedSide(int sideType);
 void   ResetEqDdSideCycleState(int sideType, string reason = "");
 void   ResetEqDdCycleState(string reason = "");
-void   ExecuteEqDdFreshDayReset(datetime nowServer, datetime dubaiTime, int dubaiDayKey, bool isTestRun, string triggerReason = "Dubai 00:00 Rollover");
+void   ExecuteEqDdFreshDayReset(datetime nowServer, datetime dubaiTime, int dubaiDayKey, bool isTestRun, string triggerReason);
 void   CheckEqDdDailyReset();
 int    ResolveEqDdTierAndCut(double ddPct, double &cutPctOut);
 color  GetEqDdTierColor(int tier);
 double GetEqDdTierThresholdPct(int tier);
 int    ResolveNextEqDdTier(int curTier, int doneTier, double &nextThreshOut);
+int    GetDubai16TradingDayKey(datetime dubaiTime);
 string FormatDubaiShortDT(datetime serverTime, bool withSeconds = false);
 void   CalcEqDdSideDrawdowns(double balance, double &buyNetPLOut, double &buyDdPctOut, double &sellNetPLOut, double &sellDdPctOut, int &buyCountOut, int &sellCountOut);
 void   DrawEqDdHitIcon(int tier, double ddPct, double ddUSD, double bal, double eq, double cutPct, int ordersHit, double lotsCut, datetime hitTime = 0, double hitPrice = 0.0, string sideTag = "");
@@ -11238,10 +11255,11 @@ void ResetAllRuntimeVariablesOnFreshStart()
 
    // 2. Daily Equity Target & Step Trailing
    g_dayNumber                 = -1;
-   g_dayOpeningBalance         = (AccountBalance() > 0.0) ? AccountBalance() : AccountEquity();
-   g_dailyEquityTradingBlocked = false;
-   g_dailyEquityTargetHitToday = false;
-   g_dailyEquityPeakEquity     = 0.0;
+   g_dayOpeningBalance              = (AccountBalance() > 0.0) ? AccountBalance() : AccountEquity();
+   g_dailyEquityTradingBlocked      = false;
+   g_dailyEquityTargetHitToday      = false;
+   g_dailyEquityAdverseLossHitToday = false;
+   g_dailyEquityPeakEquity          = 0.0;
    g_dailyEquityNextStepTarget = 0.0;
    g_dailyEquityStepCount      = 0;
 
@@ -12059,30 +12077,30 @@ void CheckForNewDay()
    else
       dubaiTime = serverTime + (ServerToDubaiOffsetHours * 3600);
 
-   // Trading day starts at 16:00 Dubai time (3 PM - 4 PM Dubai window)
-   datetime tradingDayStart = dubaiTime - (15 * 3600);// 3PM - one hour before - 4PM dubai
-
-   int today = TimeYear(tradingDayStart) * 10000
-             + TimeMonth(tradingDayStart) * 100
-             + TimeDay(tradingDayStart);
+   int today = GetDubai16TradingDayKey(dubaiTime);
 
    if(today != g_dayNumber)
    {
-      // NEW TRADING DAY
+      // NEW TRADING DAY (DUBAI 16:00)
       g_dayNumber = today;
 
       // Capture opening balance
       g_dayOpeningBalance = (AccountBalance() > 0.0) ? AccountBalance() : AccountEquity();
       g_dubaiDayOpeningEquity = g_dayOpeningBalance;
 
-      // Reset daily protection
-      g_dailyEquityTradingBlocked = false;
-      g_dailyEquityTargetHitToday = false;
-      g_dailyEquityPeakEquity = 0.0;
-      g_dailyEquityNextStepTarget = 0.0;
-      g_dailyEquityStepCount = 0;
+      // Reset daily protection & pause flags (Pause Duration till next day Dubai 16:00)
+      g_dailyEquityTradingBlocked      = false;
+      g_dailyEquityTargetHitToday      = false;
+      g_dailyEquityAdverseLossHitToday = false;
+      g_dailyEquityPeakEquity          = 0.0;
+      g_dailyEquityNextStepTarget      = 0.0;
+      g_dailyEquityStepCount           = 0;
 
-      PrintFormat(">>> [NEW TRADING DAY DETECTED (Dubai 4 PM)] DayKey=%d | DubaiTime=%s | Day Opening Balance = $%.2f",
+      // Synchronize Dubai 16:00 opening state and EqDD daily state
+      SyncDubaiDayOpeningState(serverTime);
+      CheckEqDdDailyReset();
+
+      PrintFormat(">>> [NEW TRADING DAY DETECTED (Dubai 16:00)] DayKey=%d | DubaiTime=%s | Day Opening Balance = $%.2f | Pause Duration Reset -> Trading Active",
                   today, TimeToString(dubaiTime, TIME_DATE|TIME_MINUTES|TIME_SECONDS), g_dayOpeningBalance);
    }
 }
@@ -12264,9 +12282,35 @@ bool IsDailyEquityStopReached()
    }
 
    int mult = (balancelomultipler > 0) ? balancelomultipler : 1;
+   double curEquity    = AccountEquity();
+
+   // ==============================================================
+   // ADVERSE DAY PROTECTION ($200 Loss Stop)
+   // If Day Equity drops $200 below Day Opening Balance,
+   // close all open orders and pause trading until next day Dubai 16:00
+   // ==============================================================
+   if(DailyEquityMaxLossUSD > 0.0 && g_dayOpeningBalance > 0.0)
+   {
+      double maxLossUSD        = DailyEquityMaxLossUSD * mult;
+      double adverseStopEquity = g_dayOpeningBalance - maxLossUSD;
+      if(curEquity <= adverseStopEquity)
+      {
+         g_dailyEquityTradingBlocked      = true;
+         g_dailyEquityAdverseLossHitToday = true;
+
+         PrintFormat(">>> [ADVERSE DAY EQUITY PROTECTION HIT (-$%.2f)] Dubai=%s (DayKey=%d) | OpenBal=$%.2f | CurEquity=$%.2f | DayLoss=-$%.2f >= $%.2f | Closing ALL orders and pausing trading until next day Dubai 16:00.",
+                     maxLossUSD, TimeToString(dubaiTime, TIME_DATE|TIME_MINUTES|TIME_SECONDS),
+                     GetDubai16TradingDayKey(dubaiTime), g_dayOpeningBalance, curEquity,
+                     (g_dayOpeningBalance - curEquity), maxLossUSD);
+
+         CloseAndDeleteAllEAOrdersOnTradingStop();
+
+         return true;
+      }
+   }
+
    double targetEquity = g_dayOpeningBalance + (dailyTarget * mult);
    double stepUSD      = DailyEquityTrailStepUSD * mult;
-   double curEquity    = AccountEquity();
 
    // Track peak equity once target is hit today
    if(g_dailyEquityTargetHitToday && curEquity > g_dailyEquityPeakEquity)
@@ -12336,7 +12380,7 @@ bool IsDailyEquityStopReached()
       {
          g_dailyEquityTradingBlocked = true;
 
-         Print(StringFormat("[DAILY EQUITY 70%% RETRACE STOP] Maximum peak profit collected was $%.2f (Daily target + %d x $5 steps). Equity dropped to 70%% floor ($%.2f <= $%.2f). Closing all orders and pausing for the day.",
+         Print(StringFormat("[DAILY EQUITY 70%% RETRACE STOP] Maximum peak profit collected was $%.2f (Daily target + %d x $5 steps). Equity dropped to 70%% floor ($%.2f <= $%.2f). Closing all orders and pausing until next day Dubai 16:00.",
                totalPeakProfit, g_dailyEquityStepCount, curEquity, floorEquity));
 
          CloseAndDeleteAllEAOrdersOnTradingStop();
@@ -14713,7 +14757,7 @@ void ManageDubaiNightOneSideCloseAll()
    int      dubaiHour   = TimeHour(dubaiTime);
    int      dubaiMinute = TimeMinute(dubaiTime);
    int      dubaiMod    = dubaiHour * 60 + dubaiMinute;
-   int      dubaiDayKey = TimeYear(dubaiTime) * 1000 + TimeDayOfYear(dubaiTime);
+   int      dubaiDayKey = GetDubai16TradingDayKey(dubaiTime);
    bool     isTestRun   = (IsTesting() || IsOptimization());
    string   gvKey       = DubaiNightCloseGvKey();
    string   gvLastCutK  = "EA_DUBAI_LAST_CUT_" + IntegerToString(MagicNumber) + "_" + Symbol();
@@ -26126,7 +26170,7 @@ void UpdateDashboard(DailyProtectionState &state)
    CreateDashboardLabel(DASH_PREFIX+"SPECIAL_ORD", "SPECIAL ORDS: " + spcSummary, tx, y+310, 8, spcColor);
 
 // Day Risk Line
-   string dayRiskStr = StringFormat("DAY RISK    : Stop $%.0f | Floor $%.2f | Room $%.2f [%s]", DailyEquityStopUSD * balancelomultipler, DayProfitLadderProtectionEquity, riskRemaining, (HasBasketNewOrderLossLimit() ? "LOCKED" : "OK"));
+   string dayRiskStr = StringFormat("DAY RISK    : Tgt +$%.0f | MaxLoss -$%.0f | Room $%.2f [%s]", DailyEquityStopUSD * balancelomultipler, DailyEquityMaxLossUSD * balancelomultipler, riskRemaining, (g_dailyEquityTradingBlocked ? "PAUSED" : "OK"));
    color dayRiskClr = HasBasketNewOrderLossLimit() ? clrTomato : clrLime;
    CreateDashboardLabel(DASH_PREFIX+"DAY_RISK", dayRiskStr, tx, y+326, 8, dayRiskClr);
 
@@ -26251,7 +26295,7 @@ void UpdateDashboard(DailyProtectionState &state)
                          : "--:--";
    datetime hrlyDashNow   = TimeCurrent();
    datetime hrlyDashDub   = (hrlyDashNow > 0) ? (hrlyDashNow + (ServerToDubaiOffsetHours * 3600)) : 0;
-   int      hrlyDashDay   = (hrlyDashDub > 0) ? (TimeYear(hrlyDashDub) * 1000 + TimeDayOfYear(hrlyDashDub)) : -1;
+   int      hrlyDashDay   = (hrlyDashDub > 0) ? GetDubai16TradingDayKey(hrlyDashDub) : -1;
    double   hrlyDashOpen  = (g_dubaiDayOpeningEquity > 0.0 && g_dubaiNightCloseDayKey == hrlyDashDay)
                             ? g_dubaiDayOpeningEquity : AccountEquity();
    double   hrlyDashEqPct = (hrlyDashOpen > 0.0) ? (((AccountEquity() - hrlyDashOpen) / hrlyDashOpen) * 100.0) : 0.0;
@@ -26490,7 +26534,7 @@ void UpdateDashboard(DailyProtectionState &state)
    int      dashDubaiHour = TimeHour(dashDubaiTime);
    int      dashDubaiMin  = TimeMinute(dashDubaiTime);
    int      dashDubaiMod  = dashDubaiHour * 60 + dashDubaiMin;
-   int      dashDubaiDay  = TimeYear(dashDubaiTime) * 1000 + TimeDayOfYear(dashDubaiTime);
+   int      dashDubaiDay  = GetDubai16TradingDayKey(dashDubaiTime);
    int      dashStartMod  = InpDubaiNightCloseStartHour * 60;
    int      dashEndMod    = InpDubaiNightCloseEndHour   * 60;
    int      dashForceMod  = InpDubaiNightForceCloseHour * 60 + InpDubaiNightForceCloseMinute;
@@ -26551,7 +26595,7 @@ void UpdateDashboard(DailyProtectionState &state)
          string hitClock = (g_dubaiNightCloseLastHitTime > 0)
                            ? TimeToString(g_dubaiNightCloseLastHitTime + (ServerToDubaiOffsetHours * 3600), TIME_MINUTES)
                            : "--:--";
-         dubaiCloseTxt = StringFormat("DUBAI %02d-%02d : DONE @ %s (EqDay:%s%.1f%% | Reset 00:00)",
+         dubaiCloseTxt = StringFormat("DUBAI %02d-%02d : DONE @ %s (EqDay:%s%.1f%% | Reset 16:00)",
                                       InpDubaiNightCloseStartHour, InpDubaiNightCloseEndHour,
                                       hitClock, dashDayEqSign, dashDayEqPct);
          dubaiCloseClr = clrGold;
@@ -27072,7 +27116,7 @@ void UpdateLeftLiveOrdersDashboard(bool force = false)
    bool   hrlyBreachAny  = (hrlyBreachBuy || hrlyBreachSell);
    datetime liveHrlyNow   = TimeCurrent();
    datetime liveHrlyDub   = (liveHrlyNow > 0) ? (liveHrlyNow + (ServerToDubaiOffsetHours * 3600)) : 0;
-   int      liveHrlyDay   = (liveHrlyDub > 0) ? (TimeYear(liveHrlyDub) * 1000 + TimeDayOfYear(liveHrlyDub)) : -1;
+   int      liveHrlyDay   = (liveHrlyDub > 0) ? GetDubai16TradingDayKey(liveHrlyDub) : -1;
    double   liveHrlyOpenE = (g_dubaiDayOpeningEquity > 0.0 && g_dubaiNightCloseDayKey == liveHrlyDay)
                             ? g_dubaiDayOpeningEquity : liveEq;
    double   liveHrlyEqPct = (liveHrlyOpenE > 0.0) ? (((liveEq - liveHrlyOpenE) / liveHrlyOpenE) * 100.0) : 0.0;
@@ -27497,7 +27541,7 @@ void UpdateLeftLiveOrdersDashboard(bool force = false)
    int      dDubaiHr   = (dDubaiTime > 0) ? TimeHour(dDubaiTime) : 0;
    int      dDubaiMin  = (dDubaiTime > 0) ? TimeMinute(dDubaiTime) : 0;
    int      dDubaiMod  = dDubaiHr * 60 + dDubaiMin;
-   int      dDubaiDay  = (dDubaiTime > 0) ? (TimeYear(dDubaiTime) * 1000 + TimeDayOfYear(dDubaiTime)) : -1;
+   int      dDubaiDay  = (dDubaiTime > 0) ? GetDubai16TradingDayKey(dDubaiTime) : -1;
    int      dStartMod  = InpDubaiNightCloseStartHour * 60;
    int      dEndMod    = InpDubaiNightCloseEndHour   * 60;
    int      dForceMod  = InpDubaiNightForceCloseHour * 60 + InpDubaiNightForceCloseMinute;
@@ -27896,7 +27940,10 @@ void UpdateLeftLiveOrdersDashboard(bool force = false)
          deqStatusTxt = "PAUSED";
          deqBarClr    = C'50,15,15';
          deqTxtClr    = clrTomato;
-         deqRightTxt  = StringFormat("P/L:%s$%.2f  PAUSED AT 70%% RETRACE", deqSign, deqProfit);
+         if(g_dailyEquityAdverseLossHitToday)
+            deqRightTxt  = StringFormat("P/L:%s$%.2f  PAUSED AT -$%.0f LOSS (TILL 16:00)", deqSign, deqProfit, DailyEquityMaxLossUSD * deqMult);
+         else
+            deqRightTxt  = StringFormat("P/L:%s$%.2f  PAUSED AT 70%% RETRACE (TILL 16:00)", deqSign, deqProfit);
          deqRightClr  = clrTomato;
         }
       else if(g_dailyEquityTargetHitToday)
