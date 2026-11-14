@@ -44,7 +44,7 @@ CheckBasketProfitClose  Total open basket profit
 
 
 
-string glbVersion = "VMULTI-1193 - Top-Center Dubai Time Display";
+string glbVersion = "VMULTI-1194 - Streamlined Left Live Position Dashboard";
 
 
 
@@ -790,6 +790,7 @@ datetime  LastDashboardUpdateSec          = 0;
 uint      g_lastLeftDashUpdateMs          = 0;
 datetime  g_lastLeftDashUpdateSec         = 0;
 bool      g_leftDashNightBarV3Reset       = false;
+bool      g_leftDashStreamlinedV1Reset    = false;
 bool      g_dashRedesignV5Reset           = false;
 bool      g_dashRedesignV11Reset          = false;
 bool      g_cleanedObsoleteBars           = false;
@@ -821,12 +822,17 @@ int DashboardWidth = 285;
 int DashboardHeight = 480;
 int DashboardFontSize = 9;
 double InpMinSafeWorkingCapital = 500.0; // Minimum account capital buffer to retain when calculating safe withdrawal (.00)
-bool ShowLeftLiveOrdersDashboard = true;
-int LeftDashboardX = 10;
-int LeftDashboardY = 20;
-int LeftDashboardWidth = 330;
-int LeftDashboardMaxRows = 20;
-bool ShowTopCenterDubaiTime = true; // Display Dubai Time centered at chart top between left and right dashboards
+bool ShowLeftLiveOrdersDashboard     = true;
+int  LeftDashboardX                  = 10;
+int  LeftDashboardY                  = 20;
+int  LeftDashboardWidth              = 330;
+int  LeftDashboardMaxRows            = 20;
+bool ShowTopCenterDubaiTime          = true;   // Display Dubai Time centered at chart top between left and right dashboards
+bool InpShowLeftDashHourlyEngineRows = false;  // Left Dash: Show 1H Engine rows (1H A/B/C/D, 1H A-D, Dubai Time) [Default: false = HIDDEN]
+bool InpShowLeftDashNightCloseRow    = false;  // Left Dash: Show Night Close row [Default: false = HIDDEN]
+bool InpShowLeftDashPriceGapRow      = false;  // Left Dash: Show Price Gap Close row [Default: false = HIDDEN]
+bool InpShowLeftDashStepLossRow      = false;  // Left Dash: Show Step Loss row [Default: false = HIDDEN]
+bool InpShowLeftDashDayEqTargetRow   = true;   // Left Dash: Show Day Equity Target row (DAY EQ TGT)
 
 double OriginalLots = 0.01;
 double OriginalLadder1ProfitUSD = 0.05;
@@ -11252,6 +11258,7 @@ void ResetAllRuntimeVariablesOnFreshStart()
    g_lastLeftDashUpdateMs     = 0;
    g_lastLeftDashUpdateSec    = 0;
    g_leftDashNightBarV3Reset  = false;
+   g_leftDashStreamlinedV1Reset = false;
    g_dashRedesignV5Reset      = false;
    g_dashRedesignV11Reset     = false;
    g_cleanedObsoleteBars      = false;
@@ -27181,10 +27188,11 @@ void UpdateLeftLiveOrdersDashboard(bool force = false)
    g_lastLeftDashUpdateMs  = nowMs;
    g_lastLeftDashUpdateSec = TimeCurrent();
 
-   if(!g_leftDashNightBarV3Reset)
+   if(!g_leftDashNightBarV3Reset || !g_leftDashStreamlinedV1Reset)
      {
       DeleteLeftLiveOrdersDashboardObjects();
-      g_leftDashNightBarV3Reset = true;
+      g_leftDashNightBarV3Reset    = true;
+      g_leftDashStreamlinedV1Reset = true;
      }
 
    int total=0,buyCount=0,sellCount=0,pendingCount=0;
@@ -27252,7 +27260,20 @@ void UpdateLeftLiveOrdersDashboard(bool force = false)
          dashOrderCount++;
         }
      }
-   int x=LeftDashboardX, y=LeftDashboardY, tx=x+12, width=MathMax(LeftDashboardWidth+370, 700), panelHeight=rows*20+286;
+   int x=LeftDashboardX, y=LeftDashboardY, tx=x+12, width=MathMax(LeftDashboardWidth+370, 700);
+
+   int intermediateBarsCount = 0;
+   if(InpShowLeftDashHourlyEngineRows) intermediateBarsCount += 3;
+   if(InpShowLeftDashDayEqTargetRow)   intermediateBarsCount += 1;
+   if(InpShowLeftDashNightCloseRow)    intermediateBarsCount += 1;
+   if(InpShowLeftDashPriceGapRow)      intermediateBarsCount += 1;
+   if(InpShowLeftDashStepLossRow)      intermediateBarsCount += 1;
+
+   int curY            = y + 38;
+   int summaryBarY     = curY + (intermediateBarsCount * 22);
+   int tableHeaderY    = summaryBarY + 42 + 8;
+   int orderRowsStartY = tableHeaderY + 20;
+   int panelHeight     = (orderRowsStartY - y) + (rows * 20) + 24;
    color pnlColor=clrWhite;
    if(netPL>0)
       pnlColor=clrLime;
@@ -27530,9 +27551,6 @@ void UpdateLeftLiveOrdersDashboard(bool force = false)
                   ddStatLeftClr = (maxSideDdPct > 0.0) ? clrWhite : clrLime;
                  }
      }
-   CreateLeftLivePanel(LEFT_LIVE_PREFIX+"DD_STATBAR", x, y+38, width, 22, C'18,24,34');
-   CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"DD_STAT_L", ddStatLeftTxt, tx, y+43, 8, ddStatLeftClr);
-   CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"DD_STAT_R", ddStatRightTxt, x+width-186, y+43, 8, ddStatRightClr);
 
 // Row 3 (y+60): Chronological Latest DD Event Banner (Hit / Wait / Cleared in Dubai Time)
    string ddBannerTxt = "DD LATEST  : NONE YET";
@@ -27702,8 +27720,6 @@ void UpdateLeftLiveOrdersDashboard(bool force = false)
                                                       firstTier, firstThresh, firstCut, InpEqDdMaxTier, GetEqDdTierThresholdPct(InpEqDdMaxTier));
                            ddBannerClr = clrSilver;
                           }
-   CreateLeftLivePanel(LEFT_LIVE_PREFIX+"EQDD_HITBAR", x, y+60, width, 22, C'14,20,30');
-   CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"EQDD_HITTXT", ddBannerTxt, tx, y+65, 8, ddBannerClr);
 
 // Dubai Time & Night-Close Status Bars
    datetime dNowServer = TimeCurrent();
@@ -28085,11 +28101,12 @@ void UpdateLeftLiveOrdersDashboard(bool force = false)
                      nightRightClr = clrSilver;
                     }
 
-   CreateLeftLivePanel(LEFT_LIVE_PREFIX+"DUBAI_BAR", x, y+82, width, 22, C'16,28,44');
-   CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"DUBAI_TIME", leftDubaiTimeTxt, tx, y+87, 8, leftDubaiTimeClr);
-   CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"DUBAI_STAT", leftDubaiStatTxt, x+252, y+87, 8, leftDubaiStatClr);
-
 // ===== DAY EQUITY TARGET BAR =====
+   string deqLeftTxt  = "";
+   color  deqTxtClr   = clrSilver;
+   string deqRightTxt = "";
+   color  deqRightClr = clrSilver;
+   color  deqBarClr   = C'18,22,34';
    {
     double deqOpenBase   = (g_dayOpeningBalance > 0.0) ? g_dayOpeningBalance : AccountBalance();
     double deqMult       = (balancelomultipler > 0) ? balancelomultipler : 1;
@@ -28099,13 +28116,9 @@ void UpdateLeftLiveOrdersDashboard(bool force = false)
     double deqRemaining  = MathMax(0.0, deqTarget - deqCurrent);
     double deqPct        = (DailyEquityStopUSD * deqMult > 0.0) ? (deqProfit / (DailyEquityStopUSD * deqMult) * 100.0) : 0.0;
     string deqSign       = (deqProfit >= 0.0) ? "+" : "";
-    string deqStatusTxt;
-    color  deqBarClr;
-    color  deqTxtClr;
+    string deqStatusTxt  = "";
       double deqPeakProfit = (g_dailyEquityPeakEquity > deqOpenBase) ? (g_dailyEquityPeakEquity - deqOpenBase) : (deqTarget - deqOpenBase);
       double deqFloor70    = deqPeakProfit * (DailyEquityRetraceFloorPct / 100.0);
-      string deqRightTxt   = "";
-      color  deqRightClr   = clrSilver;
 
       if(g_dailyEquityTradingBlocked)
         {
@@ -28152,16 +28165,9 @@ void UpdateLeftLiveOrdersDashboard(bool force = false)
          deqRightClr  = clrSilver;
         }
 
-      string deqLeftTxt  = StringFormat("DAY EQ TGT : [%s] Base:$%.0f  Tgt:$%.0f  ($%.0fx%d)",
+      deqLeftTxt  = StringFormat("DAY EQ TGT : [%s] Base:$%.0f  Tgt:$%.0f  ($%.0fx%d)",
                                         deqStatusTxt, deqOpenBase, deqTarget, DailyEquityStopUSD, (int)deqMult);
-      CreateLeftLivePanel(LEFT_LIVE_PREFIX+"DEQTGT_BAR", x, y+104, width, 22, deqBarClr);
-      CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"DEQTGT_L",   deqLeftTxt,  tx,          y+109, 8, deqTxtClr);
-      CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"DEQTGT_R",   deqRightTxt, x+width-240, y+109, 8, deqRightClr);
    }
-
-   CreateLeftLivePanel(LEFT_LIVE_PREFIX+"DUBAI_NIGHTBAR", x, y+126, width, 22, C'12,24,38');
-   CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"DUBAI_NIGHT_L", nightLeftTxt, tx, y+131, 8, nightLeftClr);
-   CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"DUBAI_NIGHT_R", nightRightTxt, x+width-168, y+131, 8, nightRightClr);
 
    double pGapLeftMid    = (Bid > 0.0 && Ask > 0.0) ? ((Bid + Ask) * 0.5)
                            : ((Bars > 0 && Close[0] > 0.0) ? Close[0] : Bid);
@@ -28217,10 +28223,6 @@ void UpdateLeftLiveOrdersDashboard(bool force = false)
             pGapRightTxt = StringFormat("Hits:%d Waiting", g_priceGapCloseTotalSweeps);
             pGapRightClr = clrSilver;
            }
-
-   CreateLeftLivePanel(LEFT_LIVE_PREFIX+"PGAP_BAR", x, y+148, width, 22, C'14,22,36');
-   CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"PGAP_L", pGapLeftTxt, tx, y+153, 8, pGapLeftClr);
-   CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"PGAP_R", pGapRightTxt, x+width-168, y+153, 8, pGapRightClr);
 
    double sLeftEqDdPct  = (liveBal > 0.0 && liveEq < liveBal) ? (((liveBal - liveEq) / liveBal) * 100.0) : 0.0;
    double sLeftActReq   = (InpStepLossActivateSidePct > 0.0) ? InpStepLossActivateSidePct : 10.0;
@@ -28284,15 +28286,98 @@ void UpdateLeftLiveOrdersDashboard(bool force = false)
                sLossRightClr = clrSilver;
               }
 
-   CreateLeftLivePanel(LEFT_LIVE_PREFIX+"SLOSS_BAR", x, y+170, width, 22, C'18,22,34');
-   CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"SLOSS_L", sLossLeftTxt, tx, y+175, 8, sLossLeftClr);
-   CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"SLOSS_R", sLossRightTxt, x+width-168, y+175, 8, sLossRightClr);
+   // ===== DYNAMIC LEFT DASHBOARD BARS (TOGGLEABLE) =====
+   curY = y + 38;
 
-   CreateLeftLivePanel(LEFT_LIVE_PREFIX+"SUMMARYBAR", x, y+192, width, 42, C'25,31,42');
+   if(InpShowLeftDashHourlyEngineRows)
+     {
+      CreateLeftLivePanel(LEFT_LIVE_PREFIX+"DD_STATBAR", x, curY, width, 22, C'18,24,34');
+      CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"DD_STAT_L", ddStatLeftTxt, tx, curY+5, 8, ddStatLeftClr);
+      CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"DD_STAT_R", ddStatRightTxt, x+width-186, curY+5, 8, ddStatRightClr);
+      curY += 22;
+
+      CreateLeftLivePanel(LEFT_LIVE_PREFIX+"EQDD_HITBAR", x, curY, width, 22, C'14,20,30');
+      CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"EQDD_HITTXT", ddBannerTxt, tx, curY+5, 8, ddBannerClr);
+      curY += 22;
+
+      CreateLeftLivePanel(LEFT_LIVE_PREFIX+"DUBAI_BAR", x, curY, width, 22, C'16,28,44');
+      CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"DUBAI_TIME", leftDubaiTimeTxt, tx, curY+5, 8, leftDubaiTimeClr);
+      CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"DUBAI_STAT", leftDubaiStatTxt, x+252, curY+5, 8, leftDubaiStatClr);
+      curY += 22;
+     }
+   else
+     {
+      ObjectDelete(0, LEFT_LIVE_PREFIX+"DD_STATBAR");
+      ObjectDelete(0, LEFT_LIVE_PREFIX+"DD_STAT_L");
+      ObjectDelete(0, LEFT_LIVE_PREFIX+"DD_STAT_R");
+      ObjectDelete(0, LEFT_LIVE_PREFIX+"EQDD_HITBAR");
+      ObjectDelete(0, LEFT_LIVE_PREFIX+"EQDD_HITTXT");
+      ObjectDelete(0, LEFT_LIVE_PREFIX+"DUBAI_BAR");
+      ObjectDelete(0, LEFT_LIVE_PREFIX+"DUBAI_TIME");
+      ObjectDelete(0, LEFT_LIVE_PREFIX+"DUBAI_STAT");
+     }
+
+   if(InpShowLeftDashDayEqTargetRow)
+     {
+      CreateLeftLivePanel(LEFT_LIVE_PREFIX+"DEQTGT_BAR", x, curY, width, 22, deqBarClr);
+      CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"DEQTGT_L",   deqLeftTxt,  tx,          curY+5, 8, deqTxtClr);
+      CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"DEQTGT_R",   deqRightTxt, x+width-240, curY+5, 8, deqRightClr);
+      curY += 22;
+     }
+   else
+     {
+      ObjectDelete(0, LEFT_LIVE_PREFIX+"DEQTGT_BAR");
+      ObjectDelete(0, LEFT_LIVE_PREFIX+"DEQTGT_L");
+      ObjectDelete(0, LEFT_LIVE_PREFIX+"DEQTGT_R");
+     }
+
+   if(InpShowLeftDashNightCloseRow)
+     {
+      CreateLeftLivePanel(LEFT_LIVE_PREFIX+"DUBAI_NIGHTBAR", x, curY, width, 22, C'12,24,38');
+      CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"DUBAI_NIGHT_L", nightLeftTxt, tx, curY+5, 8, nightLeftClr);
+      CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"DUBAI_NIGHT_R", nightRightTxt, x+width-168, curY+5, 8, nightRightClr);
+      curY += 22;
+     }
+   else
+     {
+      ObjectDelete(0, LEFT_LIVE_PREFIX+"DUBAI_NIGHTBAR");
+      ObjectDelete(0, LEFT_LIVE_PREFIX+"DUBAI_NIGHT_L");
+      ObjectDelete(0, LEFT_LIVE_PREFIX+"DUBAI_NIGHT_R");
+     }
+
+   if(InpShowLeftDashPriceGapRow)
+     {
+      CreateLeftLivePanel(LEFT_LIVE_PREFIX+"PGAP_BAR", x, curY, width, 22, C'14,22,36');
+      CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"PGAP_L", pGapLeftTxt, tx, curY+5, 8, pGapLeftClr);
+      CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"PGAP_R", pGapRightTxt, x+width-168, curY+5, 8, pGapRightClr);
+      curY += 22;
+     }
+   else
+     {
+      ObjectDelete(0, LEFT_LIVE_PREFIX+"PGAP_BAR");
+      ObjectDelete(0, LEFT_LIVE_PREFIX+"PGAP_L");
+      ObjectDelete(0, LEFT_LIVE_PREFIX+"PGAP_R");
+     }
+
+   if(InpShowLeftDashStepLossRow)
+     {
+      CreateLeftLivePanel(LEFT_LIVE_PREFIX+"SLOSS_BAR", x, curY, width, 22, C'18,22,34');
+      CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"SLOSS_L", sLossLeftTxt, tx, curY+5, 8, sLossLeftClr);
+      CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"SLOSS_R", sLossRightTxt, x+width-168, curY+5, 8, sLossRightClr);
+      curY += 22;
+     }
+   else
+     {
+      ObjectDelete(0, LEFT_LIVE_PREFIX+"SLOSS_BAR");
+      ObjectDelete(0, LEFT_LIVE_PREFIX+"SLOSS_L");
+      ObjectDelete(0, LEFT_LIVE_PREFIX+"SLOSS_R");
+     }
+
+   CreateLeftLivePanel(LEFT_LIVE_PREFIX+"SUMMARYBAR", x, curY, width, 42, C'25,31,42');
 
 // Top Row: Buy Lot and Buy P/L , sell LOT and sell P/l - Net P/L
    string topRowText = "BUY " + DoubleToString(buyLots,2) + " (P/L " + buyPLStr + ") , SELL " + DoubleToString(sellLots,2) + " (P/L " + sellPLStr + ") - NET " + netPLStr;
-   CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"TOTALS", topRowText, tx, y+199, 9, pnlColor);
+   CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"TOTALS", topRowText, tx, curY+7, 9, pnlColor);
 
 // Second Row: Orders Count Summary
    int revMaxCap   = (InpReverse100MaxActiveOrders > 0) ? InpReverse100MaxActiveOrders : 1;
@@ -28305,11 +28390,15 @@ void UpdateLeftLiveOrdersDashboard(bool force = false)
                         "   SELL " + IntegerToString(sellCount) +
                         "   PEND " + IntegerToString(pendingCount) +
                         revBadge;
-   CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"SUMMARY", summaryText, tx, y+216, 8, clrWhite);
+   CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"SUMMARY", summaryText, tx, curY+24, 8, clrWhite);
+   curY += 42;
 
-   CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"HEAD_ID", "ORDER ID", tx, y+242, 8, clrSilver);
-   CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"HEAD", "TYPE     LOT       OPEN            SL     GAP      P/L", tx+76, y+242, 8, clrSilver);
-   CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"HEAD_CMT", "COMMENT", tx+422, y+242, 8, clrSilver);
+   tableHeaderY = curY + 8;
+   CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"HEAD_ID", "ORDER ID", tx, tableHeaderY, 8, clrSilver);
+   CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"HEAD", "TYPE     LOT       OPEN            SL     GAP      P/L", tx+76, tableHeaderY, 8, clrSilver);
+   CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"HEAD_CMT", "COMMENT", tx+422, tableHeaderY, 8, clrSilver);
+
+   orderRowsStartY = tableHeaderY + 20;
 
    for(int r = rows; r < 24; r++)
      {
@@ -28320,9 +28409,9 @@ void UpdateLeftLiveOrdersDashboard(bool force = false)
 
    for(int r = 0; r < rows; r++)
      {
-      CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"ID"+IntegerToString(r), "", tx, y+262+(r*20), 8, clrSilver);
-      CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"ROW"+IntegerToString(r), "", tx+76, y+262+(r*20), 8, clrWhite);
-      CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"VERIFY"+IntegerToString(r), "", tx+422, y+262+(r*20), 8, clrSilver);
+      CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"ID"+IntegerToString(r), "", tx, orderRowsStartY+(r*20), 8, clrSilver);
+      CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"ROW"+IntegerToString(r), "", tx+76, orderRowsStartY+(r*20), 8, clrWhite);
+      CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"VERIFY"+IntegerToString(r), "", tx+422, orderRowsStartY+(r*20), 8, clrSilver);
      }
 
    int row=0;
@@ -28435,15 +28524,15 @@ void UpdateLeftLiveOrdersDashboard(bool force = false)
          rowColor=clrLime;
       if((type==OP_BUY || type==OP_SELL) && pl<0)
          rowColor=clrOrangeRed;
-      CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"ID"+IntegerToString(row), orderIdText, tx, y+262+(row*20), 8, rowColor);
-      CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"ROW"+IntegerToString(row), rowText, tx+76, y+262+(row*20), 8, rowColor);
-      CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"VERIFY"+IntegerToString(row), verifiedStatus, tx+422, y+262+(row*20), 8, verifiedColor);
+      CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"ID"+IntegerToString(row), orderIdText, tx, orderRowsStartY+(row*20), 8, rowColor);
+      CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"ROW"+IntegerToString(row), rowText, tx+76, orderRowsStartY+(row*20), 8, rowColor);
+      CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"VERIFY"+IntegerToString(row), verifiedStatus, tx+422, orderRowsStartY+(row*20), 8, verifiedColor);
       row++;
      }
    if(total==0)
-      CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"EMPTY", "NO ACTIVE EA ORDERS", tx, y+262, 9, clrSilver);
+      CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"EMPTY", "NO ACTIVE EA ORDERS", tx, orderRowsStartY, 9, clrSilver);
    else
-      CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"EMPTY", "Showing "+IntegerToString(MathMin(total,rows))+" of "+IntegerToString(total)+" orders", tx, y+262+(rows*20)+4, 8, clrSilver);
+      CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"EMPTY", "Showing "+IntegerToString(MathMin(total,rows))+" of "+IntegerToString(total)+" orders", tx, orderRowsStartY+(rows*20)+4, 8, clrSilver);
    if(ShowTopCenterDubaiTime)
       UpdateTopCenterDubaiTimeDisplay();
    ChartRedraw(0);
