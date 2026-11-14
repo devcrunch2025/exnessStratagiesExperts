@@ -44,7 +44,7 @@ CheckBasketProfitClose  Total open basket profit
 
 
 
-string glbVersion = "VMULTI-1187 - Throttled 1-Minute Chart Dashboard Update Engine";
+string glbVersion = "VMULTI-1188 - Fresh Start Runtime Reset in OnInit and OnDeinit";
 
 
 
@@ -782,10 +782,19 @@ int  g_onTickSequence = 0;
 bool g_eqDdForceCloseBudget = false;
 int CachedTotalEAOrders = -1;
 int CachedTotalEAOrdersTick = -1;
-input int DashboardUpdateIntervalSeconds = 60; // Dashboard on-chart update interval (seconds; 60 = 1 minute refresh)
-int      DashboardUpdateIntervalMs      = 60000; // Throttled: 60,000ms (1 minute) refresh prevents GUI lag & speeds up tick execution
-uint     LastDashboardUpdateMs          = 0;
-datetime LastDashboardUpdateSec         = 0;
+input int DashboardDataUpdateSeconds      = 60;    // Dashboard data update interval in seconds (default: 60)
+int       DashboardUpdateIntervalSeconds  = 60;    // Backward compatibility alias
+int       DashboardUpdateIntervalMs       = 60000; // Throttled milliseconds
+uint      LastDashboardUpdateMs           = 0;
+datetime  LastDashboardUpdateSec          = 0;
+uint      g_lastLeftDashUpdateMs          = 0;
+datetime  g_lastLeftDashUpdateSec         = 0;
+bool      g_leftDashNightBarV3Reset       = false;
+bool      g_dashRedesignV5Reset           = false;
+bool      g_dashRedesignV11Reset          = false;
+bool      g_cleanedObsoleteBars           = false;
+double    g_buyBasketPeakPL               = 0.0;
+double    g_sellBasketPeakPL              = 0.0;
 int EMARedrawIntervalMs = 100;
 uint LastEMARedrawMs = 0;
 bool EnableTickPerformanceLog = false;
@@ -2221,6 +2230,12 @@ int      g_eqDdSellLastHitOrders     = 0;
 double   g_eqDdSellLastHitLots       = 0.0;
 
 void UpdateLeftLiveOrdersDashboard(bool force = false);
+void DeleteDashboardObjects();
+void DeleteLeftLiveOrdersDashboardObjects();
+void DeleteOurObjects();
+void ClearEMALineObjects();
+void RemoveDubaiTradingPauseDashboard();
+void ResetAllRuntimeVariablesOnFreshStart();
 
 //+------------------------------------------------------------------+
 //|                                                                  |
@@ -11693,11 +11708,297 @@ void CloseOppositeOrdersOnEmaDistance()
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
+//+------------------------------------------------------------------+
+//| ResetAllRuntimeVariablesOnFreshStart                             |
+//| Resets ALL runtime, daily, protection, cache, and dashboard      |
+//| variables to a clean state as if freshly launched. Called from   |
+//| OnInit() and OnDeinit() to ensure no stale data is preserved.    |
+//+------------------------------------------------------------------+
+void ResetAllRuntimeVariablesOnFreshStart()
+  {
+   // 1. Dashboard & Throttles
+   LastDashboardUpdateMs      = 0;
+   LastDashboardUpdateSec     = 0;
+   g_lastLeftDashUpdateMs     = 0;
+   g_lastLeftDashUpdateSec    = 0;
+   g_leftDashNightBarV3Reset  = false;
+   g_dashRedesignV5Reset      = false;
+   g_dashRedesignV11Reset     = false;
+   g_cleanedObsoleteBars      = false;
+
+   // 2. Daily Equity Target & Step Trailing
+   g_dayNumber                 = -1;
+   g_dayOpeningBalance         = (AccountBalance() > 0.0) ? AccountBalance() : AccountEquity();
+   g_dailyEquityTradingBlocked = false;
+   g_dailyEquityTargetHitToday = false;
+   g_dailyEquityPeakEquity     = 0.0;
+   g_dailyEquityNextStepTarget = 0.0;
+   g_dailyEquityStepCount      = 0;
+
+   // 3. Dubai Night Close & Rollover
+   g_dubaiNightCloseDayKey       = -1;
+   g_dubaiDayOpeningEquity       = g_dayOpeningBalance;
+   g_dubaiNightLastCutTime       = 0;
+   g_dubaiNightCutCountToday     = 0;
+   g_dubaiNightCloseDoneToday    = false;
+   g_dubaiNightCloseRetryPending = false;
+   g_dubaiNightLastCloseTag      = "";
+   g_dubaiNightLastCloseOrders   = 0;
+   g_dubaiNightLastCloseLots     = 0.0;
+   g_dubaiNightLastClosePL       = 0.0;
+   g_dubaiNightLastCutZeroSide   = "";
+   g_dubaiNightLastCutOrders     = 0;
+   g_dubaiNightLastCutLots       = 0.0;
+   g_dubaiNightLastCutPL         = 0.0;
+   g_dubaiNightLastCutSkippedMin = 0;
+   g_dubaiNightLastResetTime     = 0;
+   g_dubaiNightCloseLastHitTime  = 0;
+
+   // 4. Hourly Plans (A, B, C, D)
+   g_hourlySideLossLastSlot      = -1;
+   g_hourlySideLossNextRunTime   = 0;
+   g_hourlySideLossLastRunTime   = 0;
+   g_hourlySideLossCheckCount    = 0;
+   g_hourlySideLossTotalCuts     = 0;
+   g_hourlySideLossTotalSweeps   = 0;
+   g_hourlySideLossTotalLotsCut  = 0.0;
+   g_hourlySideLossLastHitTime   = 0;
+   g_hourlySideLossLastHitSide   = "";
+   g_hourlySideLossLastHitPct    = 0.0;
+   g_hourlySideLossLastHitUSD    = 0.0;
+   g_hourlySideLossLastHitOrders = 0;
+   g_hourlySideLossLastHitLots   = 0.0;
+   g_hourlySideLossLastHitPL     = 0.0;
+
+   g_hourlyPlanADoneToday        = false;
+   g_hourlyPlanAHitsToday        = 0;
+   g_hourlyPlanATotalSweeps      = 0;
+   g_hourlyPlanATargetHits       = 0;
+   g_hourlyPlanATotalOrders      = 0;
+   g_hourlyPlanATotalLots        = 0.0;
+   g_hourlyPlanALastHitTime      = 0;
+   g_hourlyPlanALastPct          = 0.0;
+   g_hourlyPlanALastUSD          = 0.0;
+   g_hourlyPlanALastOrders       = 0;
+   g_hourlyPlanALastLots         = 0.0;
+   g_hourlyPlanALastPL           = 0.0;
+
+   g_hourlyPlanCLastSlot         = -1;
+   g_hourlyPlanCNextRunTime      = 0;
+   g_hourlyPlanCDoneToday        = false;
+   g_hourlyPlanCHitsToday        = 0;
+   g_hourlyPlanCLastRunTime      = 0;
+   g_hourlyPlanCCheckCount       = 0;
+   g_hourlyPlanCTotalSweeps      = 0;
+   g_hourlyPlanCTotalOrders      = 0;
+   g_hourlyPlanCTotalLots        = 0.0;
+   g_hourlyPlanCLastHitTime      = 0;
+   g_hourlyPlanCLastPct          = 0.0;
+   g_hourlyPlanCLastUSD          = 0.0;
+   g_hourlyPlanCLastOrders       = 0;
+   g_hourlyPlanCLastLots         = 0.0;
+   g_hourlyPlanCLastPL           = 0.0;
+
+   g_hourlyPlanDLastSlot         = -1;
+   g_hourlyPlanDCycleHourSlot    = -1;
+   g_hourlyPlanDDoneHourSlot     = -1;
+   g_hourlyPlanDDoneHourLoaded   = false;
+   g_hourlyPlanDNextRunTime      = 0;
+   g_hourlyPlanDLastMinIdx       = 1;
+   g_hourlyPlanDLastThreshPct    = (InpHourlyPlanDStartPct > 0.0) ? InpHourlyPlanDStartPct : 31.0;
+   g_hourlyPlanDDoneToday        = false;
+   g_hourlyPlanDHitsToday        = 0;
+   g_hourlyPlanDLastRunTime      = 0;
+   g_hourlyPlanDCheckCount       = 0;
+   g_hourlyPlanDTotalSweeps      = 0;
+   g_hourlyPlanDTotalOrders      = 0;
+   g_hourlyPlanDTotalLots        = 0.0;
+   g_hourlyPlanDLastHitTime      = 0;
+   g_hourlyPlanDLastHitMinIdx    = 0;
+   g_hourlyPlanDLastHitThreshPct = 0.0;
+   g_hourlyPlanDLastPct          = 0.0;
+   g_hourlyPlanDLastUSD          = 0.0;
+   g_hourlyPlanDLastOrders       = 0;
+   g_hourlyPlanDLastLots         = 0.0;
+   g_hourlyPlanDLastPL           = 0.0;
+
+   // 5. Price Gap & Step Loss
+   g_priceGapCloseAnchorLoaded   = false;
+   g_priceGapCloseAnchorPrice    = 0.0;
+   g_priceGapCloseSourceFlipPx   = 0.0;
+   g_priceGapCloseAnchorFlipT    = 0;
+   g_priceGapCloseFailLogTime    = 0;
+   g_priceGapCloseTotalSweeps    = 0;
+   g_priceGapCloseTotalOrders    = 0;
+   g_priceGapCloseTotalLots      = 0.0;
+   g_priceGapCloseLastHitTime    = 0;
+   g_priceGapCloseLastAnchor     = 0.0;
+   g_priceGapCloseLastPrice      = 0.0;
+   g_priceGapCloseLastGapRaw     = 0.0;
+   g_priceGapCloseLastDayPct     = 0.0;
+   g_priceGapCloseLastDayUSD     = 0.0;
+   g_priceGapCloseLastOrders     = 0;
+   g_priceGapCloseLastLots       = 0.0;
+   g_priceGapCloseLastPL         = 0.0;
+
+   g_stepLossLoaded              = false;
+   g_stepLossBuyAnchor           = 0.0;
+   g_stepLossSellAnchor          = 0.0;
+   g_stepLossBuySteps            = 0;
+   g_stepLossSellSteps           = 0;
+   g_stepLossLastBuyAdv          = 0.0;
+   g_stepLossLastSellAdv         = 0.0;
+   g_stepLossLastReqBuyGap       = (InpStepLossRawGap > 0.0) ? InpStepLossRawGap : 3000.0;
+   g_stepLossLastReqSellGap      = (InpStepLossRawGap > 0.0) ? InpStepLossRawGap : 3000.0;
+   g_stepLossBuyFailLogTime      = 0;
+   g_stepLossSellFailLogTime     = 0;
+   g_stepLossTotalSweeps         = 0;
+   g_stepLossTotalPartialCuts    = 0;
+   g_stepLossTotalFullCloses     = 0;
+   g_stepLossTotalLotsCut        = 0.0;
+   g_stepLossLastHitTime         = 0;
+   g_stepLossLastHitSide         = "";
+   g_stepLossLastHitEmerg        = false;
+   g_stepLossLastHitAdvGap       = 0.0;
+   g_stepLossLastHitSidePct      = 0.0;
+   g_stepLossLastHitEqDdPct      = 0.0;
+   g_stepLossLastHitPartials     = 0;
+   g_stepLossLastHitFulls        = 0;
+   g_stepLossLastHitLots         = 0.0;
+   g_stepLossLastHitPL           = 0.0;
+
+   // 6. EQ-DD Engine
+   g_eqDdLastIconTier          = 0;
+   g_eqDdCycleHighestTier      = 0;
+   g_eqDdLastLoggedTier        = 0;
+   g_eqDdBuyCurrentTier        = 0;
+   g_eqDdBuyCycleHighestTier   = 0;
+   g_eqDdBuyLastLoggedTier     = 0;
+   g_eqDdBuyLastIconTier       = 0;
+   g_eqDdBuyLastReachReason    = "";
+   g_eqDdSellCurrentTier       = 0;
+   g_eqDdSellCycleHighestTier  = 0;
+   g_eqDdSellLastLoggedTier    = 0;
+   g_eqDdSellLastIconTier      = 0;
+   g_eqDdSellLastReachReason   = "";
+   g_eqDdForceCloseBudget      = false;
+   g_eqDdDayKey                = -1;
+   g_eqDdPriorDayCuts          = 0;
+   g_eqDdPriorDayPeakPct       = 0.0;
+   g_eqDdPriorDayLotsCut       = 0.0;
+   g_eqDdDailyResetTime        = 0;
+   g_eqDdTrackedCount          = 0;
+   ArrayInitialize(g_eqDdTrackedTickets, 0);
+   ArrayInitialize(g_eqDdTrackedTiers, 0);
+   ArrayInitialize(g_eqDdTrackedSides, 0);
+   g_eqDdCurrentTier           = 0;
+   g_eqDdCurrentPct            = 0.0;
+   g_eqDdPeakPct               = 0.0;
+   g_eqDdSessionPeakPct        = 0.0;
+   g_eqDdCloseAllPending       = false;
+   g_eqDdTotalPartialCuts      = 0;
+   g_eqDdTotalCloseAllOrders   = 0;
+   g_eqDdTotalLotsReduced      = 0.0;
+   g_eqDdLastHitTime           = 0;
+   g_eqDdLastHitSide           = "";
+   g_eqDdLastHitTier           = 0;
+   g_eqDdLastHitPct            = 0.0;
+   g_eqDdLastHitUSD            = 0.0;
+   g_eqDdLastHitCutPct         = 0.0;
+   g_eqDdLastHitOrders         = 0;
+   g_eqDdLastHitLots           = 0.0;
+   g_eqDdLastReachTime         = 0;
+   g_eqDdLastReachSide         = "";
+   g_eqDdLastReachTier         = 0;
+   g_eqDdLastReachPct          = 0.0;
+   g_eqDdLastReachReason       = "";
+   g_eqDdLastResetTime         = 0;
+   g_eqDdLastResetSide         = "";
+   g_eqDdLastResetTier         = 0;
+   g_eqDdBuyCurrentPct         = 0.0;
+   g_eqDdBuyCurrentUSD         = 0.0;
+   g_eqDdBuyPeakPct            = 0.0;
+   g_eqDdBuyCloseAllPending    = false;
+   g_eqDdBuyLastReachTime      = 0;
+   g_eqDdBuyLastReachTier      = 0;
+   g_eqDdBuyLastReachPct       = 0.0;
+   g_eqDdBuyLastHitTime        = 0;
+   g_eqDdBuyLastHitTier        = 0;
+   g_eqDdBuyLastHitPct         = 0.0;
+   g_eqDdBuyLastHitUSD         = 0.0;
+   g_eqDdBuyLastHitCutPct      = 0.0;
+   g_eqDdBuyLastHitOrders      = 0;
+   g_eqDdBuyLastHitLots        = 0.0;
+   g_eqDdSellCurrentPct        = 0.0;
+   g_eqDdSellCurrentUSD        = 0.0;
+   g_eqDdSellPeakPct           = 0.0;
+   g_eqDdSellCloseAllPending   = false;
+   g_eqDdSellLastReachTime     = 0;
+   g_eqDdSellLastReachTier     = 0;
+   g_eqDdSellLastReachPct      = 0.0;
+   g_eqDdSellLastHitTime       = 0;
+   g_eqDdSellLastHitTier       = 0;
+   g_eqDdSellLastHitPct        = 0.0;
+   g_eqDdSellLastHitUSD        = 0.0;
+   g_eqDdSellLastHitCutPct     = 0.0;
+   g_eqDdSellLastHitOrders     = 0;
+   g_eqDdSellLastHitLots       = 0.0;
+
+   // 7. Baskets, Ladder & Re-entry
+   g_buyBasketPeakPL                   = 0.0;
+   g_sellBasketPeakPL                  = 0.0;
+   g_flipBasketSupportCreatedInCycle   = 0;
+   LastClosedFLIPBasketSupportTime     = 0;
+   g_lastActiveFLIPBasketSupportTicket = -1;
+   FLIPBasketSupportOpenedThisCycle    = false;
+   g_weakStateCountPerEmaFlip          = 0;
+   HighestCycleProfitUSD               = 0.0;
+   TradingHaltedUntilNextFlip          = false;
+   ActiveEquityBaseline                = 0.0;
+   g_lastLadderCloseTime               = 0;
+   g_peakCycleProfit                   = 0.0;
+   Ladder5PercentBaseline              = 0.0;
+   ResetReverse100RuntimeState();
+
+   // 8. Liquidity Sweep Markers & Blocks
+   g_lastHandledSweepBlockBarTime = 0;
+   g_lastHandledSweepBlockType    = "None";
+   g_lastSweptEqHighLineStart     = 0;
+   g_lastSweptEqLowLineStart      = 0;
+   g_lastDeletedPendingEqHStart   = 0;
+   g_lastDeletedPendingEqLStart   = 0;
+   ResetSweepOppositeBlockState();
+
+   // 9. Order Cache & Execution Sequences
+   InvalidateOrderCache();
+   InvalidateTotalEAOrdersCache();
+   CachedTotalEAOrders          = -1;
+   CachedTotalEAOrdersTick      = -1;
+   CurrentTickSequence          = 0;
+   g_onTickSequence             = 0;
+   TradeOperationFailedThisTick = false;
+   TradeRequestsThisTick        = 0;
+   ResetTradeErrorRetryGuards();
+   ResetTradeRequestBudget();
+
+   // 10. Drawdown Relief Stats
+   g_drawdownReliefAppliedCount    = 0;
+   g_drawdownReliefHitSuccessCount = 0;
+
+   // 11. Chart Visual Objects Clean-up
+   DeleteDashboardObjects();
+   DeleteLeftLiveOrdersDashboardObjects();
+   RemoveDubaiTradingPauseDashboard();
+   DeleteOurObjects();
+   ClearEMALineObjects();
+   DeleteLiquiditySweepObjects();
+  }
+
 int OnInit()
   {
-  
-  g_dayNumber=-1;
-  CheckForNewDay();
+   Print(">>> [EA ONINIT] Fresh Start Initializing | Resetting all runtime variables & cleaning chart objects...");
+   ResetAllRuntimeVariablesOnFreshStart();
+   CheckForNewDay();
 // Check minimum opening balance condition (.00)
    if(AccountBalance() < MinimumOpeningBalanceUSD)
      {
@@ -12045,10 +12346,8 @@ bool IsOneCandleOrderAllowed()
 //+------------------------------------------------------------------+
 void OnDeinit(const int reason)
   {
-   RemoveDubaiTradingPauseDashboard();
-   DeleteOurObjects();
-   ClearEMALineObjects();
-   DeleteLiquiditySweepObjects();
+   PrintFormat(">>> [EA ONDEINIT] Shutdown/Reload (Reason=%d) | Resetting all runtime variables & cleaning chart...", reason);
+   ResetAllRuntimeVariablesOnFreshStart();
    ClearSweepGlobalVariables();
    GenerateTesterSummaryReport();
    PrintMethodAnalyticsSummaryReport();
@@ -14196,7 +14495,7 @@ void UpdateDashboardsThrottled(DailyProtectionState &state, bool force = false)
   {
    uint     nowMs      = GetTickCount();
    datetime nowSec     = TimeCurrent();
-   int      intervalS  = (DashboardUpdateIntervalSeconds > 0) ? DashboardUpdateIntervalSeconds : 60;
+   int      intervalS  = (DashboardDataUpdateSeconds > 0) ? DashboardDataUpdateSeconds : ((DashboardUpdateIntervalSeconds > 0) ? DashboardUpdateIntervalSeconds : 60);
    uint     intervalMs = (uint)(intervalS * 1000);
 
    if(!force)
@@ -18388,8 +18687,7 @@ void CheckBasketProfitClose()
            }
      }
 
-   static double s_buyBasketPeakPL = 0.0;
-   static double s_sellBasketPeakPL = 0.0;
+   // (Peak basket P/L tracking moved to global g_buyBasketPeakPL and g_sellBasketPeakPL for fresh start on OnInit)
    int totalMarketOrders = buyMarketCount + sellMarketCount;
    double netPL = buyPL + sellPL;
    int mult = (balancelomultipler > 0 ? balancelomultipler : 1);
@@ -18401,14 +18699,14 @@ void CheckBasketProfitClose()
       Print(">>> [BASKET PROFIT CLOSE - ALL] ", netReason);
       CloseAllOpenBuyOrders(netReason);
       CloseAllOpenSellOrders(netReason);
-      s_buyBasketPeakPL = 0.0;
-      s_sellBasketPeakPL = 0.0;
+      g_buyBasketPeakPL = 0.0;
+      g_sellBasketPeakPL = 0.0;
       return;
      }
 
 // 2. Buy Basket Target & Micro-Trailing ( -  Sweet Spot)
    if(buyMarketCount == 0 || buyPL <= 0.0)
-      s_buyBasketPeakPL = 0.0;
+      g_buyBasketPeakPL = 0.0;
 
    if(buyMarketCount > 0 && buyPL >= targetProfit)
      {
@@ -18417,15 +18715,15 @@ void CheckBasketProfitClose()
         {
          if(InpEnableBasketMicroTrailing)
            {
-            s_buyBasketPeakPL = MathMax(s_buyBasketPeakPL, buyPL);
-            double trailFloor = s_buyBasketPeakPL - (InpBasketTrailStepUSD * mult);
+            g_buyBasketPeakPL = MathMax(g_buyBasketPeakPL, buyPL);
+            double trailFloor = g_buyBasketPeakPL - (InpBasketTrailStepUSD * mult);
             if(buyPL <= trailFloor || buyPL >= 5.0 * mult)
               {
                string buyReason = StringFormat("BUY Basket Micro-Trail Hit: Peak=$%.2f, Closed=$%.2f >= Floor=$%.2f (Tgt $%.2f)",
-                                               s_buyBasketPeakPL, buyPL, trailFloor, targetProfit);
+                                               g_buyBasketPeakPL, buyPL, trailFloor, targetProfit);
                Print(">>> [BASKET PROFIT CLOSE - BUY] ", buyReason);
                CloseAllOpenBuyOrders(buyReason);
-               s_buyBasketPeakPL = 0.0;
+               g_buyBasketPeakPL = 0.0;
               }
            }
          else
@@ -18440,7 +18738,7 @@ void CheckBasketProfitClose()
 
 // 3. Sell Basket Target & Micro-Trailing ( -  Sweet Spot)
    if(sellMarketCount == 0 || sellPL <= 0.0)
-      s_sellBasketPeakPL = 0.0;
+      g_sellBasketPeakPL = 0.0;
 
    if(sellMarketCount > 0 && sellPL >= targetProfit)
      {
@@ -18449,15 +18747,15 @@ void CheckBasketProfitClose()
         {
          if(InpEnableBasketMicroTrailing)
            {
-            s_sellBasketPeakPL = MathMax(s_sellBasketPeakPL, sellPL);
-            double trailFloor = s_sellBasketPeakPL - (InpBasketTrailStepUSD * mult);
+            g_sellBasketPeakPL = MathMax(g_sellBasketPeakPL, sellPL);
+            double trailFloor = g_sellBasketPeakPL - (InpBasketTrailStepUSD * mult);
             if(sellPL <= trailFloor || sellPL >= 5.0 * mult)
               {
                string sellReason = StringFormat("SELL Basket Micro-Trail Hit: Peak=$%.2f, Closed=$%.2f >= Floor=$%.2f (Tgt $%.2f)",
-                                                s_sellBasketPeakPL, sellPL, trailFloor, targetProfit);
+                                                g_sellBasketPeakPL, sellPL, trailFloor, targetProfit);
                Print(">>> [BASKET PROFIT CLOSE - SELL] ", sellReason);
                CloseAllOpenSellOrders(sellReason);
-               s_sellBasketPeakPL = 0.0;
+               g_sellBasketPeakPL = 0.0;
               }
            }
          else
@@ -26034,11 +26332,10 @@ void UpdateDashboard(DailyProtectionState &state)
 
    string txLock="FLIP Step "+FlipLadderStepUSD*balancelomultipler+"% Day Stop $"+DailyEquityStopUSD*balancelomultipler+""+" Flip Stop $"+TargetProfitPerFlipUSD*balancelomultipler+"";
 
-   static bool s_dashRedesignV5Reset = false;
-   if(!s_dashRedesignV5Reset)
+   if(!g_dashRedesignV5Reset)
      {
       DeleteDashboardObjects();
-      s_dashRedesignV5Reset = true;
+      g_dashRedesignV5Reset = true;
      }
 
    if(FlipLadderStepUSD <= 0)
@@ -26163,11 +26460,10 @@ void UpdateDashboard(DailyProtectionState &state)
    y = DashboardTopGap;
    tx = x + 12;
 
-   static bool s_dashRedesignV11Reset = false;
-   if(!s_dashRedesignV11Reset)
+   if(!g_dashRedesignV11Reset)
      {
       DeleteDashboardObjects();
-      s_dashRedesignV11Reset = true;
+      g_dashRedesignV11Reset = true;
      }
 
 // Base Background Panel
@@ -27213,35 +27509,32 @@ struct LeftDashOrderSnapshot
 //+------------------------------------------------------------------+
 void UpdateLeftLiveOrdersDashboard(bool force = false)
   {
-   static uint     s_lastLeftDashUpdateMs  = 0;
-   static datetime s_lastLeftDashUpdateSec = 0;
    uint     nowMs      = GetTickCount();
    datetime nowSec     = TimeCurrent();
-   int      intervalS  = (DashboardUpdateIntervalSeconds > 0) ? DashboardUpdateIntervalSeconds : 60;
+   int      intervalS  = (DashboardDataUpdateSeconds > 0) ? DashboardDataUpdateSeconds : ((DashboardUpdateIntervalSeconds > 0) ? DashboardUpdateIntervalSeconds : 60);
    uint     intervalMs = (uint)(intervalS * 1000);
 
    if(!force)
      {
       if(IsTesting() || IsOptimization())
         {
-         if(s_lastLeftDashUpdateSec != 0 && (nowSec - s_lastLeftDashUpdateSec) < intervalS)
+         if(g_lastLeftDashUpdateSec != 0 && (nowSec - g_lastLeftDashUpdateSec) < intervalS)
             return;
         }
       else
         {
-         if(s_lastLeftDashUpdateMs != 0 && (uint)(nowMs - s_lastLeftDashUpdateMs) < intervalMs)
+         if(g_lastLeftDashUpdateMs != 0 && (uint)(nowMs - g_lastLeftDashUpdateMs) < intervalMs)
             return;
         }
      }
 
-   s_lastLeftDashUpdateMs  = nowMs;
-   s_lastLeftDashUpdateSec = nowSec;
+   g_lastLeftDashUpdateMs  = nowMs;
+   g_lastLeftDashUpdateSec = nowSec;
 
-   static bool s_leftDashNightBarV3Reset = false;
-   if(!s_leftDashNightBarV3Reset)
+   if(!g_leftDashNightBarV3Reset)
      {
       DeleteLeftLiveOrdersDashboardObjects();
-      s_leftDashNightBarV3Reset = true;
+      g_leftDashNightBarV3Reset = true;
      }
 
    int total=0,buyCount=0,sellCount=0,pendingCount=0;
@@ -28213,8 +28506,7 @@ void UpdateLeftLiveOrdersDashboard(bool force = false)
       CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"DEQTGT_R",   deqRightTxt, x+width-240, y+109, 8, deqRightClr);
    }
 
-   static bool s_cleanedObsoleteBars = false;
-   if(!s_cleanedObsoleteBars)
+   if(!g_cleanedObsoleteBars)
      {
       ObjectDelete(0, LEFT_LIVE_PREFIX+"DUBAI_NIGHTBAR");
       ObjectDelete(0, LEFT_LIVE_PREFIX+"DUBAI_NIGHT_L");
@@ -28225,7 +28517,7 @@ void UpdateLeftLiveOrdersDashboard(bool force = false)
       ObjectDelete(0, LEFT_LIVE_PREFIX+"SLOSS_BAR");
       ObjectDelete(0, LEFT_LIVE_PREFIX+"SLOSS_L");
       ObjectDelete(0, LEFT_LIVE_PREFIX+"SLOSS_R");
-      s_cleanedObsoleteBars = true;
+      g_cleanedObsoleteBars = true;
      }
 
    CreateLeftLivePanel(LEFT_LIVE_PREFIX+"SUMMARYBAR", x, y+128, width, 42, C'25,31,42');
