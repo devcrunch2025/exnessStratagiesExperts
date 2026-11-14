@@ -44,7 +44,7 @@ CheckBasketProfitClose  Total open basket profit
 
 
 
-string glbVersion = "VMULTI-1180 - FINAL No opposite rders in 4PM to 6PM";
+string glbVersion = "VMULTI-1180 - FINAL TESTED Oct 1st to 30th $500 to $800";
 
 
 
@@ -12359,7 +12359,11 @@ if(g_dailyEquityTradingBlocked)
    profitAfterFlip = GetProfitAfterLastEmaFlip();
 
 
+if(GetOpenPL(OP_BUY)<0 || GetOpenPL(OP_SELL)<0   )
+{
 
+MinimumSLModifyGapRaw=10;//
+}
 
 
 
