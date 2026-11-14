@@ -50,7 +50,7 @@ string glbVersion = "VMULTI-1194 - Streamlined Left Live Position Dashboard";
 
 double DailyEquityStopUSD          = 10;//20;//10;//50;//  $50 /10;//10%;//percentage //1000;//50;//20*2.5;//10;//20;// 10;//30.0; close all orders at $50Xmultipler
 double DailyEquityTrailStepUSD     = 5.0;  // Collect $5 step profit step-by-step after DailyEquityStopUSD hit
-double DailyEquityRetraceFloorPct  = 70.0; // Pause trading for the day when profit retraces to 70% of maximum profit hit (target + steps)
+double DailyEquityRetraceFloorPct  = 50.0; // Pause trading for the day when profit retraces to 70% of maximum profit hit (target + steps)
 double DailyEquityMaxLossUSD       = 200.0; // Adverse Day Protection ($200): Close all orders & pause trading till next day Dubai 16:00 if day equity drops $200
 double TargetProfitPerFlipUSD =50;//;//percentage////1000;//20;//10;//10*2;//10;//5;//20;// 10.0; close all orders at $20Xmultipler
 
@@ -687,7 +687,7 @@ double ProfitReEntryGapRaw =30;//50;//30;//10;// 25;
 double MinimumSameOrderGapRawReEntry =50;//30;//10;//20;// 50;
 double SSLLongShortPendingGapRaw = 20.0; // Raw price gap ($20) for SSL Long / Short pending stop orders
 // double MinimumSameOrderGapRawSSLLongShort =50;// 50;
-double MinimumSameOrderGapRawMatched =30;//50;//100;//50;//30;//10;//20;//50;//20;// 50;//SSL long //SSL short
+double MinimumSameOrderGapRawMatched =50;//30;//50;//100;//50;//30;//10;//20;//50;//20;// 50;//SSL long //SSL short
 double MinimumSameOrderGapRawUnmatched =50;//10;//10;//20;// 100;
 
 bool EnableReEntryNOnMatchingSignal=true;
