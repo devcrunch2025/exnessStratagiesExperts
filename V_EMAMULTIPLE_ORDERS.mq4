@@ -44,7 +44,7 @@ CheckBasketProfitClose  Total open basket profit
 
 
 
-string glbVersion = "VMULTI-1191 - Dubai 16:00 Unified Day Rollover & $200 Adverse Day Protection";
+string glbVersion = "VMULTI-1192 - Set 1H Plan B Side Loss Threshold to 30%";
 
 
 
@@ -353,11 +353,11 @@ color  InpHourlyPlanAIconColor            = clrLime;// Plan A: Chart icon & labe
 bool   InpDrawHourlyPlanAIcon             = true;   // Plan A: Draw chart icon & label whenever 1H Hour Target HIT (DayEq >5%) triggers
 bool   InpDrawHourlyPlanAIconWhenFlat     = true;   // Plan A: Also draw Hour Target HIT chart icon when triggered with 0 open orders
 int    InpHourlyPlanAIconCode             = 171;    // Plan A: Chart icon Wingdings code (171=star, 251=check, 238=shield)
-bool   InpEnableHourlyPlanBSideLossCut    = true;//false;  // Plan B: DISABLED (1H Per-Side Floating Loss >20% Cut 20% LOT - profit closes only)
-double InpHourlySideLossThresholdPct      = 20.0;   // Plan B: Floating loss % of Balance trigger (> 20.0%, BUY and SELL evaluated separately)
+bool   InpEnableHourlyPlanBSideLossCut    = true;//false;  // Plan B: 1H Per-Side Floating Loss >30% Cut 20% LOT
+double InpHourlySideLossThresholdPct      = 30.0;//20.0;   // Plan B: Floating loss % of Balance trigger (> 30.0%, BUY and SELL evaluated separately)
 double InpHourlySideLossCutPct            = 20.0;   // Plan B: Percentage of each losing order's lots to close (20% LOT)
 double InpHourlySideLossMinLot            = 0.01;   // Plan B: Minimum partial-close lot step & minimum preserved remaining order lot (0.01)
-bool   InpDrawHourlySideLossIcon          = true;   // Plan B: Draw chart icon & label when 1-Hour 20% side loss cut executes
+bool   InpDrawHourlySideLossIcon          = true;   // Plan B: Draw chart icon & label when 1-Hour side loss cut executes
 int    InpHourlySideLossIconCode          = 238;    // Chart icon Wingdings code (238=shield, 171=star, 251=check)
 color  InpHourlySideLossIconColor         = clrOrangeRed; // Plan B: Chart icon & text color for 1H side loss cut
 int    InpHourlySideLossIconFontSize      = 10;     // Chart icon text font size
@@ -4557,7 +4557,7 @@ bool ExecuteHourlyPlanDCloseAll(double dayOpenEq, double curEquity, double dayPr
 //| Plan A (1H): If Day Equity Profit > 5% vs Dubai 00:00 opening    |
 //|         equity, close ALL open orders immediately (BUY + SELL).  |
 //| OR Plan B (1H): Evaluate BUY-only & SELL-only floating loss %    |
-//|         vs Balance independently and cut 20% LOT on > 20% loss.  |
+//|         vs Balance independently and cut 20% LOT on > 30% loss.  |
 //+------------------------------------------------------------------+
 void ManageHourlySideLoss20PctCut()
   {
@@ -4699,7 +4699,7 @@ void ManageHourlySideLoss20PctCut()
       return; // Plan A triggered -> OR skips Plan B on this hourly evaluation
      }
 
-// ===== OR PLAN B: Per-Side Floating Loss > 20% -> Close 20% LOT (Min 0.01) (Base: Day Opening Balance) =====
+// ===== OR PLAN B: Per-Side Floating Loss > 30% -> Close 20% LOT (Min 0.01) (Base: Day Opening Balance) =====
    if(!InpEnableHourlyPlanBSideLossCut)
       return;
 
@@ -4712,7 +4712,7 @@ void ManageHourlySideLoss20PctCut()
    int    buyCount = 0, sellCount = 0;
    CalcEqDdSideDrawdowns(dayOpenBaseB, buyNetPL, buyDdPct, sellNetPL, sellDdPct, buyCount, sellCount);
 
-   double threshPct = (InpHourlySideLossThresholdPct > 0.0) ? InpHourlySideLossThresholdPct : 20.0;
+   double threshPct = (InpHourlySideLossThresholdPct > 0.0) ? InpHourlySideLossThresholdPct : 30.0;
    double cutPct    = (InpHourlySideLossCutPct > 0.0 && InpHourlySideLossCutPct <= 100.0) ? InpHourlySideLossCutPct : 20.0;
    double minLotCfg = (InpHourlySideLossMinLot > 0.0) ? InpHourlySideLossMinLot : 0.01;
 
