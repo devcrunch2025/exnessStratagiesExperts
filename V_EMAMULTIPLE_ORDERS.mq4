@@ -44,7 +44,7 @@ CheckBasketProfitClose  Total open basket profit
 
 
 
-string glbVersion = "VMULTI-1195 - Add $50 Extra Price Gap to Ladder on Steep EMA Angle (>=4)";
+string glbVersion = "VMULTI-1196 - Add $50 Extra Profit Move on Steep EMA Angle (>=4)";
 
 
 
@@ -61,9 +61,9 @@ double protectgapOnOrderclose=31;//30;//101;//1000;//303;//11111111111111
 double SecureOneDollarProfitPerOrder=5;//1.0*10; //1X set modify order at profit $1(any lot)
 double InpLadderStepExtraMoveRaw         = 25.0; // Extra raw BTC price move added to ladder thresholds (Level 1: $100 -> $125)
 double InpLadderStepExtraSLRaw           = 25.0; // Extra raw BTC price locked on ladder SL rungs (Level 1 SL = openPrice +/- 25)
-bool   InpEnableLadderSteepAngleExtraGap = true; // Proportional Ladder: Add extra price gap on steep EMA angle (>= 4 deg)
-double InpLadderSteepAngleExtraGapRaw    = 50.0; // Extra price gap for all lot tiers when MathAbs(GlobalEmaAngle30) >= 4 ($50)
-double InpLadderSteepAngleThreshold      = 4.0;  // Minimum MathAbs(GlobalEmaAngle30) to trigger extra $50 price gap (4.0 deg)
+bool   InpEnableLadderSteepAngleExtraMove = true; // Proportional Ladder: Add extra profit movement on steep EMA angle (>= 4 deg)
+double InpLadderSteepAngleExtraMoveRaw    = 50.0; // Extra profit movement for all lot tiers when MathAbs(GlobalEmaAngle30) >= 4 (+$50)
+double InpLadderSteepAngleThreshold       = 4.0;  // Minimum MathAbs(GlobalEmaAngle30) to trigger extra +$50 profit movement (4.0 deg)
 
 //chance 2
 int partialClose01in05IndividualPercentage=20;//10;//2*2;//per lot 0.01//if 0.05 close 0.01 at total profit of 20% means close 0.01 lot
@@ -9873,11 +9873,11 @@ double CalculateProportionalLadderSL(int orderType, double openPrice, double ord
    double extraMove    = MathMax(0.0, InpLadderStepExtraMoveRaw);
    double extraSL      = MathMax(0.0, InpLadderStepExtraSLRaw);
 
-// USER RULE: Add extra price gap ($50) for all lot tiers if MathAbs(GlobalEmaAngle30) >= 4
+// USER RULE: Add extra profit movement (+$50) for all lot tiers if MathAbs(GlobalEmaAngle30) >= 4
    double curAngle = (GlobalEmaAngle30 != 0.0) ? GlobalEmaAngle30 : GetEmaAngleDegrees(30);
-   if(InpEnableLadderSteepAngleExtraGap && MathAbs(curAngle) >= InpLadderSteepAngleThreshold)
+   if(InpEnableLadderSteepAngleExtraMove && MathAbs(curAngle) >= InpLadderSteepAngleThreshold)
      {
-      stepPriceGap += InpLadderSteepAngleExtraGapRaw;
+      extraMove += InpLadderSteepAngleExtraMoveRaw;
      }
 
 // 2. Halve the gap if EMA momentum weakened by 50%
@@ -9968,6 +9968,11 @@ void SecureOneDollarProfit()
 
    double extraMove = MathMax(0.0, InpLadderStepExtraMoveRaw);
    double extraSL   = MathMax(0.0, InpLadderStepExtraSLRaw);
+   double curAngle  = (GlobalEmaAngle30 != 0.0) ? GlobalEmaAngle30 : GetEmaAngleDegrees(30);
+   if(InpEnableLadderSteepAngleExtraMove && MathAbs(curAngle) >= InpLadderSteepAngleThreshold)
+     {
+      extraMove += InpLadderSteepAngleExtraMoveRaw;
+     }
    double slGapMin  = GetEffectiveMinSLModifyGap();
 
    RefreshRates();
@@ -10005,13 +10010,6 @@ void SecureOneDollarProfit()
 
       // 1. Get dynamic price gap based on Lot & Multiplier
       double stepPriceGap = GetLotBasedPriceGap(orderLots, balancelomultipler);
-
-      // USER RULE: Add extra price gap ($50) for all lot tiers if MathAbs(GlobalEmaAngle30) >= 4
-      double curAngle = (GlobalEmaAngle30 != 0.0) ? GlobalEmaAngle30 : GetEmaAngleDegrees(30);
-      if(InpEnableLadderSteepAngleExtraGap && MathAbs(curAngle) >= InpLadderSteepAngleThreshold)
-        {
-         stepPriceGap += InpLadderSteepAngleExtraGapRaw;
-        }
 
       // 2. Halve the gap if EMA momentum weakened by 50%
       if(IsEmaWEAKDistanceReduced50PercentFromPeak())
