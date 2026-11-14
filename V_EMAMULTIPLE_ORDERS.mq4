@@ -44,11 +44,11 @@ CheckBasketProfitClose  Total open basket profit
 
 
 
-string glbVersion = "VMULTI-1196 - Add $50 Extra Profit Move on Steep EMA Angle (>=4)";
+string glbVersion = "VMULTI-1200 Oct 1st $500 to $600";
 
 
 
-double DailyEquityStopUSD          = 10;//20;//10;//50;//  $50 /10;//10%;//percentage //1000;//50;//20*2.5;//10;//20;// 10;//30.0; close all orders at $50Xmultipler
+double DailyEquityStopUSD          = 20;//20;//10;//50;//  $50 /10;//10%;//percentage //1000;//50;//20*2.5;//10;//20;// 10;//30.0; close all orders at $50Xmultipler
 double DailyEquityTrailStepUSD     = 5.0;  // Collect $5 step profit step-by-step after DailyEquityStopUSD hit
 double DailyEquityRetraceFloorPct  = 50.0; // Pause trading for the day when profit retraces to 70% of maximum profit hit (target + steps)
 double DailyEquityMaxLossUSD       = 200.0; // Adverse Day Protection ($200): Close all orders & pause trading till next day Dubai 16:00 if day equity drops $200
@@ -62,7 +62,7 @@ double SecureOneDollarProfitPerOrder=5;//1.0*10; //1X set modify order at profit
 double InpLadderStepExtraMoveRaw         = 25.0; // Extra raw BTC price move added to ladder thresholds (Level 1: $100 -> $125)
 double InpLadderStepExtraSLRaw           = 25.0; // Extra raw BTC price locked on ladder SL rungs (Level 1 SL = openPrice +/- 25)
 bool   InpEnableLadderSteepAngleExtraMove = true; // Proportional Ladder: Add extra profit movement on steep EMA angle (>= 4 deg)
-double InpLadderSteepAngleExtraMoveRaw    = 50.0; // Extra profit movement for all lot tiers when MathAbs(GlobalEmaAngle30) >= 4 (+$50)
+double InpLadderSteepAngleExtraMoveRaw    = 5.0; // Extra profit movement for all lot tiers when MathAbs(GlobalEmaAngle30) >= 4 (+$50)
 double InpLadderSteepAngleThreshold       = 4.0;  // Minimum MathAbs(GlobalEmaAngle30) to trigger extra +$50 profit movement (4.0 deg)
 
 //chance 2
