@@ -42,7 +42,7 @@ CheckBasketProfitClose  Total open basket profit
 */
 
 
-string glbVersion = "VMULTI-1206 Prevent Pending Delete Error 3 and Stop Level Error 130";
+string glbVersion = "VMULTI-1207 Fallback Open Without SL TP On Open Error";
 
 int AccountMultiplierLOT = 1001;//400;//200;//500;
 //balance multiplier 
@@ -6552,6 +6552,21 @@ int SendFLIPBasketSupportOrder(int pendingType, double lots, double price, doubl
 
       int err = GetLastError();
       Print("FLIPBasketSupport OrderSend attempt ", (attempt + 1), " failed. Err=", err);
+
+      // Fallback: If opening failed with SL/TP, immediately open order without SL/TP
+      if(stopLoss > 0.0 || takeProfit > 0.0)
+        {
+         Print("FLIPBasketSupport OrderSend failed with Err=", err, ". Immediately retrying WITHOUT SL/TP...");
+         ResetLastError();
+         ticket = OrderSend(Symbol(), pendingType, lots, price, Slippage, 0.0, 0.0, comment, MagicNumber, 0, arrowColor);
+         if(ticket > 0)
+           {
+            Print("FLIPBasketSupport Order #", ticket, " successfully opened WITHOUT SL/TP!");
+            InvalidateTotalEAOrdersCache();
+            return ticket;
+           }
+         err = GetLastError();
+        }
 
       // Retry on transient quote/busy errors
       if(err == 136 || err == 138 || err == 135 || err == 137 || err == 146)
@@ -16356,29 +16371,13 @@ return -1;
       RefreshRates();
       double minStopDist = GetRequiredStopDistance();
       if(orderType == OP_BUYSTOP && sendPrice < (Ask + minStopDist))
-        {
-         Print("PENDING ORDER BLOCKED (BUY STOP): Entry ", DoubleToString(sendPrice, Digits),
-               " is not above Ask (", DoubleToString(Ask, Digits), ") + minStop (", DoubleToString(minStopDist, Digits), "). Order skipped to avoid Error 130.");
-         return -1;
-        }
+         sendPrice = NormalizeDouble(Ask + minStopDist, Digits);
       else if(orderType == OP_SELLSTOP && sendPrice > (Bid - minStopDist))
-        {
-         Print("PENDING ORDER BLOCKED (SELL STOP): Entry ", DoubleToString(sendPrice, Digits),
-               " is not below Bid (", DoubleToString(Bid, Digits), ") - minStop (", DoubleToString(minStopDist, Digits), "). Order skipped to avoid Error 130.");
-         return -1;
-        }
+         sendPrice = NormalizeDouble(Bid - minStopDist, Digits);
       else if(orderType == OP_BUYLIMIT && sendPrice > (Ask - minStopDist))
-        {
-         Print("PENDING ORDER BLOCKED (BUY LIMIT): Entry ", DoubleToString(sendPrice, Digits),
-               " is not below Ask (", DoubleToString(Ask, Digits), ") - minStop (", DoubleToString(minStopDist, Digits), "). Order skipped to avoid Error 130.");
-         return -1;
-        }
+         sendPrice = NormalizeDouble(Ask - minStopDist, Digits);
       else if(orderType == OP_SELLLIMIT && sendPrice < (Bid + minStopDist))
-        {
-         Print("PENDING ORDER BLOCKED (SELL LIMIT): Entry ", DoubleToString(sendPrice, Digits),
-               " is not above Bid (", DoubleToString(Bid, Digits), ") + minStop (", DoubleToString(minStopDist, Digits), "). Order skipped to avoid Error 130.");
-         return -1;
-        }
+         sendPrice = NormalizeDouble(Bid + minStopDist, Digits);
      }
 
    if(takeProfit > 0.0)
@@ -16392,9 +16391,9 @@ return -1;
 
    if(safeSL>0.0 && !PrepareStopLossForOrder(orderType,sendPrice,safeSL))
      {
-      BlockTradeErrorUntilNextTick(key);
-      MarkServerError(130,"OrderSend/unsafe-SL");
-      return -1;
+      Print(">>> [UNSAFE SL] StopLoss ", DoubleToString(safeSL, Digits), " unsafe for ", GetOrderTypeText(orderType),
+            " at ", DoubleToString(sendPrice, Digits), ". Opening order WITHOUT SL (SL=0.0)...");
+      safeSL = 0.0;
      }
    datetime requestTime=TimeCurrent();
    if(!CanSendTradeRequest("OrderSend",comment))
@@ -16417,6 +16416,37 @@ return -1;
          RegisterPostOrderSLTPVerification(existing,safeSL,takeProfit);
       ServerRecoveryPending=false;
       return existing;
+     }
+
+   // USER RULE: "Error opening then immediately open order without SL/TP"
+   if(safeSL > 0.0 || takeProfit > 0.0)
+     {
+      Print(">>> [ORDER OPEN FAILED: Err=", err, "] Immediately retrying OrderSend WITHOUT SL/TP (SL=0, TP=0) for ",
+            GetOrderTypeText(orderType), " Lots=", DoubleToString(lots, 2), " Price=", DoubleToString(sendPrice, Digits));
+
+      RefreshRates();
+      ResetLastError();
+
+      double retryPrice = sendPrice;
+      if(orderType == OP_BUY)
+         retryPrice = NormalizeDouble(Ask, Digits);
+      else if(orderType == OP_SELL)
+         retryPrice = NormalizeDouble(Bid, Digits);
+
+      ticket = OrderSend(symbol, orderType, lots, retryPrice, slippage, 0.0, 0.0, comment, magic, 0, arrowColor);
+      if(ticket > 0)
+        {
+         Print(">>> [RETRY SUCCESS] Order #", ticket, " successfully opened WITHOUT SL/TP!");
+         InvalidateTotalEAOrdersCache();
+         ServerRecoveryPending = false;
+         TradeOperationFailedThisTick = false;
+         return ticket;
+        }
+      else
+        {
+         err = GetLastError();
+         Print(">>> [RETRY FAILED] OrderSend without SL/TP also failed with Err=", err);
+        }
      }
    BlockTradeErrorUntilNextTick(key);
    MarkServerError(err,"OrderSend");
