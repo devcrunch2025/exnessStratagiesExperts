@@ -42,7 +42,7 @@ CheckBasketProfitClose  Total open basket profit
 */
 
 
-string glbVersion = "VMULTI-1214 Drawdown Relief 100xMult No Day Change Reset";
+string glbVersion = "VMULTI-1215 Disable SecureOneDollarProfitPerOrder";
 
 int AccountMultiplierLOT = 1001;//400;//200;//500;
 //balance multiplier 
@@ -58,7 +58,8 @@ double protectgapOnOrderclose=31;//30;//101;//1000;//303;//11111111111111
 
 
 //Chance 1
-double SecureOneDollarProfitPerOrder=5;//1.0*10; //1X set modify order at profit $1(any lot)
+bool   InpEnableSecureOneDollarProfit = false; // User Rule (VMULTI-1215): Disabled SecureOneDollarProfitPerOrder
+double SecureOneDollarProfitPerOrder  = 0;     // Disabled (was 5) //1X set modify order at profit $1(any lot)
 double InpLadderStepExtraMoveRaw         = 25.0; // Extra raw BTC price move added to ladder thresholds (Level 1: $100 -> $125)
 double InpLadderStepExtraSLRaw           = 25.0; // Extra raw BTC price locked on ladder SL rungs (Level 1 SL = openPrice +/- 25)
 bool   InpEnableLadderSteepAngleExtraMove = true; // Proportional Ladder: Add extra profit movement on steep EMA angle (>= 4 deg)
@@ -190,7 +191,7 @@ double   g_peakCycleProfit     = 0.0; // Tracks the highest profit reached in th
 
 // ===== 5% CONTINUOUS LADDER SETTINGS =====
 double Ladder5PercentBaseline = 0.0;
-bool enable5PercentClose =true;// false; //5;//
+bool enable5PercentClose =false;//true;// false; //5;//
 bool enableCircleOrders = true;
 
 
@@ -10032,6 +10033,9 @@ double CalculateProportionalLadderSL(int orderType, double openPrice, double ord
 //+------------------------------------------------------------------+
 void SecureOneDollarProfit()
   {
+   if(!InpEnableSecureOneDollarProfit || SecureOneDollarProfitPerOrder <= 0.0)
+      return;
+
    if(GetTotalEAOrders() <= 0)
       return;
 
@@ -12619,7 +12623,8 @@ MinimumSLModifyGapRaw=10;//
    // balancelomultipler is fixed per session/day to prevent floating drawdown truncation
 
 
-   SecureOneDollarProfit();
+   if(InpEnableSecureOneDollarProfit)
+      SecureOneDollarProfit();
    CheckEmaFlipHalfDistancePartialLossCut();
    CheckMaxLossCap001Lots();
    Check90PctSLAdversePartialCutAndDoubleSL();
