@@ -42,7 +42,7 @@ CheckBasketProfitClose  Total open basket profit
 */
 
 
-string glbVersion = "VMULTI-1212 Hide Bid Ask Row On Right Dashboard";
+string glbVersion = "VMULTI-1213 Drawdown Relief 20Pct Balance 50Pct Bounce Tighten SL 100";
 
 int AccountMultiplierLOT = 1001;//400;//200;//500;
 //balance multiplier 
@@ -5709,7 +5709,9 @@ void Check50PctDrawdownReliefTightenSL()
      }
 
    double mult = (balancelomultipler > 0) ? balancelomultipler : 1.0;
-   double minPeakRequired = InpDrawdownReliefMinPeakUSD * mult;
+   double minPeakRequired = (InpDrawdownReliefMinBalancePct > 0.0 && balance > 0.0)
+                            ? (balance * (InpDrawdownReliefMinBalancePct / 100.0))
+                            : (InpDrawdownReliefMinPeakUSD * mult);
    if(minPeakRequired <= 0.0)
       minPeakRequired = 100.0;
 
@@ -5721,19 +5723,19 @@ void Check50PctDrawdownReliefTightenSL()
       g_drawdownReliefExecuted = false; // Reset executed flag if a new worse peak is made
      }
 
-// Arm only when peak reaches or breaches minimum threshold ($100 * mult)
+// Arm only when peak reaches or breaches minimum threshold (>= 20% of Balance or $100 * mult)
    if(g_drawdownReliefPeakUSD >= minPeakRequired)
      {
       if(!g_drawdownReliefArmed)
         {
          g_drawdownReliefArmed = true;
-         PrintFormat(">>> [DRAWDOWN RELIEF ARMED] Peak Drawdown reached $%.2f >= Minimum $%.2f ($100*mult). Monitoring for 50%% relief bounce (Target Drawdown <= $%.2f)...",
-                     g_drawdownReliefPeakUSD, minPeakRequired, g_drawdownReliefPeakUSD * (1.0 - InpDrawdownReliefPercent));
+         PrintFormat(">>> [DRAWDOWN RELIEF ARMED] Peak Drawdown reached $%.2f >= Minimum $%.2f (%.1f%% of Balance $%.2f). Monitoring for 50%% relief bounce (Target Drawdown <= $%.2f)...",
+                     g_drawdownReliefPeakUSD, minPeakRequired, (balance > 0 ? (minPeakRequired / balance * 100.0) : 0.0), balance, g_drawdownReliefPeakUSD * (1.0 - InpDrawdownReliefPercent));
         }
      }
    else
      {
-      // Below $100 -> do not activate, avoid interfering with small fluctuations
+      // Below threshold -> do not activate, avoid interfering with small fluctuations
       return;
      }
 
@@ -5776,7 +5778,7 @@ void Check50PctDrawdownReliefTightenSL()
    if(minStopDist < 20.0)
       minStopDist = 20.0;
 
-   double reliefGap = (InpDrawdownReliefSLGapUSD > 0.0) ? InpDrawdownReliefSLGapUSD : 50.0;
+   double reliefGap = (InpDrawdownReliefSLGapUSD > 0.0) ? InpDrawdownReliefSLGapUSD : 100.0;
    if(reliefGap < minStopDist)
       reliefGap = minStopDist;
 
@@ -7293,15 +7295,16 @@ bool   InpEnableEmaAngleBreakevenBreathing = true;   // When MathAbs(EMAangle) >
 double InpEmaAngleBreakevenBreathingAngle  = 4.0;    // Minimum MathAbs(EMAangle) threshold (default > 4.0)
 double InpEmaAngleBreakevenBreathingGapRaw = 50.0;   // Extra raw price gap based on order price (-50.0 raw gap)
 
-// USER RULE (VMULTI-1097): 50% Drawdown Relief StopLoss Tightening (Peak Drawdown >= $100)
-bool   InpEnableDrawdownReliefTightenSL   = false;  // Disabled: Tighten Losing Order SL on 50% Drawdown Relief (RLF)
-double InpDrawdownReliefMinPeakUSD        = 50;//100.0;  // Minimum peak drawdown in USD ($100 * mult) to qualify
-double InpDrawdownReliefPercent           = 0.50;   // Drawdown reduction percentage from peak (50% = 0.50)
-double InpDrawdownReliefSLGapUSD          = 50.0;   // SL cushion in USD ($50) behind relief market price for losing orders (Bid - 50 / Ask + 50)
-bool   InpDrawdownReliefModifyWinningOrders = true;   // Also modify winning orders during Drawdown Relief
-double InpDrawdownReliefWinningSLGapUSD     = 100.0;  // SL cushion in USD ($100) behind relief market price for winning orders (Bid - 100 / Ask + 100)
-double InpDrawdownReliefMinPriceDiff2Hours =0;// 1000;//0;//1000;//2000.0; // Minimum price difference in raw USD from last 2 hours (> $2000)
-double InpDrawdownReliefMinEmaAngle       =0;// 6.0;    // Minimum MathAbs(EMAangle) required to trigger relief SL (> 6.0 degrees)
+// USER RULE (VMULTI-1097 & VMULTI-1213): 50% Drawdown Relief StopLoss Tightening (Peak Drawdown >= 20% of Balance)
+bool   InpEnableDrawdownReliefTightenSL      = true;   // Enabled: Tighten All Open Orders SL on 50% Drawdown Relief (RLF)
+double InpDrawdownReliefMinBalancePct        = 20.0;   // Minimum peak drawdown as % of Account Balance (>= 20.0%) to arm Drawdown Relief
+double InpDrawdownReliefMinPeakUSD           = 100.0;  // Fallback minimum peak drawdown in USD ($100 * mult) to qualify
+double InpDrawdownReliefPercent              = 0.50;   // Drawdown recovery percentage from peak (50% = 0.50)
+double InpDrawdownReliefSLGapUSD             = 100.0;  // SL cushion in USD ($100) from live market price for all orders (Bid - 100 / Ask + 100)
+bool   InpDrawdownReliefModifyWinningOrders  = true;   // Also modify winning orders during Drawdown Relief
+double InpDrawdownReliefWinningSLGapUSD      = 100.0;  // SL cushion in USD ($100) from live market price for winning orders (Bid - 100 / Ask + 100)
+double InpDrawdownReliefMinPriceDiff2Hours   = 0;      // Minimum price difference in raw USD from last 2 hours (0 = disabled)
+double InpDrawdownReliefMinEmaAngle          = 0;      // Minimum MathAbs(EMAangle) required to trigger relief SL (0 = disabled)
 double g_drawdownReliefPeakUSD            = 0.0;    // Highest floating drawdown (Balance - Equity) during current cycle
 double g_drawdownReliefLastPeakUSD        = 0.0;    // Preserved peak drawdown for reporting when orders close
 datetime g_drawdownReliefPeakTime         = 0;      // Time when peak drawdown was reached
@@ -11976,9 +11979,12 @@ void OnDeinit(const int reason)
    if(g_drawdownReliefAppliedCount > 0 || g_drawdownReliefHitSuccessCount > 0)
      {
       double mult = (balancelomultipler > 0) ? balancelomultipler : 1.0;
-      PrintFormat(">>> [DRAWDOWN RELIEF SUMMARY] Total Tighten Executions: %d | Total SL Hits (Loss Capped): %d | Mode: Repeating on every $%.2f DD",
+      double minPeakSum = (InpDrawdownReliefMinBalancePct > 0.0 && AccountBalance() > 0.0)
+                          ? (AccountBalance() * (InpDrawdownReliefMinBalancePct / 100.0))
+                          : (InpDrawdownReliefMinPeakUSD * mult);
+      PrintFormat(">>> [DRAWDOWN RELIEF SUMMARY] Total Tighten Executions: %d | Total SL Hits (Loss Capped): %d | Mode: Repeating on >= $%.2f DD (%.1f%% Bal)",
                   g_drawdownReliefAppliedCount, g_drawdownReliefHitSuccessCount,
-                  (InpDrawdownReliefMinPeakUSD * mult));
+                  minPeakSum, (AccountBalance() > 0 ? (minPeakSum / AccountBalance() * 100.0) : 0.0));
      }
    if(g_eqDdTotalPartialCuts > 0 || g_eqDdTotalCloseAllOrders > 0)
      {
@@ -16950,7 +16956,7 @@ bool CanModifyStopLossForHigherProfit(int ticket, double proposedSL, string call
 
 // USER RULE: Orders secured by Equity Target Hit:
 // "profit stoploss value ok. loss stoploss is not ok."
-   if(IsEquityHitSecuredOrder(ticket) && callerName != "EquityTargetHit_LossTighten" && callerName != "DrawdownRelief50Pct" && StringFind(callerName, "Method") < 0)
+   if(IsEquityHitSecuredOrder(ticket) && callerName != "EquityTargetHit_LossTighten" && callerName != "DrawdownRelief50Pct" && callerName != "DrawdownReliefWin100" && StringFind(callerName, "Method") < 0)
      {
       bool isLossSL = (oType == OP_BUY && normPropSL < oOpen) || (oType == OP_SELL && normPropSL > oOpen);
       if(isLossSL)
@@ -26698,7 +26704,9 @@ void UpdateDashboard(DailyProtectionState &state)
 // --- RLF Status Line ---
    double curDD = MathMax(0.0, AccountBalance() - AccountEquity());
    double rlfMult = (balancelomultipler > 0) ? balancelomultipler : 1.0;
-   double rlfMinPeak = InpDrawdownReliefMinPeakUSD * rlfMult;
+   double rlfMinPeak = (InpDrawdownReliefMinBalancePct > 0.0 && AccountBalance() > 0.0)
+                       ? (AccountBalance() * (InpDrawdownReliefMinBalancePct / 100.0))
+                       : (InpDrawdownReliefMinPeakUSD * rlfMult);
    double rlfTargetDD = g_drawdownReliefPeakUSD * (1.0 - InpDrawdownReliefPercent);
    string rlfState = "OFF";
    color rlfClr = clrSilver;
@@ -28193,7 +28201,9 @@ void UpdateLeftLiveOrdersDashboard(bool force = false)
                         if(g_drawdownReliefPeakUSD > 0.0)
                           {
                            double rMult = (balancelomultipler > 0) ? balancelomultipler : 1.0;
-                           double rReq  = (InpDrawdownReliefMinPeakUSD > 0.0 ? InpDrawdownReliefMinPeakUSD * rMult : 100.0 * rMult);
+                           double rReq  = (InpDrawdownReliefMinBalancePct > 0.0 && AccountBalance() > 0.0)
+                                          ? (AccountBalance() * (InpDrawdownReliefMinBalancePct / 100.0))
+                                          : (InpDrawdownReliefMinPeakUSD > 0.0 ? InpDrawdownReliefMinPeakUSD * rMult : 100.0 * rMult);
                            string rTag  = StringFormat("TRACK $%.0f/$%.0f", g_drawdownReliefPeakUSD, rReq);
                            ddBannerTxt = StringFormat("DD LATEST  : EQ-DD NONE YET | RLF %s | AcctDD:$%.1f", rTag, curAcctDdUSD);
                            ddBannerClr = clrDeepSkyBlue;
