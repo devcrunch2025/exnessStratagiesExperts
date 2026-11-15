@@ -42,7 +42,7 @@ CheckBasketProfitClose  Total open basket profit
 */
 
 
-string glbVersion = "VMULTI-1202 Stable Multiplier Scaling 1X vs 2X";
+string glbVersion = "VMULTI-1203 Day Equity Target Base Advance On Hit Only";
 
 int AccountMultiplierLOT = 1001;//400;//200;//500;
 //balance multiplier 
@@ -3492,7 +3492,8 @@ void SyncDubaiDayOpeningState(datetime nowServer = 0)
          g_dubaiNightCloseRetryPending = false;
          g_dubaiNightLastCutTime       = 0;
          g_dubaiNightCutCountToday     = 0;
-         double newDayOpenBal          = (AccountBalance() > 0.0) ? AccountBalance() : seedEquity;
+         // Align with g_dayOpeningBalance as determined by CheckForNewDay() (only advance if target was hit)
+         double newDayOpenBal          = (g_dayOpeningBalance > 0.0) ? g_dayOpeningBalance : ((AccountBalance() > 0.0) ? AccountBalance() : seedEquity);
          g_dubaiDayOpeningEquity       = newDayOpenBal;
          g_dayOpeningBalance           = newDayOpenBal;
          int lotMultiplierDivDay       = (AccountMultiplierLOT > 0) ? AccountMultiplierLOT : 1001;
@@ -12125,11 +12126,56 @@ void CheckForNewDay()
    if(today != g_dayNumber)
    {
       // NEW TRADING DAY (DUBAI 16:00)
-      g_dayNumber = today;
+      bool isFirstStart               = (g_dayNumber == -1);
+      bool wasTargetHitYesterday      = g_dailyEquityTargetHitToday;
+      bool wasAdverseLossHitYesterday = g_dailyEquityAdverseLossHitToday;
+      int  prevDayKey                 = g_dayNumber;
+      g_dayNumber                     = today;
 
-      // Capture opening balance
-      g_dayOpeningBalance = (AccountBalance() > 0.0) ? AccountBalance() : AccountEquity();
-      g_dubaiDayOpeningEquity = g_dayOpeningBalance;
+      double curBal = (AccountBalance() > 0.0) ? AccountBalance() : AccountEquity();
+
+      if(isFirstStart || g_dayOpeningBalance <= 0.0)
+      {
+         // Fresh EA startup / first day initialization
+         g_dayOpeningBalance     = curBal;
+         g_dubaiDayOpeningEquity = g_dayOpeningBalance;
+         PrintFormat(">>> [NEW TRADING DAY (Dubai 16:00)] DayKey=%d | DubaiTime=%s | Fresh Initial Day Base = $%.2f",
+                     today, TimeToString(dubaiTime, TIME_DATE|TIME_MINUTES|TIME_SECONDS), g_dayOpeningBalance);
+      }
+      else if(wasTargetHitYesterday)
+      {
+         // USER RULE: Day Equity Target was HIT yesterday -> Increase base amount to current balance!
+         double prevBase = g_dayOpeningBalance;
+         g_dayOpeningBalance     = curBal;
+         g_dubaiDayOpeningEquity = g_dayOpeningBalance;
+         PrintFormat(">>> [NEW TRADING DAY (Dubai 16:00)] DayKey=%d | DubaiTime=%s | DAY EQUITY TARGET WAS HIT! Increasing Base: $%.2f -> $%.2f (New Tgt: $%.2f)",
+                     today, TimeToString(dubaiTime, TIME_DATE|TIME_MINUTES|TIME_SECONDS),
+                     prevBase, g_dayOpeningBalance, g_dayOpeningBalance + (DailyEquityStopUSD * balancelomultipler));
+      }
+      else if(wasAdverseLossHitYesterday)
+      {
+         // Adverse Day Loss was HIT yesterday (-$200 stop) -> Reset base to current balance to give fresh risk protection band
+         double prevBase = g_dayOpeningBalance;
+         g_dayOpeningBalance     = curBal;
+         g_dubaiDayOpeningEquity = g_dayOpeningBalance;
+         PrintFormat(">>> [NEW TRADING DAY (Dubai 16:00)] DayKey=%d | DubaiTime=%s | ADVERSE LOSS HIT yesterday! Resetting Base: $%.2f -> $%.2f",
+                     today, TimeToString(dubaiTime, TIME_DATE|TIME_MINUTES|TIME_SECONDS),
+                     prevBase, g_dayOpeningBalance);
+      }
+      else
+      {
+         // USER RULE: Day Equity Target was NOT hit yesterday -> DO NOT INCREASE BASE AMOUNT!
+         PrintFormat(">>> [NEW TRADING DAY (Dubai 16:00)] DayKey=%d | DubaiTime=%s | Day Target NOT hit yesterday! Keeping Base: $%.2f (CurBal=$%.2f). Target stays: $%.2f",
+                     today, TimeToString(dubaiTime, TIME_DATE|TIME_MINUTES|TIME_SECONDS),
+                     g_dayOpeningBalance, curBal, g_dayOpeningBalance + (DailyEquityStopUSD * balancelomultipler));
+         // g_dayOpeningBalance and g_dubaiDayOpeningEquity remain unchanged!
+      }
+
+      // Synchronize lot multiplier based on g_dayOpeningBalance
+      int lotMultiplierDivDay = (AccountMultiplierLOT > 0) ? AccountMultiplierLOT : 1001;
+      balancelomultipler = (int)MathRound(g_dayOpeningBalance / (double)lotMultiplierDivDay);
+      if(balancelomultipler <= 0)
+         balancelomultipler = 1;
 
       // Reset daily protection & pause flags (Pause Duration till next day Dubai 16:00)
       g_dailyEquityTradingBlocked      = false;
@@ -12143,8 +12189,9 @@ void CheckForNewDay()
       SyncDubaiDayOpeningState(serverTime);
       CheckEqDdDailyReset();
 
-      PrintFormat(">>> [NEW TRADING DAY DETECTED (Dubai 16:00)] DayKey=%d | DubaiTime=%s | Day Opening Balance = $%.2f | Pause Duration Reset -> Trading Active",
-                  today, TimeToString(dubaiTime, TIME_DATE|TIME_MINUTES|TIME_SECONDS), g_dayOpeningBalance);
+      PrintFormat(">>> [NEW TRADING DAY DETECTED (Dubai 16:00)] DayKey=%d | DubaiTime=%s | Day Opening Base = $%.2f (Target = $%.2f, Mult = %d) | Pause Duration Reset -> Trading Active",
+                  today, TimeToString(dubaiTime, TIME_DATE|TIME_MINUTES|TIME_SECONDS), g_dayOpeningBalance,
+                  g_dayOpeningBalance + (DailyEquityStopUSD * balancelomultipler), balancelomultipler);
    }
 }
 //+------------------------------------------------------------------+
