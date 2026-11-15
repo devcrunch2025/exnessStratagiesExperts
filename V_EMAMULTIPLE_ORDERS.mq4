@@ -42,7 +42,7 @@ CheckBasketProfitClose  Total open basket profit
 */
 
 
-string glbVersion = "VMULTI-1204 Streamlined Left Dashboard Width -20% Open Hidden";
+string glbVersion = "VMULTI-1205 Dubai Day Rollover Multiplier Based On Available Equity";
 
 int AccountMultiplierLOT = 1001;//400;//200;//500;
 //balance multiplier 
@@ -3496,8 +3496,10 @@ void SyncDubaiDayOpeningState(datetime nowServer = 0)
          double newDayOpenBal          = (g_dayOpeningBalance > 0.0) ? g_dayOpeningBalance : ((AccountBalance() > 0.0) ? AccountBalance() : seedEquity);
          g_dubaiDayOpeningEquity       = newDayOpenBal;
          g_dayOpeningBalance           = newDayOpenBal;
+         // Update balance multiplier based on equity available at Dubai market opening time
+         double eqAvailable            = (AccountEquity() > 0.0) ? AccountEquity() : newDayOpenBal;
          int lotMultiplierDivDay       = (AccountMultiplierLOT > 0) ? AccountMultiplierLOT : 1001;
-         balancelomultipler            = (int)MathRound(newDayOpenBal / (double)lotMultiplierDivDay);
+         balancelomultipler            = (int)MathRound(eqAvailable / (double)lotMultiplierDivDay);
          if(balancelomultipler <= 0)
             balancelomultipler = 1;
          g_dubaiNightLastCloseTag      = "";
@@ -11581,8 +11583,9 @@ int OnInit()
 
 
 
+   double initEquity = (AccountEquity() > 0.0) ? AccountEquity() : AccountBalance();
    int lotMultiplierDiv = (AccountMultiplierLOT > 0) ? AccountMultiplierLOT : 1001;
-   balancelomultipler = (int)MathRound(AccountBalance() / (double)lotMultiplierDiv);
+   balancelomultipler = (int)MathRound(initEquity / (double)lotMultiplierDiv);
 
    if(balancelomultipler<=0)
       balancelomultipler=1;
@@ -12171,9 +12174,10 @@ void CheckForNewDay()
          // g_dayOpeningBalance and g_dubaiDayOpeningEquity remain unchanged!
       }
 
-      // Synchronize lot multiplier based on g_dayOpeningBalance
+      // USER RULE: On day change Dubai market opening time, change/update balance multiplier based on equity available
+      double eqAvailable = (AccountEquity() > 0.0) ? AccountEquity() : curBal;
       int lotMultiplierDivDay = (AccountMultiplierLOT > 0) ? AccountMultiplierLOT : 1001;
-      balancelomultipler = (int)MathRound(g_dayOpeningBalance / (double)lotMultiplierDivDay);
+      balancelomultipler = (int)MathRound(eqAvailable / (double)lotMultiplierDivDay);
       if(balancelomultipler <= 0)
          balancelomultipler = 1;
 
@@ -12189,9 +12193,9 @@ void CheckForNewDay()
       SyncDubaiDayOpeningState(serverTime);
       CheckEqDdDailyReset();
 
-      PrintFormat(">>> [NEW TRADING DAY DETECTED (Dubai 16:00)] DayKey=%d | DubaiTime=%s | Day Opening Base = $%.2f (Target = $%.2f, Mult = %d) | Pause Duration Reset -> Trading Active",
+      PrintFormat(">>> [NEW TRADING DAY DETECTED (Dubai 16:00)] DayKey=%d | DubaiTime=%s | Day Opening Base = $%.2f (Target = $%.2f, Mult = %d [AvailEq=$%.2f]) | Pause Duration Reset -> Trading Active",
                   today, TimeToString(dubaiTime, TIME_DATE|TIME_MINUTES|TIME_SECONDS), g_dayOpeningBalance,
-                  g_dayOpeningBalance + (DailyEquityStopUSD * balancelomultipler), balancelomultipler);
+                  g_dayOpeningBalance + (DailyEquityStopUSD * balancelomultipler), balancelomultipler, eqAvailable);
    }
 }
 //+------------------------------------------------------------------+
