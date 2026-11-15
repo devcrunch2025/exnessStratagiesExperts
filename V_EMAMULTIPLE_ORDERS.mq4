@@ -42,7 +42,7 @@ CheckBasketProfitClose  Total open basket profit
 */
 
 
-string glbVersion = "VMULTI-1205 Dubai Day Rollover Multiplier Based On Available Equity";
+string glbVersion = "VMULTI-1206 Prevent Pending Delete Error 3 and Stop Level Error 130";
 
 int AccountMultiplierLOT = 1001;//400;//200;//500;
 //balance multiplier 
@@ -13821,10 +13821,10 @@ bool PrepareStopLossForOrder(int orderType,double referencePrice,double &stopLos
       return true;
    RefreshRates();
    double minDistance=GetRequiredStopDistance();
-   if(orderType==OP_BUY || orderType==OP_BUYSTOP)
+   if(orderType==OP_BUY || orderType==OP_BUYSTOP || orderType==OP_BUYLIMIT)
      {
       double maxSL=Bid-minDistance;
-      if(orderType==OP_BUYSTOP)
+      if(orderType==OP_BUYSTOP || orderType==OP_BUYLIMIT)
          maxSL=MathMin(maxSL,referencePrice-minDistance);
       if(maxSL<=0.0)
          return false;
@@ -13832,10 +13832,10 @@ bool PrepareStopLossForOrder(int orderType,double referencePrice,double &stopLos
          stopLoss=maxSL;
      }
    else
-      if(orderType==OP_SELL || orderType==OP_SELLSTOP)
+      if(orderType==OP_SELL || orderType==OP_SELLSTOP || orderType==OP_SELLLIMIT)
         {
          double minSL=Ask+minDistance;
-         if(orderType==OP_SELLSTOP)
+         if(orderType==OP_SELLSTOP || orderType==OP_SELLLIMIT)
             minSL=MathMax(minSL,referencePrice+minDistance);
          if(minSL<=0.0)
             return false;
@@ -13845,18 +13845,18 @@ bool PrepareStopLossForOrder(int orderType,double referencePrice,double &stopLos
       else
          return true;
    stopLoss=NormalizeDouble(stopLoss,Digits);
-   if(orderType==OP_BUY || orderType==OP_BUYSTOP)
+   if(orderType==OP_BUY || orderType==OP_BUYSTOP || orderType==OP_BUYLIMIT)
      {
       if(stopLoss<=0.0 || stopLoss>=Bid)
          return false;
-      if(orderType==OP_BUYSTOP && stopLoss>=referencePrice)
+      if((orderType==OP_BUYSTOP || orderType==OP_BUYLIMIT) && stopLoss>=referencePrice)
          return false;
      }
    else
      {
       if(stopLoss<=Ask)
          return false;
-      if(orderType==OP_SELLSTOP && stopLoss<=referencePrice)
+      if((orderType==OP_SELLSTOP || orderType==OP_SELLLIMIT) && stopLoss<=referencePrice)
          return false;
      }
    return true;
@@ -16350,6 +16350,46 @@ return -1;
 
 
 
+   // Validate pending order entry price distance vs live market quotes to prevent broker Error 130 (Invalid S/L or T/P)
+   if(orderType == OP_BUYSTOP || orderType == OP_SELLSTOP || orderType == OP_BUYLIMIT || orderType == OP_SELLLIMIT)
+     {
+      RefreshRates();
+      double minStopDist = GetRequiredStopDistance();
+      if(orderType == OP_BUYSTOP && sendPrice < (Ask + minStopDist))
+        {
+         Print("PENDING ORDER BLOCKED (BUY STOP): Entry ", DoubleToString(sendPrice, Digits),
+               " is not above Ask (", DoubleToString(Ask, Digits), ") + minStop (", DoubleToString(minStopDist, Digits), "). Order skipped to avoid Error 130.");
+         return -1;
+        }
+      else if(orderType == OP_SELLSTOP && sendPrice > (Bid - minStopDist))
+        {
+         Print("PENDING ORDER BLOCKED (SELL STOP): Entry ", DoubleToString(sendPrice, Digits),
+               " is not below Bid (", DoubleToString(Bid, Digits), ") - minStop (", DoubleToString(minStopDist, Digits), "). Order skipped to avoid Error 130.");
+         return -1;
+        }
+      else if(orderType == OP_BUYLIMIT && sendPrice > (Ask - minStopDist))
+        {
+         Print("PENDING ORDER BLOCKED (BUY LIMIT): Entry ", DoubleToString(sendPrice, Digits),
+               " is not below Ask (", DoubleToString(Ask, Digits), ") - minStop (", DoubleToString(minStopDist, Digits), "). Order skipped to avoid Error 130.");
+         return -1;
+        }
+      else if(orderType == OP_SELLLIMIT && sendPrice < (Bid + minStopDist))
+        {
+         Print("PENDING ORDER BLOCKED (SELL LIMIT): Entry ", DoubleToString(sendPrice, Digits),
+               " is not above Bid (", DoubleToString(Bid, Digits), ") + minStop (", DoubleToString(minStopDist, Digits), "). Order skipped to avoid Error 130.");
+         return -1;
+        }
+     }
+
+   if(takeProfit > 0.0)
+     {
+      double minStopDist = GetRequiredStopDistance();
+      if((orderType == OP_BUY || orderType == OP_BUYSTOP || orderType == OP_BUYLIMIT) && takeProfit < (sendPrice + minStopDist))
+         takeProfit = NormalizeDouble(sendPrice + minStopDist, Digits);
+      else if((orderType == OP_SELL || orderType == OP_SELLSTOP || orderType == OP_SELLLIMIT) && takeProfit > (sendPrice - minStopDist))
+         takeProfit = NormalizeDouble(sendPrice - minStopDist, Digits);
+     }
+
    if(safeSL>0.0 && !PrepareStopLossForOrder(orderType,sendPrice,safeSL))
      {
       BlockTradeErrorUntilNextTick(key);
@@ -17303,6 +17343,13 @@ bool SafeOrderDelete(int ticket,color arrowColor)
       return false;
    if(!OrderSelect(ticket,SELECT_BY_TICKET,MODE_TRADES))
       return true;
+   int oType = OrderType();
+   if(oType != OP_BUYSTOP && oType != OP_SELLSTOP && oType != OP_BUYLIMIT && oType != OP_SELLLIMIT)
+     {
+      // Order has already triggered and converted into a live market position (OP_BUY or OP_SELL)
+      // Cannot delete a market order using OrderDelete (would cause MT4 Error 3: Invalid parameters).
+      return true;
+     }
    int ageSeconds=(int)(TimeCurrent()-OrderOpenTime());
    int requiredAgeSeconds =0;// 6*60*60;
    if(ageSeconds < requiredAgeSeconds)
@@ -17315,6 +17362,9 @@ bool SafeOrderDelete(int ticket,color arrowColor)
       return true;
    int err=GetLastError();
    if(!OrderSelect(ticket,SELECT_BY_TICKET,MODE_TRADES))
+      return true;
+   oType = OrderType();
+   if(oType != OP_BUYSTOP && oType != OP_SELLSTOP && oType != OP_BUYLIMIT && oType != OP_SELLLIMIT)
       return true;
    BlockTradeErrorUntilNextTick(key);
    MarkServerError(err,"OrderDelete");
