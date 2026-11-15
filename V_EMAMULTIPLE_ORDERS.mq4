@@ -42,7 +42,7 @@ CheckBasketProfitClose  Total open basket profit
 */
 
 
-string glbVersion = "VMULTI-1209 Auto Cleanup On Too Many Open Orders Error 148";
+string glbVersion = "VMULTI-1210 Resilient Off-Quotes Retry In Send Close Delete";
 
 int AccountMultiplierLOT = 1001;//400;//200;//500;
 //balance multiplier 
@@ -1256,19 +1256,40 @@ bool SafeOrderCloseMarket(int ticket, double lots, int slippage, color arrowColo
    if(!g_eqDdForceCloseBudget && !CanSendTradeRequest("OrderClose", "Ticket=" + IntegerToString(ticket)))
       return false;
 
-   ResetLastError();
-   bool result = OrderClose(ticket, lots, closePrice, slippage, arrowColor);
-   if(result)
-     {
-      InvalidateTotalEAOrdersCache();
-      return true;
-     }
+   bool result = false;
+   int err = 0;
+   int maxCloseAttempts = 3;
 
-   int err = GetLastError();
-   if(!OrderSelect(ticket, SELECT_BY_TICKET, MODE_TRADES))
+   for(int attempt = 0; attempt < maxCloseAttempts; attempt++)
      {
-      if(OrderSelect(ticket, SELECT_BY_TICKET, MODE_HISTORY))
+      RefreshRates();
+      double closePrice = (orderType == OP_BUY) ? Bid : Ask;
+      closePrice = NormalizeDouble(closePrice, Digits);
+
+      ResetLastError();
+      result = OrderClose(ticket, lots, closePrice, slippage, arrowColor);
+      if(result)
+        {
+         InvalidateTotalEAOrdersCache();
          return true;
+        }
+
+      err = GetLastError();
+      if(!OrderSelect(ticket, SELECT_BY_TICKET, MODE_TRADES))
+        {
+         if(OrderSelect(ticket, SELECT_BY_TICKET, MODE_HISTORY))
+            return true;
+         return false;
+        }
+
+      // Retry on transient quote errors (136 Off Quotes, 138 Requote, 135 Price Changed, 137 Broker Busy, 146 Context Busy)
+      if(err == 136 || err == 138 || err == 135 || err == 137 || err == 146)
+        {
+         Sleep(100);
+         continue;
+        }
+
+      break;
      }
 
    BlockTradeErrorUntilNextTick(key);
@@ -16508,6 +16529,44 @@ return -1;
       return existing;
      }
 
+   // REACTIVE HANDLER FOR TRANSIENT BROKER QUOTE ERRORS (136 Off Quotes, 138 Requote, 135 Price Changed, 137 Broker Busy, 146 Context Busy)
+   if(err == 136 || err == 138 || err == 135 || err == 137 || err == 146)
+     {
+      for(int quoteRetry = 0; quoteRetry < 2; quoteRetry++)
+        {
+         Sleep(150);
+         RefreshRates();
+         double retryPrice = sendPrice;
+         if(orderType == OP_BUY)
+            retryPrice = NormalizeDouble(Ask, Digits);
+         else if(orderType == OP_SELL)
+            retryPrice = NormalizeDouble(Bid, Digits);
+         else if(orderType == OP_BUYSTOP || orderType == OP_BUYLIMIT || orderType == OP_SELLSTOP || orderType == OP_SELLLIMIT)
+           {
+            double reqStopDist = GetRequiredStopDistance();
+            if(orderType == OP_BUYSTOP && retryPrice < NormalizeDouble(Ask + reqStopDist, Digits))
+               retryPrice = NormalizeDouble(Ask + reqStopDist, Digits);
+            else if(orderType == OP_SELLSTOP && retryPrice > NormalizeDouble(Bid - reqStopDist, Digits))
+               retryPrice = NormalizeDouble(Bid - reqStopDist, Digits);
+           }
+
+         ResetLastError();
+         ticket = OrderSend(symbol, orderType, lots, retryPrice, slippage, safeSL, takeProfit, comment, magic, 0, arrowColor);
+         if(ticket > 0)
+           {
+            Print(">>> [OFF-QUOTES RETRY SUCCESS] Order #", ticket, " placed successfully after transient quote recovery!");
+            InvalidateTotalEAOrdersCache();
+            RegisterPostOrderSLTPVerification(ticket, safeSL, takeProfit);
+            ServerRecoveryPending = false;
+            TradeOperationFailedThisTick = false;
+            return ticket;
+           }
+         err = GetLastError();
+         if(err != 136 && err != 138 && err != 135 && err != 137 && err != 146)
+            break;
+        }
+     }
+
    // REACTIVE HANDLER FOR ERROR 148: "Too many open orders"
    if(err == 148)
      {
@@ -17561,18 +17620,37 @@ bool SafeOrderDelete(int ticket,color arrowColor)
       return false;
    if(!CanSendTradeRequest("OrderDelete","Ticket="+IntegerToString(ticket)))
       return false;
-   ResetLastError();
-   bool result=OrderDelete(ticket,arrowColor);
-   if(result)
-      return true;
-   int err=GetLastError();
-   if(!OrderSelect(ticket,SELECT_BY_TICKET,MODE_TRADES))
-      return true;
-   oType = OrderType();
-   if(oType != OP_BUYSTOP && oType != OP_SELLSTOP && oType != OP_BUYLIMIT && oType != OP_SELLLIMIT)
-      return true;
+   bool result = false;
+   int err = 0;
+   int maxDeleteAttempts = 3;
+
+   for(int attempt = 0; attempt < maxDeleteAttempts; attempt++)
+     {
+      ResetLastError();
+      result = OrderDelete(ticket, arrowColor);
+      if(result)
+         return true;
+
+      err = GetLastError();
+      if(!OrderSelect(ticket, SELECT_BY_TICKET, MODE_TRADES))
+         return true;
+      oType = OrderType();
+      if(oType != OP_BUYSTOP && oType != OP_SELLSTOP && oType != OP_BUYLIMIT && oType != OP_SELLLIMIT)
+         return true;
+
+      // Retry on transient quote errors (136 Off Quotes, 138 Requote, 137 Broker Busy, 146 Context Busy)
+      if(err == 136 || err == 138 || err == 137 || err == 146)
+        {
+         Sleep(100);
+         RefreshRates();
+         continue;
+        }
+
+      break;
+     }
+
    BlockTradeErrorUntilNextTick(key);
-   MarkServerError(err,"OrderDelete");
+   MarkServerError(err, "OrderDelete");
    return false;
   }
 //+------------------------------------------------------------------+
