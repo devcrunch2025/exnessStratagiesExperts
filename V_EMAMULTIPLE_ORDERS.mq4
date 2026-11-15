@@ -42,8 +42,6 @@ CheckBasketProfitClose  Total open basket profit
 */
 
 
-
-
 string glbVersion = "VMULTI-1201 Oct 1st to oct 30 $500 to $1500- Max Flip profit moved to $1000";
 
 int AccountMultiplierLOT = 1001;//400;//200;//500;
