@@ -42,7 +42,7 @@ CheckBasketProfitClose  Total open basket profit
 */
 
 
-string glbVersion = "VMULTI-1211 LIVE DEMO - DayEquity with Error Handling";
+string glbVersion = "VMULTI-1212 Hide Bid Ask Row On Right Dashboard";
 
 int AccountMultiplierLOT = 1001;//400;//200;//500;
 //balance multiplier 
@@ -835,6 +835,7 @@ bool InpShowLeftDashNightCloseRow    = false;  // Left Dash: Show Night Close ro
 bool InpShowLeftDashPriceGapRow      = false;  // Left Dash: Show Price Gap Close row [Default: false = HIDDEN]
 bool InpShowLeftDashStepLossRow      = false;  // Left Dash: Show Step Loss row [Default: false = HIDDEN]
 bool InpShowLeftDashDayEqTargetRow   = true;   // Left Dash: Show Day Equity Target row (DAY EQ TGT)
+bool InpHideBidAskRightDashboard     = true;   // Right Dash: Hide BID / ASK / Spread row [Default: true = HIDDEN]
 
 double OriginalLots = 0.01;
 double OriginalLadder1ProfitUSD = 0.05;
@@ -26471,9 +26472,17 @@ void UpdateDashboard(DailyProtectionState &state)
 // Header Bar
    CreateDashboardPanel(DASH_PREFIX+"HEADER", x, y, w, 36, C'20,55,90');
    string eaTitle = StringFormat("%s | %s %s", glbVersion, Symbol(), TimeframeToString(Period()));
-   CreateDashboardLabel(DASH_PREFIX+"TITLE", eaTitle, tx, y+4, 9, clrWhite);
-   string priceStatus = StringFormat("BID: %." + IntegerToString(Digits) + "f | ASK: %." + IntegerToString(Digits) + "f | SPR: %d pts", Bid, Ask, (int)MarketInfo(Symbol(), MODE_SPREAD));
-   CreateDashboardLabel(DASH_PREFIX+"PRICE", priceStatus, tx, y+19, 8, clrLightGray);
+   if(InpHideBidAskRightDashboard)
+     {
+      CreateDashboardLabel(DASH_PREFIX+"TITLE", eaTitle, tx, y+10, 9, clrWhite);
+      ObjectDelete(0, DASH_PREFIX+"PRICE");
+     }
+   else
+     {
+      CreateDashboardLabel(DASH_PREFIX+"TITLE", eaTitle, tx, y+4, 9, clrWhite);
+      string priceStatus = StringFormat("BID: %." + IntegerToString(Digits) + "f | ASK: %." + IntegerToString(Digits) + "f | SPR: %d pts", Bid, Ask, (int)MarketInfo(Symbol(), MODE_SPREAD));
+      CreateDashboardLabel(DASH_PREFIX+"PRICE", priceStatus, tx, y+19, 8, clrLightGray);
+     }
 
 // Status Line
    CreateDashboardLabel(DASH_PREFIX+"STATUS", "EA STATUS   : " + statusText, tx, y+39, 9, statusColor);
