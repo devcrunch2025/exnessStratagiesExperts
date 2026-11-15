@@ -42,7 +42,7 @@ CheckBasketProfitClose  Total open basket profit
 */
 
 
-string glbVersion = "VMULTI-1210 Resilient Off-Quotes Retry In Send Close Delete";
+string glbVersion = "VMULTI-1211 Close Order On Invalid StopLoss Or TakeProfit On Modify";
 
 int AccountMultiplierLOT = 1001;//400;//200;//500;
 //balance multiplier 
@@ -17418,36 +17418,100 @@ bool SafeOrderModify(int ticket,double openPrice,double stopLoss,double takeProf
 
       if(!PrepareStopLossForOrder(orderType, OrderOpenPrice(), requestedSL))
         {
-         Print(">>> [UNSAFE MODIFY SL] Ticket #", ticket, " requested SL ", DoubleToString(requestedSL, Digits),
-               " is unsafe relative to market (Ask=", DoubleToString(Ask, Digits), ", Bid=", DoubleToString(Bid, Digits), ")");
+         Print(">>> [INVALID MODIFY SL] Ticket #", ticket, " requested SL ", DoubleToString(requestedSL, Digits),
+               " is invalid relative to market (Ask=", DoubleToString(Ask, Digits), ", Bid=", DoubleToString(Bid, Digits),
+               "). Rule: error while modifying order because of invalid stoploss or take profit means - just close the order.");
 
          if(orderType == OP_BUY || orderType == OP_SELL)
            {
-            double oPL = OrderProfit() + OrderSwap() + OrderCommission();
-            double dPL = GetOpenPL(orderType);
-            double tPL = GlobalBuyPL + GlobalSellPL;
-            bool isComboReq = (StringFind(callerName, "Method") >= 0 || StringFind(callerName, "Combo") >= 0 || StringFind(callerName, "Basket") >= 0);
-            bool shouldCloseUnsafe = (oPL > 0.0) || (dPL > 0.0) || (tPL > 0.0) || (isComboReq && (dPL > 0.0 || tPL > 0.0));
-
-            if(shouldCloseUnsafe)
+            double curLots = OrderLots();
+            double curPL = OrderProfit() + OrderSwap() + OrderCommission();
+            Print(">>> [INVALID SL - JUST CLOSE ORDER] Closing Ticket #", ticket, " at market immediately (P/L: $", DoubleToString(curPL, 2), ")...");
+            for(int cAttempt = 0; cAttempt < 3; cAttempt++)
               {
-               Print(">>> [UNSAFE SL PROFIT CLOSE] Closing Ticket #", ticket, " at market to secure profit (OrderPL: $",
-                     DoubleToString(oPL, 2), ", DirComboPL: $", DoubleToString(dPL, 2), ", TotalPL: $", DoubleToString(tPL, 2), ")");
                RefreshRates();
                double cPrice = (orderType == OP_BUY) ? Bid : Ask;
                cPrice = NormalizeDouble(cPrice, Digits);
                ResetLastError();
-               if(OrderClose(ticket, OrderLots(), cPrice, Slippage, (orderType == OP_BUY ? clrRed : clrBlue)))
+               if(OrderClose(ticket, curLots, cPrice, Slippage, (orderType == OP_BUY ? clrRed : clrBlue)))
                  {
+                  Print(">>> [ORDER CLOSED ON INVALID SL] Ticket #", ticket, " closed successfully at ", DoubleToString(cPrice, Digits), " | P/L: $", DoubleToString(curPL, 2));
                   InvalidateTotalEAOrdersCache();
+                  ServerRecoveryPending = false;
+                  TradeOperationFailedThisTick = false;
                   return true;
                  }
+               int closeErr = GetLastError();
+               Print("OrderClose attempt ", (cAttempt + 1), " failed for Ticket #", ticket, " | Error=", closeErr);
+               Sleep(100);
               }
            }
+         else
+            if(orderType == OP_BUYSTOP || orderType == OP_SELLSTOP || orderType == OP_BUYLIMIT || orderType == OP_SELLLIMIT)
+              {
+               Print(">>> [INVALID SL - DELETE PENDING] Deleting pending Ticket #", ticket, " due to invalid SL...");
+               SafeOrderDelete(ticket, clrYellow);
+               InvalidateTotalEAOrdersCache();
+               return true;
+              }
 
          BlockTradeErrorUntilNextTick(key);
          MarkServerError(130, "OrderModify/unsafe-SL");
          return false;
+        }
+
+      if(requestedTP > 0.0)
+        {
+         double minStopDist = GetRequiredStopDistance();
+         bool tpInvalid = false;
+         if(orderType == OP_BUY && requestedTP <= NormalizeDouble(Bid + minStopDist, Digits))
+            tpInvalid = true;
+         else if(orderType == OP_SELL && requestedTP >= NormalizeDouble(Ask - minStopDist, Digits))
+            tpInvalid = true;
+
+         if(tpInvalid)
+           {
+            Print(">>> [INVALID MODIFY TP] Ticket #", ticket, " requested TP ", DoubleToString(requestedTP, Digits),
+                  " is invalid relative to market (Ask=", DoubleToString(Ask, Digits), ", Bid=", DoubleToString(Bid, Digits),
+                  "). Rule: error while modifying order because of invalid stoploss or take profit means - just close the order.");
+
+            if(orderType == OP_BUY || orderType == OP_SELL)
+              {
+               double curLots = OrderLots();
+               double curPL = OrderProfit() + OrderSwap() + OrderCommission();
+               Print(">>> [INVALID TP - JUST CLOSE ORDER] Closing Ticket #", ticket, " at market immediately (P/L: $", DoubleToString(curPL, 2), ")...");
+               for(int cAttempt = 0; cAttempt < 3; cAttempt++)
+                 {
+                  RefreshRates();
+                  double cPrice = (orderType == OP_BUY) ? Bid : Ask;
+                  cPrice = NormalizeDouble(cPrice, Digits);
+                  ResetLastError();
+                  if(OrderClose(ticket, curLots, cPrice, Slippage, (orderType == OP_BUY ? clrRed : clrBlue)))
+                    {
+                     Print(">>> [ORDER CLOSED ON INVALID TP] Ticket #", ticket, " closed successfully at ", DoubleToString(cPrice, Digits), " | P/L: $", DoubleToString(curPL, 2));
+                     InvalidateTotalEAOrdersCache();
+                     ServerRecoveryPending = false;
+                     TradeOperationFailedThisTick = false;
+                     return true;
+                    }
+                  int closeErr = GetLastError();
+                  Print("OrderClose attempt ", (cAttempt + 1), " failed for Ticket #", ticket, " | Error=", closeErr);
+                  Sleep(100);
+                 }
+              }
+            else
+               if(orderType == OP_BUYSTOP || orderType == OP_SELLSTOP || orderType == OP_BUYLIMIT || orderType == OP_SELLLIMIT)
+                 {
+                  Print(">>> [INVALID TP - DELETE PENDING] Deleting pending Ticket #", ticket, " due to invalid TP...");
+                  SafeOrderDelete(ticket, clrYellow);
+                  InvalidateTotalEAOrdersCache();
+                  return true;
+                 }
+
+            BlockTradeErrorUntilNextTick(key);
+            MarkServerError(130, "OrderModify/unsafe-TP");
+            return false;
+           }
         }
       if(!CanModifyStopLossForHigherProfit(ticket, requestedSL, (callerName != "" ? callerName : comment)))
         {
@@ -17521,15 +17585,17 @@ bool SafeOrderModify(int ticket,double openPrice,double stopLoss,double takeProf
             double totalEA_PL = GlobalBuyPL + GlobalSellPL;
             bool isComboReq = (StringFind(callerName, "Method") >= 0 || StringFind(callerName, "Combo") >= 0 || StringFind(callerName, "Basket") >= 0);
 
-            // USER RULE: "if any error order modify with stoploss then close the order if order is in profit or combo profit request"
+            // USER RULE: "error while modifing order because of invalid stoploss or take profit means - just close the order"
+            bool isInvalidStops = (err == 130);
             bool isOrderInProfit = (orderNetPL > 0.0);
             bool isComboInProfit = (dirBasketPL > 0.0 || totalEA_PL > 0.0 || (isComboReq && (dirBasketPL > 0.0 || totalEA_PL > 0.0)));
-            bool shouldCloseOnModifyError = (isOrderInProfit || isComboInProfit);
+            bool shouldCloseOnModifyError = (isInvalidStops || isOrderInProfit || isComboInProfit);
 
             if(shouldCloseOnModifyError)
               {
-               Print(">>> [MODIFY ERROR FALLBACK CLOSE] Order #", ticket, " modify SL failed (Err=", err,
-                     "). Closing at market to secure profit (OrderPL: $", DoubleToString(orderNetPL, 2),
+               string closeReason = isInvalidStops ? "INVALID STOPLOSS/TAKEPROFIT (Err=130 - JUST CLOSE ORDER)" : "PROFIT / COMBO SECURE";
+               Print(">>> [MODIFY ERROR FALLBACK CLOSE: ", closeReason, "] Order #", ticket, " modify SL/TP failed (Err=", err,
+                     "). Closing at market immediately (OrderPL: $", DoubleToString(orderNetPL, 2),
                      ", DirComboPL: $", DoubleToString(dirBasketPL, 2), ", TotalPL: $", DoubleToString(totalEA_PL, 2),
                      ", Caller=", callerName, ")...");
 
@@ -17543,9 +17609,11 @@ bool SafeOrderModify(int ticket,double openPrice,double stopLoss,double takeProf
                   if(closed)
                     {
                      Print("ORDER CLOSED SUCCESSFULLY on modify error fallback: Ticket #", ticket,
-                           " at ", DoubleToString(closePrice, Digits), " Profit secured: $", DoubleToString(orderNetPL, 2));
+                           " at ", DoubleToString(closePrice, Digits), " | Reason: ", closeReason, " | P/L: $", DoubleToString(orderNetPL, 2));
                      InvalidateTotalEAOrdersCache();
-                     break;
+                     ServerRecoveryPending = false;
+                     TradeOperationFailedThisTick = false;
+                     return true;
                     }
                   int closeErr = GetLastError();
                   Print("OrderClose fallback attempt ", (cAttempt + 1), " failed for Ticket #", ticket, " | Error=", closeErr);
@@ -17569,6 +17637,9 @@ bool SafeOrderModify(int ticket,double openPrice,double stopLoss,double takeProf
                  {
                   Print("PENDING ORDER DELETED on modify error fallback: Ticket #", ticket);
                   InvalidateTotalEAOrdersCache();
+                  ServerRecoveryPending = false;
+                  TradeOperationFailedThisTick = false;
+                  return true;
                  }
               }
         }
