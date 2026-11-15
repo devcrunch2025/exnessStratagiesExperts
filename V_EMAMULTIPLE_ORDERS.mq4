@@ -42,7 +42,7 @@ CheckBasketProfitClose  Total open basket profit
 */
 
 
-string glbVersion = "VMULTI-1203 Day Equity Target Base Advance On Hit Only";
+string glbVersion = "VMULTI-1204 Streamlined Left Dashboard Width -20% Open Hidden";
 
 int AccountMultiplierLOT = 1001;//400;//200;//500;
 //balance multiplier 
@@ -27144,7 +27144,7 @@ void UpdateTopCenterDubaiTimeDisplay()
      }
    else if(ShowLeftLiveOrdersDashboard)
      {
-      leftEnd = LeftDashboardX + MathMax(LeftDashboardWidth + 370, 700);
+      leftEnd = LeftDashboardX + MathMax(LeftDashboardWidth + 230, 560);
      }
 
    // 2. Determine left boundary of Right Dashboard
@@ -27323,7 +27323,7 @@ void UpdateLeftLiveOrdersDashboard(bool force = false)
          dashOrderCount++;
         }
      }
-   int x=LeftDashboardX, y=LeftDashboardY, tx=x+12, width=MathMax(LeftDashboardWidth+370, 700);
+   int x=LeftDashboardX, y=LeftDashboardY, tx=x+12, width=MathMax(LeftDashboardWidth+230, 560);
 
    int intermediateBarsCount = 0;
    if(InpShowLeftDashHourlyEngineRows) intermediateBarsCount += 3;
@@ -28384,7 +28384,7 @@ void UpdateLeftLiveOrdersDashboard(bool force = false)
      {
       CreateLeftLivePanel(LEFT_LIVE_PREFIX+"DEQTGT_BAR", x, curY, width, 22, deqBarClr);
       CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"DEQTGT_L",   deqLeftTxt,  tx,          curY+5, 8, deqTxtClr);
-      CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"DEQTGT_R",   deqRightTxt, x+width-240, curY+5, 8, deqRightClr);
+      CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"DEQTGT_R",   deqRightTxt, x+width-248, curY+5, 8, deqRightClr);
       curY += 22;
      }
    else
@@ -28458,8 +28458,8 @@ void UpdateLeftLiveOrdersDashboard(bool force = false)
 
    tableHeaderY = curY + 8;
    CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"HEAD_ID", "ORDER ID", tx, tableHeaderY, 8, clrSilver);
-   CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"HEAD", "TYPE     LOT       OPEN            SL     GAP      P/L", tx+76, tableHeaderY, 8, clrSilver);
-   CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"HEAD_CMT", "COMMENT", tx+422, tableHeaderY, 8, clrSilver);
+   CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"HEAD", "TYPE     LOT            SL     GAP      P/L", tx+76, tableHeaderY, 8, clrSilver);
+   CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"HEAD_CMT", "COMMENT", tx+340, tableHeaderY, 8, clrSilver);
 
    orderRowsStartY = tableHeaderY + 20;
 
@@ -28474,7 +28474,7 @@ void UpdateLeftLiveOrdersDashboard(bool force = false)
      {
       CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"ID"+IntegerToString(r), "", tx, orderRowsStartY+(r*20), 8, clrSilver);
       CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"ROW"+IntegerToString(r), "", tx+76, orderRowsStartY+(r*20), 8, clrWhite);
-      CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"VERIFY"+IntegerToString(r), "", tx+422, orderRowsStartY+(r*20), 8, clrSilver);
+      CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"VERIFY"+IntegerToString(r), "", tx+340, orderRowsStartY+(r*20), 8, clrSilver);
      }
 
    int row=0;
@@ -28573,7 +28573,7 @@ void UpdateLeftLiveOrdersDashboard(bool force = false)
       color verifiedColor=clrSilver;
 
       string orderIdText="#"+IntegerToString(currentTicket);
-      string rowText=StringFormat("%-7s %5.2f %10s %13s %7s %8s", typeText, lots, DoubleToString(open,Digits), slDiffText, gapText, plText);
+      string rowText=StringFormat("%-7s %5.2f %13s %7s %8s", typeText, lots, slDiffText, gapText, plText);
       color rowColor=clrWhite;
       if(type==OP_BUY)
          rowColor=clrDeepSkyBlue;
@@ -28589,7 +28589,7 @@ void UpdateLeftLiveOrdersDashboard(bool force = false)
          rowColor=clrOrangeRed;
       CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"ID"+IntegerToString(row), orderIdText, tx, orderRowsStartY+(row*20), 8, rowColor);
       CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"ROW"+IntegerToString(row), rowText, tx+76, orderRowsStartY+(row*20), 8, rowColor);
-      CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"VERIFY"+IntegerToString(row), verifiedStatus, tx+422, orderRowsStartY+(row*20), 8, verifiedColor);
+      CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"VERIFY"+IntegerToString(row), verifiedStatus, tx+340, orderRowsStartY+(row*20), 8, verifiedColor);
       row++;
      }
    if(total==0)
