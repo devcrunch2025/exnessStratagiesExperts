@@ -44,7 +44,7 @@ CheckBasketProfitClose  Total open basket profit
 
 
 
-string glbVersion = "VMULTI-1200 Oct 1st $500 to $600";
+string glbVersion = "VMULTI-1200 Oct 1st to oct 15 $500 to $1000";
 
 
 
