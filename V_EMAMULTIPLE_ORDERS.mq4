@@ -42,7 +42,7 @@ CheckBasketProfitClose  Total open basket profit
 */
 
 
-string glbVersion = "VMULTI-1213 Drawdown Relief 20Pct Balance 50Pct Bounce Tighten SL 100";
+string glbVersion = "VMULTI-1214 Drawdown Relief 100xMult No Day Change Reset";
 
 int AccountMultiplierLOT = 1001;//400;//200;//500;
 //balance multiplier 
@@ -3316,9 +3316,12 @@ void ExecuteEqDdFreshDayReset(datetime nowServer, datetime dubaiTime, int dubaiD
    g_eqDdSellLastHitOrders   = 0;
    g_eqDdSellLastHitLots     = 0.0;
 
-// Reset idle RLF peak tracker if no active relief SLs are protecting open tickets
-   if(!g_drawdownReliefExecuted && g_drawdownReliefTicketCount == 0 && (g_drawdownReliefPeakUSD > 0.0 || g_drawdownReliefArmed))
-      ResetDrawdownReliefCycle("Fresh Dubai Day Start");
+// USER RULE (VMULTI-1214): Drawdown Relief persists across day change (do not reset on day change)
+   if(InpDrawdownReliefResetOnDayChange)
+     {
+      if(!g_drawdownReliefExecuted && g_drawdownReliefTicketCount == 0 && (g_drawdownReliefPeakUSD > 0.0 || g_drawdownReliefArmed))
+         ResetDrawdownReliefCycle("Fresh Dubai Day Start");
+     }
 
    g_eqDdDayKey         = dubaiDayKey;
    g_eqDdDailyResetTime = nowServer;
@@ -5713,7 +5716,7 @@ void Check50PctDrawdownReliefTightenSL()
                             ? (balance * (InpDrawdownReliefMinBalancePct / 100.0))
                             : (InpDrawdownReliefMinPeakUSD * mult);
    if(minPeakRequired <= 0.0)
-      minPeakRequired = 100.0;
+      minPeakRequired = 100.0 * mult;
 
 // Track highest drawdown reached during this cycle
    if(currentDrawdown > g_drawdownReliefPeakUSD)
@@ -5723,14 +5726,14 @@ void Check50PctDrawdownReliefTightenSL()
       g_drawdownReliefExecuted = false; // Reset executed flag if a new worse peak is made
      }
 
-// Arm only when peak reaches or breaches minimum threshold (>= 20% of Balance or $100 * mult)
+// Arm only when peak reaches or breaches minimum threshold ($100 * mult)
    if(g_drawdownReliefPeakUSD >= minPeakRequired)
      {
       if(!g_drawdownReliefArmed)
         {
          g_drawdownReliefArmed = true;
-         PrintFormat(">>> [DRAWDOWN RELIEF ARMED] Peak Drawdown reached $%.2f >= Minimum $%.2f (%.1f%% of Balance $%.2f). Monitoring for 50%% relief bounce (Target Drawdown <= $%.2f)...",
-                     g_drawdownReliefPeakUSD, minPeakRequired, (balance > 0 ? (minPeakRequired / balance * 100.0) : 0.0), balance, g_drawdownReliefPeakUSD * (1.0 - InpDrawdownReliefPercent));
+         PrintFormat(">>> [DRAWDOWN RELIEF ARMED] Peak Drawdown reached $%.2f >= Minimum $%.2f ($100 x mult %d). Monitoring for 50%% relief bounce (Target Drawdown <= $%.2f)...",
+                     g_drawdownReliefPeakUSD, minPeakRequired, (int)mult, g_drawdownReliefPeakUSD * (1.0 - InpDrawdownReliefPercent));
         }
      }
    else
@@ -7295,16 +7298,17 @@ bool   InpEnableEmaAngleBreakevenBreathing = true;   // When MathAbs(EMAangle) >
 double InpEmaAngleBreakevenBreathingAngle  = 4.0;    // Minimum MathAbs(EMAangle) threshold (default > 4.0)
 double InpEmaAngleBreakevenBreathingGapRaw = 50.0;   // Extra raw price gap based on order price (-50.0 raw gap)
 
-// USER RULE (VMULTI-1097 & VMULTI-1213): 50% Drawdown Relief StopLoss Tightening (Peak Drawdown >= 20% of Balance)
+// USER RULE (VMULTI-1097, VMULTI-1213 & VMULTI-1214): 50% Drawdown Relief StopLoss Tightening (Peak Drawdown >= $100 * balancelomultipler, No Day Change Reset)
 bool   InpEnableDrawdownReliefTightenSL      = true;   // Enabled: Tighten All Open Orders SL on 50% Drawdown Relief (RLF)
-double InpDrawdownReliefMinBalancePct        = 20.0;   // Minimum peak drawdown as % of Account Balance (>= 20.0%) to arm Drawdown Relief
-double InpDrawdownReliefMinPeakUSD           = 100.0;  // Fallback minimum peak drawdown in USD ($100 * mult) to qualify
+double InpDrawdownReliefMinBalancePct        = 0.0;    // Disabled (0.0): Drawdown threshold is strictly $100 * balancelomultipler
+double InpDrawdownReliefMinPeakUSD           = 100.0;  // Minimum peak drawdown in USD ($100 * balancelomultipler) to qualify
 double InpDrawdownReliefPercent              = 0.50;   // Drawdown recovery percentage from peak (50% = 0.50)
 double InpDrawdownReliefSLGapUSD             = 100.0;  // SL cushion in USD ($100) from live market price for all orders (Bid - 100 / Ask + 100)
 bool   InpDrawdownReliefModifyWinningOrders  = true;   // Also modify winning orders during Drawdown Relief
 double InpDrawdownReliefWinningSLGapUSD      = 100.0;  // SL cushion in USD ($100) from live market price for winning orders (Bid - 100 / Ask + 100)
 double InpDrawdownReliefMinPriceDiff2Hours   = 0;      // Minimum price difference in raw USD from last 2 hours (0 = disabled)
 double InpDrawdownReliefMinEmaAngle          = 0;      // Minimum MathAbs(EMAangle) required to trigger relief SL (0 = disabled)
+bool   InpDrawdownReliefResetOnDayChange    = false;  // USER RULE (VMULTI-1214): Persistent across Day Change (false = do not reset on day change)
 double g_drawdownReliefPeakUSD            = 0.0;    // Highest floating drawdown (Balance - Equity) during current cycle
 double g_drawdownReliefLastPeakUSD        = 0.0;    // Preserved peak drawdown for reporting when orders close
 datetime g_drawdownReliefPeakTime         = 0;      // Time when peak drawdown was reached
@@ -11982,9 +11986,9 @@ void OnDeinit(const int reason)
       double minPeakSum = (InpDrawdownReliefMinBalancePct > 0.0 && AccountBalance() > 0.0)
                           ? (AccountBalance() * (InpDrawdownReliefMinBalancePct / 100.0))
                           : (InpDrawdownReliefMinPeakUSD * mult);
-      PrintFormat(">>> [DRAWDOWN RELIEF SUMMARY] Total Tighten Executions: %d | Total SL Hits (Loss Capped): %d | Mode: Repeating on >= $%.2f DD (%.1f%% Bal)",
+      PrintFormat(">>> [DRAWDOWN RELIEF SUMMARY] Total Tighten Executions: %d | Total SL Hits (Loss Capped): %d | Mode: Repeating on >= $%.2f DD ($100 x %d)",
                   g_drawdownReliefAppliedCount, g_drawdownReliefHitSuccessCount,
-                  minPeakSum, (AccountBalance() > 0 ? (minPeakSum / AccountBalance() * 100.0) : 0.0));
+                  minPeakSum, (int)mult);
      }
    if(g_eqDdTotalPartialCuts > 0 || g_eqDdTotalCloseAllOrders > 0)
      {
