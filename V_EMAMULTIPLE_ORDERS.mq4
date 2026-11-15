@@ -19816,10 +19816,10 @@ void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep,s
    if(Lots > effectiveMaxLot)
       Lots = effectiveMaxLot;
 
-   int lotMultiplierDiv = (AccountMultiplierLOT > 0) ? AccountMultiplierLOT : 500;
+   /*int lotMultiplierDiv = (AccountMultiplierLOT > 0) ? AccountMultiplierLOT : 500;
    balancelomultipler = (int)(AccountBalance() / lotMultiplierDiv);
    if(balancelomultipler < 1)
-      balancelomultipler = 1;
+      balancelomultipler = 1;*/
    Lots = Lots * balancelomultipler;
 
    bool runMethod1Lots = (InpLsdSupportMode == LSD_MODE_METHOD1_BREAKOUT || InpLsdSupportMode == LSD_MODE_BOTH);
