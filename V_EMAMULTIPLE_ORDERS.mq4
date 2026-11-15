@@ -44,15 +44,17 @@ CheckBasketProfitClose  Total open basket profit
 
 
 
-string glbVersion = "VMULTI-1200 Oct 1st to oct 15 $500 to $1000";
+string glbVersion = "VMULTI-1201 Oct 1st to oct 30 $500 to $1500- Max Flip profit moved to $1000";
 
-
+int AccountMultiplierLOT = 1001;//400;//200;//500;
+//balance multiplier 
 
 double DailyEquityStopUSD          = 20;//20;//10;//50;//  $50 /10;//10%;//percentage //1000;//50;//20*2.5;//10;//20;// 10;//30.0; close all orders at $50Xmultipler
 double DailyEquityTrailStepUSD     = 5.0;  // Collect $5 step profit step-by-step after DailyEquityStopUSD hit
 double DailyEquityRetraceFloorPct  = 50.0; // Pause trading for the day when profit retraces to 70% of maximum profit hit (target + steps)
 double DailyEquityMaxLossUSD       = 200.0; // Adverse Day Protection ($200): Close all orders & pause trading till next day Dubai 16:00 if day equity drops $200
-double TargetProfitPerFlipUSD =50;//;//percentage////1000;//20;//10;//10*2;//10;//5;//20;// 10.0; close all orders at $20Xmultipler
+
+double TargetProfitPerFlipUSD =1000;//50;//;//percentage////1000;//20;//10;//10*2;//10;//5;//20;// 10.0; close all orders at $20Xmultipler
 
 double protectgapOnOrderclose=31;//30;//101;//1000;//303;//11111111111111
 
@@ -611,7 +613,6 @@ int      InpDubaiNightIconFontSize           = 10;    // Chart icon text font si
 
 // ===== SPREAD & RISK SETTINGS =====
 double MaxAllowedSpreadUSD = 35.0;
-int AccountMultiplierLOT = 1001;//400;//200;//500;
 double OriginalStopLossUSD = 30;//0;//6;//4;
 double StopLossRawPriceGap =3000;// 2000.0;   // Raw price gap ($2000 BTC price points) for StopLoss
 double TakeProfitRawPriceGap = 5000.0;  // Raw price gap ($500 BTC price points) for TakeProfit
