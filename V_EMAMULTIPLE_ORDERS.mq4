@@ -42,7 +42,7 @@ CheckBasketProfitClose  Total open basket profit
 */
 
 
-string glbVersion = "VMULTI-1211 Close Order On Invalid StopLoss Or TakeProfit On Modify";
+string glbVersion = "VMULTI-1211 LIVE DEMO - DayEquity with Error Handling";
 
 int AccountMultiplierLOT = 1001;//400;//200;//500;
 //balance multiplier 
