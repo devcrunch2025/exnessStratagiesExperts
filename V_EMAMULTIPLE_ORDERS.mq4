@@ -42,7 +42,7 @@ CheckBasketProfitClose  Total open basket profit
 */
 
 
-string glbVersion = "VMULTI-1207 Fallback Open Without SL TP On Open Error";
+string glbVersion = "VMULTI-1208 Close In Profit Or Combo On Order Modify Error";
 
 int AccountMultiplierLOT = 1001;//400;//200;//500;
 //balance multiplier 
@@ -17235,6 +17235,33 @@ bool SafeOrderModify(int ticket,double openPrice,double stopLoss,double takeProf
 
       if(!PrepareStopLossForOrder(orderType, OrderOpenPrice(), requestedSL))
         {
+         Print(">>> [UNSAFE MODIFY SL] Ticket #", ticket, " requested SL ", DoubleToString(requestedSL, Digits),
+               " is unsafe relative to market (Ask=", DoubleToString(Ask, Digits), ", Bid=", DoubleToString(Bid, Digits), ")");
+
+         if(orderType == OP_BUY || orderType == OP_SELL)
+           {
+            double oPL = OrderProfit() + OrderSwap() + OrderCommission();
+            double dPL = GetOpenPL(orderType);
+            double tPL = GlobalBuyPL + GlobalSellPL;
+            bool isComboReq = (StringFind(callerName, "Method") >= 0 || StringFind(callerName, "Combo") >= 0 || StringFind(callerName, "Basket") >= 0);
+            bool shouldCloseUnsafe = (oPL > 0.0) || (dPL > 0.0) || (tPL > 0.0) || (isComboReq && (dPL > 0.0 || tPL > 0.0));
+
+            if(shouldCloseUnsafe)
+              {
+               Print(">>> [UNSAFE SL PROFIT CLOSE] Closing Ticket #", ticket, " at market to secure profit (OrderPL: $",
+                     DoubleToString(oPL, 2), ", DirComboPL: $", DoubleToString(dPL, 2), ", TotalPL: $", DoubleToString(tPL, 2), ")");
+               RefreshRates();
+               double cPrice = (orderType == OP_BUY) ? Bid : Ask;
+               cPrice = NormalizeDouble(cPrice, Digits);
+               ResetLastError();
+               if(OrderClose(ticket, OrderLots(), cPrice, Slippage, (orderType == OP_BUY ? clrRed : clrBlue)))
+                 {
+                  InvalidateTotalEAOrdersCache();
+                  return true;
+                 }
+              }
+           }
+
          BlockTradeErrorUntilNextTick(key);
          MarkServerError(130, "OrderModify/unsafe-SL");
          return false;
@@ -17297,8 +17324,7 @@ bool SafeOrderModify(int ticket,double openPrice,double stopLoss,double takeProf
 
    if(!modified)
      {
-      Print("ORDER MODIFY FAILED with server error ", err, " on Ticket #", ticket,
-            " (Type=", GetOrderTypeText(orderType), "). Closing order immediately at market as requested...");
+      Print("ORDER MODIFY FAILED with server error ", err, " on Ticket #", ticket, " (Type=", GetOrderTypeText(orderType), ")");
 
       if(OrderSelect(ticket, SELECT_BY_TICKET, MODE_TRADES))
         {
@@ -17307,23 +17333,48 @@ bool SafeOrderModify(int ticket,double openPrice,double stopLoss,double takeProf
 
          if(curType == OP_BUY || curType == OP_SELL)
            {
-            for(int cAttempt = 0; cAttempt < 3; cAttempt++)
+            double orderNetPL = OrderProfit() + OrderSwap() + OrderCommission();
+            double dirBasketPL = GetOpenPL(curType);
+            double totalEA_PL = GlobalBuyPL + GlobalSellPL;
+            bool isComboReq = (StringFind(callerName, "Method") >= 0 || StringFind(callerName, "Combo") >= 0 || StringFind(callerName, "Basket") >= 0);
+
+            // USER RULE: "if any error order modify with stoploss then close the order if order is in profit or combo profit request"
+            bool isOrderInProfit = (orderNetPL > 0.0);
+            bool isComboInProfit = (dirBasketPL > 0.0 || totalEA_PL > 0.0 || (isComboReq && (dirBasketPL > 0.0 || totalEA_PL > 0.0)));
+            bool shouldCloseOnModifyError = (isOrderInProfit || isComboInProfit);
+
+            if(shouldCloseOnModifyError)
               {
-               RefreshRates();
-               double closePrice = (curType == OP_BUY) ? Bid : Ask;
-               closePrice = NormalizeDouble(closePrice, Digits);
-               ResetLastError();
-               bool closed = OrderClose(ticket, curLots, closePrice, Slippage, (curType == OP_BUY ? clrRed : clrBlue));
-               if(closed)
+               Print(">>> [MODIFY ERROR FALLBACK CLOSE] Order #", ticket, " modify SL failed (Err=", err,
+                     "). Closing at market to secure profit (OrderPL: $", DoubleToString(orderNetPL, 2),
+                     ", DirComboPL: $", DoubleToString(dirBasketPL, 2), ", TotalPL: $", DoubleToString(totalEA_PL, 2),
+                     ", Caller=", callerName, ")...");
+
+               for(int cAttempt = 0; cAttempt < 3; cAttempt++)
                  {
-                  Print("ORDER CLOSED SUCCESSFULLY on modify error fallback: Ticket #", ticket,
-                        " at ", DoubleToString(closePrice, Digits));
-                  InvalidateTotalEAOrdersCache();
-                  break;
+                  RefreshRates();
+                  double closePrice = (curType == OP_BUY) ? Bid : Ask;
+                  closePrice = NormalizeDouble(closePrice, Digits);
+                  ResetLastError();
+                  bool closed = OrderClose(ticket, curLots, closePrice, Slippage, (curType == OP_BUY ? clrRed : clrBlue));
+                  if(closed)
+                    {
+                     Print("ORDER CLOSED SUCCESSFULLY on modify error fallback: Ticket #", ticket,
+                           " at ", DoubleToString(closePrice, Digits), " Profit secured: $", DoubleToString(orderNetPL, 2));
+                     InvalidateTotalEAOrdersCache();
+                     break;
+                    }
+                  int closeErr = GetLastError();
+                  Print("OrderClose fallback attempt ", (cAttempt + 1), " failed for Ticket #", ticket, " | Error=", closeErr);
+                  Sleep(100);
                  }
-               int closeErr = GetLastError();
-               Print("OrderClose fallback attempt ", (cAttempt + 1), " failed for Ticket #", ticket, " | Error=", closeErr);
-               Sleep(100);
+              }
+            else
+              {
+               Print(">>> [MODIFY ERROR PRESERVED] Order #", ticket, " modify SL failed (Err=", err,
+                     "), but order is in LOSS (OrderPL: $", DoubleToString(orderNetPL, 2),
+                     ", DirComboPL: $", DoubleToString(dirBasketPL, 2), ", TotalPL: $", DoubleToString(totalEA_PL, 2),
+                     "). Preserving open order without market close.");
               }
            }
          else
