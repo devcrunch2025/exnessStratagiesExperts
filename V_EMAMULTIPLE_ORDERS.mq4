@@ -42,7 +42,7 @@ CheckBasketProfitClose  Total open basket profit
 */
 
 
-string glbVersion = "VMULTI-1201 Oct 1st to oct 30 $500 to $1500- Max Flip profit moved to $1000";
+string glbVersion = "VMULTI-1202 Stable Multiplier Scaling 1X vs 2X";
 
 int AccountMultiplierLOT = 1001;//400;//200;//500;
 //balance multiplier 
@@ -258,7 +258,7 @@ double InpLsdAdverseSweepGapMultiplier            = 2.0;           // Gap multip
 int    InpLsdSweepGapDurationMinutes              = 60;            // Duration of 2X gap in minutes (default 60m, 0 = until EMA flip/new sweep)
 double InpLsdBoosterMinLot                        = 0.02;          // Method 1: Booster min lot (0.02)
 double InpLsdMethod2MinLotBase                    = 0.02;          // Method 2: Base min lot (0.02, scales with multiplier)
-bool   InpLsdMethod2BuyUsesMultiplier             = false;         // Method 2: Apply multiplier to BUY lot (false=0.02 only, true=0.02Xmultiplier)
+bool   InpLsdMethod2BuyUsesMultiplier             = true;          // Method 2: Apply multiplier to BUY lot (true=0.02Xmultiplier)
 bool   InpEnableV1020EmaTrendSupport              = false;          // Mix V1020: Enable EMA Trend-Following FLIP Support orders (Strategy 1) - Default disabled
 
 // ===== NEW RED LINE BUY-CLOSE & REVERSE SELL SETTINGS =====
@@ -2025,8 +2025,9 @@ void Check90PctSLAdversePartialCutAndDoubleSL()
          continue;
 
       double oLots = OrderLots();
-      if(oLots <= lotStep)
-         continue; // Only orders with Lots > 0.01 can be halved (e.g. 0.02, 0.03, 0.04, 0.06)
+      double minCuttableLot = 0.015 * ((balancelomultipler > 0) ? balancelomultipler : 1);
+      if(oLots <= minCuttableLot)
+         continue; // Protect base probe orders (<=0.01 in 1X, <=0.02 in 2X) from partial cutting and SL doubling
 
       double openPrice = OrderOpenPrice();
       double curSL     = OrderStopLoss();
@@ -3494,6 +3495,10 @@ void SyncDubaiDayOpeningState(datetime nowServer = 0)
          double newDayOpenBal          = (AccountBalance() > 0.0) ? AccountBalance() : seedEquity;
          g_dubaiDayOpeningEquity       = newDayOpenBal;
          g_dayOpeningBalance           = newDayOpenBal;
+         int lotMultiplierDivDay       = (AccountMultiplierLOT > 0) ? AccountMultiplierLOT : 1001;
+         balancelomultipler            = (int)MathRound(newDayOpenBal / (double)lotMultiplierDivDay);
+         if(balancelomultipler <= 0)
+            balancelomultipler = 1;
          g_dubaiNightLastCloseTag      = "";
          g_dubaiNightLastCloseOrders   = 0;
          g_dubaiNightLastCloseLots     = 0.0;
@@ -11575,8 +11580,8 @@ int OnInit()
 
 
 
-   int lotMultiplierDiv = (AccountMultiplierLOT > 0) ? AccountMultiplierLOT : 500;
-   balancelomultipler = (int)(AccountBalance() / lotMultiplierDiv);
+   int lotMultiplierDiv = (AccountMultiplierLOT > 0) ? AccountMultiplierLOT : 1001;
+   balancelomultipler = (int)MathRound(AccountBalance() / (double)lotMultiplierDiv);
 
    if(balancelomultipler<=0)
       balancelomultipler=1;
@@ -12491,11 +12496,7 @@ MinimumSLModifyGapRaw=10;//
 
 
 
-   int lotMultiplierDiv = (AccountMultiplierLOT > 0) ? AccountMultiplierLOT : 500;
-
-   balancelomultipler = (int)(AccountEquity() / lotMultiplierDiv);
-   if(balancelomultipler<=0)
-      balancelomultipler=1;
+   // balancelomultipler is fixed per session/day to prevent floating drawdown truncation
 
 
    SecureOneDollarProfit();
@@ -19894,16 +19895,17 @@ void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep,s
       bool applyM1_EQHG = (InpLsdSupportMode == LSD_MODE_METHOD1_BREAKOUT) ||
                           (InpLsdSupportMode == LSD_MODE_BOTH && (eqlPriceVal > 0.0 && Bid <= eqlPriceVal));
 
-      double boosterMinLot = (InpLsdBoosterMinLot > 0.0) ? InpLsdBoosterMinLot : 0.02;
+      int multM1 = (balancelomultipler > 0) ? balancelomultipler : 1;
+      double boosterMinLot = ((InpLsdBoosterMinLot > 0.0) ? InpLsdBoosterMinLot : 0.02) * multM1;
 
       if(eqhR_detected && EMADirection == -1 && applyM1_EQHR)
         {
          if(isSellOrder)
            {
-            if(Lots > 0.01)
+            if(Lots > 0.01 * multM1)
               {
-               Lots = 0.01;
-               Print(">>> [CHANGE_LOTS M1 CAPPED] EQH-R detected & EMA -1: SELL order lot capped to max 0.01 (Reason: ", reason, ")");
+               Lots = 0.01 * multM1;
+               Print(">>> [CHANGE_LOTS M1 CAPPED] EQH-R detected & EMA -1: SELL order lot capped to max ", DoubleToString(Lots, 2), " (Reason: ", reason, ")");
               }
            }
          else
@@ -19922,10 +19924,10 @@ void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep,s
         {
          if(isBuyOrder)
            {
-            if(Lots > 0.01)
+            if(Lots > 0.01 * multM1)
               {
-               Lots = 0.01;
-               Print(">>> [CHANGE_LOTS M1 CAPPED] EQH-G detected & EMA 1: BUY order lot capped to max 0.01 (Reason: ", reason, ")");
+               Lots = 0.01 * multM1;
+               Print(">>> [CHANGE_LOTS M1 CAPPED] EQH-G detected & EMA 1: BUY order lot capped to max ", DoubleToString(Lots, 2), " (Reason: ", reason, ")");
               }
            }
          else
