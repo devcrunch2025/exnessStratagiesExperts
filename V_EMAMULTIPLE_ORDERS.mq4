@@ -42,7 +42,7 @@ CheckBasketProfitClose  Total open basket profit
 */
 
 
-string glbVersion = "VMULTI-1208 Close In Profit Or Combo On Order Modify Error";
+string glbVersion = "VMULTI-1209 Auto Cleanup On Too Many Open Orders Error 148";
 
 int AccountMultiplierLOT = 1001;//400;//200;//500;
 //balance multiplier 
@@ -6538,6 +6538,16 @@ int SendFLIPBasketSupportOrder(int pendingType, double lots, double price, doubl
    int ticket = -1;
    int maxAttempts = 3;
 
+   int flipBrokerLimit = (int)AccountInfoInteger(ACCOUNT_LIMIT_ORDERS);
+   int flipOrders = OrdersTotal();
+   int flipMax = MaxOpenOrders;
+   if(flipBrokerLimit > 0 && flipBrokerLimit < flipMax)
+      flipMax = flipBrokerLimit;
+   if(flipOrders >= flipMax || (flipBrokerLimit > 0 && flipOrders >= flipBrokerLimit))
+     {
+      DeleteOldestPendingEAOrder("Freeing slot for FLIP support order");
+     }
+
    for(int attempt = 0; attempt < maxAttempts; attempt++)
      {
       RefreshRates();
@@ -6552,6 +6562,18 @@ int SendFLIPBasketSupportOrder(int pendingType, double lots, double price, doubl
 
       int err = GetLastError();
       Print("FLIPBasketSupport OrderSend attempt ", (attempt + 1), " failed. Err=", err);
+
+      // Handle Error 148 (Too many open orders)
+      if(err == 148)
+        {
+         Print("FLIPBasketSupport OrderSend failed with [Too many open orders] (Err=148). Attempting emergency pending cleanup...");
+         if(DeleteOldestPendingEAOrder("Emergency cleanup for FLIP support Error 148"))
+           {
+            Sleep(100);
+            continue;
+           }
+         break;
+        }
 
       // Fallback: If opening failed with SL/TP, immediately open order without SL/TP
       if(stopLoss > 0.0 || takeProfit > 0.0)
@@ -13971,6 +13993,47 @@ void DeleteAllPendingEAOrders()
   }
 
 //+------------------------------------------------------------------+
+//| DeleteOldestPendingEAOrder: Frees a slot when max orders reached  |
+//+------------------------------------------------------------------+
+bool DeleteOldestPendingEAOrder(string reason = "Make room for new order")
+  {
+   int oldestTicket = -1;
+   datetime oldestTime = 0;
+
+   for(int i = OrdersTotal() - 1; i >= 0; i--)
+     {
+      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
+         continue;
+      if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber)
+         continue;
+
+      int type = OrderType();
+      if(type == OP_BUYSTOP || type == OP_SELLSTOP || type == OP_BUYLIMIT || type == OP_SELLLIMIT)
+        {
+         datetime oTime = OrderOpenTime();
+         if(oldestTicket == -1 || oTime < oldestTime)
+           {
+            oldestTicket = OrderTicket();
+            oldestTime = oTime;
+           }
+        }
+     }
+
+   if(oldestTicket > 0)
+     {
+      Print(">>> [TOO MANY ORDERS AUTO-CLEANUP] Deleting oldest pending order #", oldestTicket,
+            " (created ", TimeToString(oldestTime, TIME_DATE|TIME_MINUTES|TIME_SECONDS), ") | Reason: ", reason);
+      bool del = SafeOrderDelete(oldestTicket, clrYellow);
+      if(del)
+        {
+         InvalidateTotalEAOrdersCache();
+         return true;
+        }
+     }
+   return false;
+  }
+
+//+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
 void RegisterLosingSLProtection(int ticket,int orderType,double profit)
@@ -16395,6 +16458,33 @@ return -1;
             " at ", DoubleToString(sendPrice, Digits), ". Opening order WITHOUT SL (SL=0.0)...");
       safeSL = 0.0;
      }
+   // Pre-Order Capacity Gate: Check against broker account limit and MaxOpenOrders
+   int brokerLimit = (int)AccountInfoInteger(ACCOUNT_LIMIT_ORDERS);
+   int accountOrders = OrdersTotal();
+   int effectiveLimit = MaxOpenOrders;
+   if(brokerLimit > 0 && brokerLimit < effectiveLimit)
+      effectiveLimit = brokerLimit;
+
+   if(accountOrders >= effectiveLimit || (brokerLimit > 0 && accountOrders >= brokerLimit))
+     {
+      Print(">>> [ORDER CAPACITY LIMIT REACHED] OrdersTotal (", accountOrders,
+            ") reached limit (BrokerLimit=", brokerLimit, ", MaxOpenOrders=", MaxOpenOrders, "). Attempting to free slot by deleting oldest pending order...");
+
+      bool freed = DeleteOldestPendingEAOrder("Freeing slot for incoming order");
+      if(freed)
+        {
+         accountOrders = OrdersTotal();
+        }
+
+      if(accountOrders >= effectiveLimit || (brokerLimit > 0 && accountOrders >= brokerLimit))
+        {
+         Print(">>> [ORDER SEND BLOCKED: TOO MANY OPEN ORDERS] Account is at maximum order capacity (", accountOrders,
+               " orders). All remaining orders are live positions or protected. Skipping new order placement.");
+         BlockTradeErrorUntilNextTick(key);
+         return -1;
+        }
+     }
+
    datetime requestTime=TimeCurrent();
    if(!CanSendTradeRequest("OrderSend",comment))
       return -1;
@@ -16416,6 +16506,40 @@ return -1;
          RegisterPostOrderSLTPVerification(existing,safeSL,takeProfit);
       ServerRecoveryPending=false;
       return existing;
+     }
+
+   // REACTIVE HANDLER FOR ERROR 148: "Too many open orders"
+   if(err == 148)
+     {
+      Print(">>> [TOO MANY OPEN ORDERS: ERR=148] Broker rejected OrderSend with [Too many open orders]! Attempting emergency pending cleanup...");
+      bool freed = DeleteOldestPendingEAOrder("Emergency cleanup for Error 148");
+      if(freed)
+        {
+         RefreshRates();
+         ResetLastError();
+         double retryPrice = sendPrice;
+         if(orderType == OP_BUY)
+            retryPrice = NormalizeDouble(Ask, Digits);
+         else if(orderType == OP_SELL)
+            retryPrice = NormalizeDouble(Bid, Digits);
+
+         ticket = OrderSend(symbol, orderType, lots, retryPrice, slippage, safeSL, takeProfit, comment, magic, 0, arrowColor);
+         if(ticket > 0)
+           {
+            Print(">>> [RETRY SUCCESS AFTER ERR 148] Order #", ticket, " placed successfully after freeing pending slot!");
+            InvalidateTotalEAOrdersCache();
+            ServerRecoveryPending = false;
+            TradeOperationFailedThisTick = false;
+            return ticket;
+           }
+         err = GetLastError();
+        }
+      else
+        {
+         Print(">>> [TOO MANY OPEN ORDERS: ERR=148] No pending orders could be deleted. Account capacity full with live positions.");
+         BlockTradeErrorUntilNextTick(key);
+         return -1;
+        }
      }
 
    // USER RULE: "Error opening then immediately open order without SL/TP"
@@ -22780,9 +22904,10 @@ void DeleteOppositePendingOrders(int newSignalType)
 
       int orderType = OrderType();
 
-      // FIXED: EMA Direction must be opposite (-1 for OP_BUY, 1 for OP_SELL)
-      bool deleteOrder = ((newSignalType == OP_BUY && orderType == OP_SELLSTOP && EMADirection == -1) ||
-                          (newSignalType == OP_SELL && orderType == OP_BUYSTOP && EMADirection == 1));
+      // When new signal is OP_BUY, delete opposite pending SELL orders
+      // When new signal is OP_SELL, delete opposite pending BUY orders
+      bool deleteOrder = ((newSignalType == OP_BUY && (orderType == OP_SELLSTOP || orderType == OP_SELLLIMIT)) ||
+                          (newSignalType == OP_SELL && (orderType == OP_BUYSTOP || orderType == OP_BUYLIMIT)));
 
       if(deleteOrder)
          SafeOrderDelete(OrderTicket(), clrYellow);
@@ -23481,6 +23606,9 @@ void OpenBuy(string MOMorder="")
    double stopLoss = (slDistance > 0.0) ? NormalizeDouble(entryPrice - slDistance, Digits) : 0.0;
    double takeProfit = (tpDistance > 0.0) ? NormalizeDouble(entryPrice + tpDistance, Digits) : 0.0;
 
+   if(DeleteOppositePendingOnSignal)
+      DeleteOppositePendingOrders(OP_BUY);
+
    int ticket = SafeOrderSend(Symbol(), OP_BUYSTOP, Lots, entryPrice, Slippage, stopLoss, takeProfit, "SSL Long", MagicNumber, BuyColor);
    if(ticket > 0)
      {
@@ -23554,6 +23682,9 @@ void OpenSell(string MOMorder="")
 
    double stopLoss = (slDistance > 0.0) ? NormalizeDouble(entryPrice + slDistance, Digits) : 0.0;
    double takeProfit = (tpDistance > 0.0) ? NormalizeDouble(entryPrice - tpDistance, Digits) : 0.0;
+
+   if(DeleteOppositePendingOnSignal)
+      DeleteOppositePendingOrders(OP_SELL);
 
    int ticket = SafeOrderSend(Symbol(), OP_SELLSTOP, Lots, entryPrice, Slippage, stopLoss, takeProfit, "SSL Short", MagicNumber, SellColor);
    if(ticket > 0)
