@@ -42,7 +42,7 @@ CheckBasketProfitClose  Total open basket profit
 */
 
 
-string glbVersion = "VMULTI-1223 Method 6 Partial LOT Combination Close";
+string glbVersion = "VMULTI-1224 Method 6 Dynamic Angle Threshold Under 4 Deg 2 USD";
 
 int AccountMultiplierLOT = 1000;//400;//200;//500; ALWAYS multiples of 1000 is better for best results
 //balance multiplier 
@@ -7357,6 +7357,8 @@ void   DrawMethod6HitIcon(int orderCount, double comboProfit, datetime hitTime =
 bool   InpMethod6EnablePartialLotCombination= true;   // Method 6: Allow partial LOT combination close when full combo cannot reach threshold
 bool   InpMethod6PartialCloseWinnerAtMarket = true;   // Method 6: Close winning order at market (true) or tighten SL to live price (false)
 double InpMethod6PartialMaxCutLots          = 0.0;    // Method 6: Max partial lots to cut from loser per trigger (0.0 = auto max safe)
+double InpMethod6LowAngleThresholdUSD       = 2.0;    // Method 6: Profit threshold when MathAbs(EMA Angle) < 4 deg ($2.00 * multiplier)
+double InpMethod6LowAngleEmaDegrees         = 4.0;    // Method 6: Dynamic EMA angle boundary in degrees (default 4.0)
 
 // Universal Trend-Aware StopLoss Modifier (Applies across all order modify methods)
 // User Rule:
@@ -9161,13 +9163,20 @@ void ExecuteMethod6PartialLotAction(int winIdx, int lossIdx, double partialLots,
 
    RecordMethodActionCluster(6, m6Tkts, m6Pls, 2, netProfitUSD, actionDesc);
 
+   double curEmaAng = (GlobalEmaAngle30 != 0.0) ? GlobalEmaAngle30 : GetEmaAngleDegrees(30);
+   double absEmaAng = MathAbs(curEmaAng);
+   double baseThreshold = (absEmaAng < InpMethod6LowAngleEmaDegrees) ? InpMethod6LowAngleThresholdUSD : InpMethod6ProfitThresholdUSD;
+   int mult = (balancelomultipler > 0) ? balancelomultipler : 1;
+   double activeThresholdUSD = baseThreshold * mult;
+
    Print(">>> [METHOD 6 PARTIAL LOT TRIGGERED] Winner Ticket #", winTkt,
          " (", (winType == OP_BUY ? "BUY " : "SELL "), DoubleToString(winLots, 2), "L, P/L=+$", DoubleToString(winPL, 2), ")",
          " paired with Loser Ticket #", lossTkt,
          " (", (lossType == OP_BUY ? "BUY " : "SELL "), DoubleToString(lossLots, 2), "L, Total Loss=-$", DoubleToString(MathAbs(lossPL), 2), ")",
          " | Partial Cut = ", DoubleToString(partialLots, 2), "L (Loss=-$", DoubleToString(MathAbs(partialLossUSD), 2), ")",
          " | Net Combo Profit = +$", DoubleToString(netProfitUSD, 2),
-         " >= Threshold $", DoubleToString(InpMethod6ProfitThresholdUSD, 2));
+         " >= Threshold $", DoubleToString(activeThresholdUSD, 2),
+         " (EMA Angle=", DoubleToString(curEmaAng, 1), " deg)");
 
    // 1. FIRST: Close partial lot of losing order at market
    bool lossClosed = false;
@@ -9304,7 +9313,12 @@ void ModifyMethod6MultiOrderCombinationsOver5USD()
    int candCount = 0;
 
    int mult = (balancelomultipler > 0) ? balancelomultipler : 1;
-   double threshold = (InpMethod6ProfitThresholdUSD > 0.0 ? InpMethod6ProfitThresholdUSD : 20.0) * mult;
+   double curEmaAng = (GlobalEmaAngle30 != 0.0) ? GlobalEmaAngle30 : GetEmaAngleDegrees(30);
+   double absEmaAng = MathAbs(curEmaAng);
+   double baseThreshold = (absEmaAng < InpMethod6LowAngleEmaDegrees) ? InpMethod6LowAngleThresholdUSD : InpMethod6ProfitThresholdUSD;
+   if(baseThreshold <= 0.0)
+      baseThreshold = 2.0;
+   double threshold = baseThreshold * mult;
    int minOrders = (InpMethod6MinOrderCount >= 2) ? InpMethod6MinOrderCount : 2;
 
    for(int i = OrdersTotal() - 1; i >= 0 && candCount < MAX_M6_ORDERS; i--)
