@@ -42,7 +42,7 @@ CheckBasketProfitClose  Total open basket profit
 */
 
 
-string glbVersion = "VMULTI-1217 Plan C Next Hit Greater Than Previous Hit";
+string glbVersion = "VMULTI-1218 Ladder Ratchet For Plan A C D";
 
 int AccountMultiplierLOT = 1000;//400;//200;//500; ALWAYS multiples of 1000 is better for best results
 //balance multiplier 
@@ -354,6 +354,8 @@ int    InpHourlySideLossIntervalMinutes   = 60;     // Plan A/B execution interv
 bool   InpEnableHourlyPlanADayProfitClose = true;   // Plan A: If Day Equity Profit > 5% vs Dubai 00:00 opening equity, close ALL open orders (every 1 hour)
 double InpHourlyPlanADayProfitPct         = 5;//10;//1;//5.0;    // Plan A: Day equity profit threshold % (> 5.0%, e.g. $500 -> >$525)
 bool   InpHourlyPlanAOncePerDay           = false;  // Plan A repeat mode: false = evaluate every 1 hour without daily lock (true = max 1x/Dubai day)
+bool   InpHourlyPlanARequireHigherHit     = true;   // Plan A: Subsequent hits must exceed previous hit equity & profit % (ratchet ladder)
+double InpHourlyPlanAHitStepPct           = 0.0;    // Plan A: Minimum additional % increase required above previous hit (0.0 = any higher %)
 color  InpHourlyPlanAIconColor            = clrLime;// Plan A: Chart icon & label color when Hour Target HIT (Day Equity >5%) executes
 bool   InpDrawHourlyPlanAIcon             = true;   // Plan A: Draw chart icon & label whenever 1H Hour Target HIT (DayEq >5%) triggers
 bool   InpDrawHourlyPlanAIconWhenFlat     = true;   // Plan A: Also draw Hour Target HIT chart icon when triggered with 0 open orders
@@ -383,6 +385,8 @@ double InpHourlyPlanDStepPerMinPct        = 1.0;    // Plan D: Minute step incre
 double InpHourlyPlanDMaxPct               = 90.0;   // Plan D: Maximum threshold cap % at 60th minute (> 90.0%)
 bool   InpHourlyPlanDOncePerHour          = true;   // Plan D repeat mode (Option 3): true = trigger max 1x/hour then wait for :00 hourly reset (false = repeat inside hour)
 bool   InpHourlyPlanDOncePerDay           = false;  // Plan D daily lock: false = reset and re-arm every 1 hour (true = max 1x/Dubai day)
+bool   InpHourlyPlanDRequireHigherHit     = true;   // Plan D: Subsequent hits must exceed previous hit equity & profit % (ratchet ladder)
+double InpHourlyPlanDHitStepPct           = 0.0;    // Plan D: Minimum additional % increase required above previous hit (0.0 = any higher %)
 color  InpHourlyPlanDIconColor            = clrDeepSkyBlue; // Plan D: Chart icon & label color when 1M Plan D (>31%..90%) executes
 bool   InpDrawHourlyPlanDIcon             = true;   // Plan D: Draw chart icon & label whenever 1M Plan D executes
 int    InpHourlyPlanDIconCode             = 119;    // Plan D: Chart icon Wingdings code (119=diamond, 171=star, 252=check, 238=shield)
@@ -3413,6 +3417,8 @@ double   g_hourlyPlanATotalLots         = 0.0;  // Total lots closed by Plan A
 datetime g_hourlyPlanALastHitTime       = 0;    // Broker TimeCurrent() of latest Plan A execution
 double   g_hourlyPlanALastPct           = 0.0;  // Day equity profit % at latest Plan A execution
 double   g_hourlyPlanALastUSD           = 0.0;  // Day equity profit USD at latest Plan A execution
+double   g_hourlyPlanALastHitEquity     = 0.0;  // Plan A: Account equity at latest hit execution
+double   g_hourlyPlanAHighestHitPct     = 0.0;  // Plan A: Highest Day Equity Profit % executed today
 int      g_hourlyPlanALastOrders        = 0;    // Orders closed in latest Plan A execution
 double   g_hourlyPlanALastLots          = 0.0;  // Lots closed in latest Plan A execution
 double   g_hourlyPlanALastPL            = 0.0;  // Net P/L realized in latest Plan A execution
@@ -3462,6 +3468,8 @@ int      g_hourlyPlanDLastHitMinIdx     = 0;    // Plan D: Minute index (1..60) 
 double   g_hourlyPlanDLastHitThreshPct  = 0.0;  // Plan D: Threshold % at latest execution
 double   g_hourlyPlanDLastPct           = 0.0;  // Plan D: Day equity profit % at latest execution
 double   g_hourlyPlanDLastUSD           = 0.0;  // Plan D: Day equity profit USD at latest execution
+double   g_hourlyPlanDLastHitEquity     = 0.0;  // Plan D: Account equity at latest hit execution
+double   g_hourlyPlanDHighestHitPct     = 0.0;  // Plan D: Highest Day Equity Profit % executed today
 int      g_hourlyPlanDLastOrders        = 0;    // Plan D: Orders closed in latest execution
 double   g_hourlyPlanDLastLots          = 0.0;  // Plan D: Lots closed in latest execution
 double   g_hourlyPlanDLastPL            = 0.0;  // Plan D: Net P/L realized in latest execution
@@ -3507,10 +3515,14 @@ void SyncDubaiDayOpeningState(datetime nowServer = 0)
       g_dubaiNightLastCutTime   = 0;
       g_dubaiNightCutCountToday = 0;
       g_hourlyPlanAHitsToday    = 0;
+      g_hourlyPlanALastHitEquity= 0.0;
+      g_hourlyPlanAHighestHitPct= 0.0;
       g_hourlyPlanCHitsToday    = 0;
       g_hourlyPlanCLastHitEquity= 0.0;
       g_hourlyPlanCHighestHitPct= 0.0;
       g_hourlyPlanDHitsToday    = 0;
+      g_hourlyPlanDLastHitEquity= 0.0;
+      g_hourlyPlanDHighestHitPct= 0.0;
      }
    else
       if(dubaiDayKey != g_dubaiNightCloseDayKey)
@@ -3544,12 +3556,16 @@ void SyncDubaiDayOpeningState(datetime nowServer = 0)
          g_dubaiNightLastResetTime     = nowServer;
          g_hourlyPlanADoneToday        = false;
          g_hourlyPlanAHitsToday        = 0;
+         g_hourlyPlanALastHitEquity    = 0.0;
+         g_hourlyPlanAHighestHitPct    = 0.0;
          g_hourlyPlanCDoneToday        = false;
          g_hourlyPlanCHitsToday        = 0;
          g_hourlyPlanCLastHitEquity    = 0.0;
          g_hourlyPlanCHighestHitPct    = 0.0;
          g_hourlyPlanDDoneToday        = false;
          g_hourlyPlanDHitsToday        = 0;
+         g_hourlyPlanDLastHitEquity    = 0.0;
+         g_hourlyPlanDHighestHitPct    = 0.0;
          g_hourlyPlanDDoneHourSlot     = -1;
 
          PrintFormat(">>> [DUBAI 16:00 DAY START] Next Day Rollover | DubaiTime=%s (DayKey=%d) | Day Opening Balance=$%.2f | Plans A/B/C/D Base Updated | PrevDone=%s (Cuts=%d) -> Status RESET",
@@ -4250,6 +4266,9 @@ bool ExecuteHourlyPlanACloseAll(double dayOpenEq, double curEquity, double dayPr
       g_hourlyPlanALastHitTime  = nowServer;
       g_hourlyPlanALastPct      = dayProfitPct;
       g_hourlyPlanALastUSD      = dayProfitUSD;
+      g_hourlyPlanALastHitEquity= curEquity;
+      if(dayProfitPct > g_hourlyPlanAHighestHitPct)
+         g_hourlyPlanAHighestHitPct = dayProfitPct;
       g_hourlyPlanALastOrders   = closedCount;
       g_hourlyPlanALastLots     = closedLots;
       g_hourlyPlanALastPL       = closedPL;
@@ -4558,6 +4577,9 @@ bool ExecuteHourlyPlanDCloseAll(double dayOpenEq, double curEquity, double dayPr
       g_hourlyPlanDLastHitThreshPct = planDThr;
       g_hourlyPlanDLastPct          = dayProfitPct;
       g_hourlyPlanDLastUSD          = dayProfitUSD;
+      g_hourlyPlanDLastHitEquity    = curEquity;
+      if(dayProfitPct > g_hourlyPlanDHighestHitPct)
+         g_hourlyPlanDHighestHitPct = dayProfitPct;
       g_hourlyPlanDLastOrders       = closedCount;
       g_hourlyPlanDLastLots         = closedLots;
       g_hourlyPlanDLastPL           = closedPL;
@@ -4668,13 +4690,28 @@ void ManageHourlySideLoss20PctCut()
          double dayProfPD = (dayOpenD > 0.0) ? ((dayProfUD / dayOpenD) * 100.0) : 0.0;
          bool   planDLockedH = (InpHourlyPlanDOncePerHour && g_hourlyPlanDDoneHourSlot == curHourSlotD);
          bool   planDLockedD = (InpHourlyPlanDOncePerDay && g_hourlyPlanDDoneToday);
-         bool   planDHit  = (!planDLockedH && !planDLockedD && dayOpenD > 0.0 && curEqD > reqEqD);
+
+         bool higherHitSatisfiedD = true;
+         if(InpHourlyPlanDRequireHigherHit && g_hourlyPlanDHitsToday > 0)
+           {
+            double minRequiredPctD = g_hourlyPlanDHighestHitPct + MathMax(0.0, InpHourlyPlanDHitStepPct);
+            if(curEqD <= g_hourlyPlanDLastHitEquity || dayProfPD <= minRequiredPctD)
+               higherHitSatisfiedD = false;
+           }
+
+         bool   planDHit  = (!planDLockedH && !planDLockedD && dayOpenD > 0.0 && curEqD > reqEqD && higherHitSatisfiedD);
          if(planDHit)
            {
             int remOpenD = 0;
             if(ExecuteHourlyPlanDCloseAll(dayOpenD, curEqD, dayProfUD, dayProfPD, minInHourD, planDThr, curHourSlotD, nowServer, remOpenD) && remOpenD == 0)
                planDClosedAllThisTick = true;
            }
+         else
+            if(!planDLockedH && !planDLockedD && dayOpenD > 0.0 && curEqD > reqEqD && !higherHitSatisfiedD)
+              {
+               PrintFormat(">>> [1M PLAN-D SKIP] DayEq=+%.2f%% (Eq=$%.2f) not higher than previous hit #%d (+%.2f%%, Eq=$%.2f). Waiting for higher profit to avoid retracement losses.",
+                           dayProfPD, curEqD, g_hourlyPlanDHitsToday, g_hourlyPlanDHighestHitPct, g_hourlyPlanDLastHitEquity);
+              }
         }
      }
 
@@ -4757,16 +4794,31 @@ void ManageHourlySideLoss20PctCut()
    double reqEqA       = GetHourlyPlanRequiredEquity(planAThresh, dayOpenEq, dayTgtA, planAValUSD);
    double dayProfitUSD = (dayOpenEq > 0.0) ? (curEquity - dayOpenEq) : 0.0;
    double dayProfitPct = (dayOpenEq > 0.0) ? ((dayProfitUSD / dayOpenEq) * 100.0) : 0.0;
+   bool higherHitSatisfiedA = true;
+   if(InpHourlyPlanARequireHigherHit && g_hourlyPlanAHitsToday > 0)
+     {
+      double minRequiredPctA = g_hourlyPlanAHighestHitPct + MathMax(0.0, InpHourlyPlanAHitStepPct);
+      if(curEquity <= g_hourlyPlanALastHitEquity || dayProfitPct <= minRequiredPctA)
+         higherHitSatisfiedA = false;
+     }
+
    bool   planADayHit  = (InpEnableHourlyPlanADayProfitClose &&
                           (!InpHourlyPlanAOncePerDay || !g_hourlyPlanADoneToday) &&
                           dayOpenEq > 0.0 &&
-                          curEquity > reqEqA);
+                          curEquity > reqEqA &&
+                          higherHitSatisfiedA);
 
    if(planADayHit)
      {
       ExecuteHourlyPlanACloseAll(dayOpenEq, curEquity, dayProfitUSD, dayProfitPct, nowServer);
       return; // Plan A triggered -> OR skips Plan B on this hourly evaluation
      }
+   else
+      if(InpEnableHourlyPlanADayProfitClose && dayOpenEq > 0.0 && curEquity > reqEqA && !higherHitSatisfiedA)
+        {
+         PrintFormat(">>> [1H PLAN-A SKIP] DayEq=+%.2f%% (Eq=$%.2f) not higher than previous hit #%d (+%.2f%%, Eq=$%.2f). Waiting for higher profit to avoid retracement losses.",
+                     dayProfitPct, curEquity, g_hourlyPlanAHitsToday, g_hourlyPlanAHighestHitPct, g_hourlyPlanALastHitEquity);
+        }
 
 // ===== OR PLAN B: Per-Side Floating Loss > 30% -> Close 20% LOT (Min 0.01) (Base: Day Opening Balance) =====
    if(!InpEnableHourlyPlanBSideLossCut)
@@ -11422,6 +11474,8 @@ void ResetAllRuntimeVariablesOnFreshStart()
 
    g_hourlyPlanADoneToday        = false;
    g_hourlyPlanAHitsToday        = 0;
+   g_hourlyPlanALastHitEquity    = 0.0;
+   g_hourlyPlanAHighestHitPct    = 0.0;
    g_hourlyPlanATotalSweeps      = 0;
    g_hourlyPlanATargetHits       = 0;
    g_hourlyPlanATotalOrders      = 0;
@@ -11460,6 +11514,8 @@ void ResetAllRuntimeVariablesOnFreshStart()
    g_hourlyPlanDLastThreshPct    = (InpHourlyPlanDStartPct > 0.0) ? InpHourlyPlanDStartPct : 31.0;
    g_hourlyPlanDDoneToday        = false;
    g_hourlyPlanDHitsToday        = 0;
+   g_hourlyPlanDLastHitEquity    = 0.0;
+   g_hourlyPlanDHighestHitPct    = 0.0;
    g_hourlyPlanDLastRunTime      = 0;
    g_hourlyPlanDCheckCount       = 0;
    g_hourlyPlanDTotalSweeps      = 0;
@@ -11773,6 +11829,8 @@ int OnInit()
    g_hourlySideLossNextRunTime   = 0;
    g_hourlyPlanADoneToday        = false;
    g_hourlyPlanAHitsToday        = 0;
+   g_hourlyPlanALastHitEquity    = 0.0;
+   g_hourlyPlanAHighestHitPct    = 0.0;
    g_hourlyPlanCLastSlot         = -1;
    g_hourlyPlanCNextRunTime      = 0;
    g_hourlyPlanCDoneToday        = false;
@@ -11788,6 +11846,8 @@ int OnInit()
    g_hourlyPlanDLastThreshPct    = (InpHourlyPlanDStartPct > 0.0) ? InpHourlyPlanDStartPct : 31.0;
    g_hourlyPlanDDoneToday        = false;
    g_hourlyPlanDHitsToday        = 0;
+   g_hourlyPlanDLastHitEquity    = 0.0;
+   g_hourlyPlanDHighestHitPct    = 0.0;
    g_priceGapCloseAnchorLoaded   = false;
    g_priceGapCloseAnchorPrice    = 0.0;
    g_priceGapCloseSourceFlipPx   = 0.0;
@@ -26887,6 +26947,7 @@ void UpdateDashboard(DailyProtectionState &state)
    bool     hrlyDashPlanA = (InpEnableHourlySideLossCut && InpEnableHourlyPlanADayProfitClose &&
                              (!InpHourlyPlanAOncePerDay || !g_hourlyPlanADoneToday) &&
                              dOpenA > 0.0 && dCurEq > dReqEqA &&
+                             (!InpHourlyPlanARequireHigherHit || g_hourlyPlanAHitsToday == 0 || (dCurEq > g_hourlyPlanALastHitEquity && ((dCurEq - dOpenA)/dOpenA*100.0) > (g_hourlyPlanAHighestHitPct + MathMax(0.0, InpHourlyPlanAHitStepPct)))) &&
                              (dashBuyCnt + dashSellCnt) > 0);
    bool     hrlyDashPlanC = (InpEnableHourlySideLossCut && InpEnableHourlyPlanCDayProfitClose &&
                              (!InpHourlyPlanCOncePerDay || !g_hourlyPlanCDoneToday) &&
@@ -26896,6 +26957,7 @@ void UpdateDashboard(DailyProtectionState &state)
    bool     hrlyDashPlanD = (InpEnableHourlySideLossCut && InpEnableHourlyPlanDDayProfitClose &&
                              !hrlyDashDLock &&
                              dOpenD > 0.0 && dCurEq > dReqEqD &&
+                             (!InpHourlyPlanDRequireHigherHit || g_hourlyPlanDHitsToday == 0 || (dCurEq > g_hourlyPlanDLastHitEquity && ((dCurEq - dOpenD)/dOpenD*100.0) > (g_hourlyPlanDHighestHitPct + MathMax(0.0, InpHourlyPlanDHitStepPct)))) &&
                              (dashBuyCnt + dashSellCnt) > 0);
    string eqDdState = "";
    color  eqDdClr   = clrSilver;
@@ -27874,6 +27936,7 @@ void UpdateLeftLiveOrdersDashboard(bool force = false)
                               InpEnableHourlyPlanADayProfitClose &&
                               (!InpHourlyPlanAOncePerDay || !g_hourlyPlanADoneToday) &&
                               liveOpenBaseA > 0.0 && liveEq > liveReqEqA &&
+                              (!InpHourlyPlanARequireHigherHit || g_hourlyPlanAHitsToday == 0 || (liveEq > g_hourlyPlanALastHitEquity && ((liveEq - liveOpenBaseA)/liveOpenBaseA*100.0) > (g_hourlyPlanAHighestHitPct + MathMax(0.0, InpHourlyPlanAHitStepPct)))) &&
                               (buyCount + sellCount) > 0);
    bool     hrlyPlanCArmed = (!InpEnableEqDdLotReduction && InpEnableHourlySideLossCut &&
                               InpEnableHourlyPlanCDayProfitClose &&
@@ -27885,6 +27948,7 @@ void UpdateLeftLiveOrdersDashboard(bool force = false)
                               InpEnableHourlyPlanDDayProfitClose &&
                               !hrlyDLockedH &&
                               liveOpenBaseD > 0.0 && liveEq > liveReqEqD &&
+                              (!InpHourlyPlanDRequireHigherHit || g_hourlyPlanDHitsToday == 0 || (liveEq > g_hourlyPlanDLastHitEquity && ((liveEq - liveOpenBaseD)/liveOpenBaseD*100.0) > (g_hourlyPlanDHighestHitPct + MathMax(0.0, InpHourlyPlanDHitStepPct)))) &&
                               (buyCount + sellCount) > 0);
 
    double curAcctDdUSD = (liveBal > liveEq) ? (liveBal - liveEq) : 0.0;
