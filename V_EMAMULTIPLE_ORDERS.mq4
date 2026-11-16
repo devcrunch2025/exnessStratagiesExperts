@@ -42,7 +42,7 @@ CheckBasketProfitClose  Total open basket profit
 */
 
 
-string glbVersion = "VMULTI-1221 Steep Angle ExtraMove 25 Level2 Lock 150";
+string glbVersion = "VMULTI-1222 Universal Common Profit Ladder For All Lots";
 
 int AccountMultiplierLOT = 1000;//400;//200;//500; ALWAYS multiples of 1000 is better for best results
 //balance multiplier 
@@ -57,14 +57,12 @@ double TargetProfitPerFlipUSD =1000;//50;//;//percentage////1000;//20;//10;//10*
 double protectgapOnOrderclose=31;//30;//101;//1000;//303;//11111111111111
 
 
-//Chance 1
-double SecureOneDollarProfitPerOrder=5;//0;//5*100;//1.0*10; // 1X set modify order at profit $1(any lot)
-double InpLadderStepExtraMoveRaw         = 25.0; // Extra raw BTC price move added to ladder thresholds (Level 1: $100 -> $125)
-double InpLadderStepExtraSLRaw           = 25.0; // Extra raw BTC price locked on ladder SL rungs (Level 1 SL = openPrice +/- 25)
-bool   InpEnableLadderSteepAngleExtraMove = true; // Proportional Ladder: Add extra profit movement on steep EMA angle (>= 4 deg)
-double InpLadderSteepAngleExtraMoveRaw    = 25.0; // Extra profit movement for all lot tiers when MathAbs(GlobalEmaAngle30) >= 4 (+$25 raw price gap)
-double InpLadderSteepAngleThreshold       = 4.0;  // Minimum MathAbs(GlobalEmaAngle30) to trigger extra +$25 profit movement (4.0 deg)
-double InpLadderSteepAngleLevel2LockedRaw = 150.0; // Level 2 & Above locked raw price gap when MathAbs(GlobalEmaAngle30) >= 4 ($150 raw price gap)
+//Chance 1 - Universal Common Profit Ladder (ALL Lots)
+double SecureOneDollarProfitPerOrder=5;//1.0*10; // 1X set modify order at profit $1(any lot)
+double InpLadderStepExtraMoveRaw         = 25.0; // Extra raw BTC price move added to ladder thresholds when angle >= 4 ($100 -> $125)
+double InpLadderStepExtraSLRaw           = 25.0; // Initial raw BTC price locked on Level 1 SL (openPrice +/- 25)
+double InpLadderStepIncrementRaw         = 50.0; // Next every step move and SL lock increment ($50 raw price gap)
+double InpLadderSteepAngleThreshold       = 4.0;  // Minimum MathAbs(GlobalEmaAngle30) for steep trend ($125 trigger move)
 
 //chance 2
 int partialClose01in05IndividualPercentage=0;//20;//10;//2*2;//per lot 0.01// DISABLED: individual order partial close percentage
@@ -10008,6 +10006,13 @@ double GetEmaAngleBreakevenBreathingSL(int orderType, double openPrice, double p
 //|   - Under STRONG EMA: locks +(ladderLevel - 2)*stepPriceGap + 25 |
 //|   - Under WEAK EMA:   locks +(ladderLevel - 1)*stepPriceGap + 25 |
 //+------------------------------------------------------------------+
+//| CalculateProportionalLadderSL:                                   |
+//| USER RULE (VMULTI-1222): Universal Common Logic for ALL Lots:    |
+//| - EMA Angle < 4:  order moves $100 -> SL to $25 (locks +$25)     |
+//|   Next every $50 move -> SL moves extra $50 ($75, $125, $175...) |
+//| - EMA Angle >= 4: order moves $125 -> SL to $25 (locks +$25)     |
+//|   Next every $50 move -> SL moves extra $50 ($75, $125, $175...) |
+//+------------------------------------------------------------------+
 double CalculateProportionalLadderSL(int orderType, double openPrice, double orderLots)
   {
    if(orderLots <= 0.0 || openPrice <= 0.0)
@@ -10018,97 +10023,35 @@ double CalculateProportionalLadderSL(int orderType, double openPrice, double ord
    if(stopLevel < 10.0)
       stopLevel = 10.0;
 
-// 1. Get dynamic step gap based on lot & multiplier
-   double stepPriceGap = GetLotBasedPriceGap(orderLots, balancelomultipler);
-   double extraMove    = MathMax(0.0, InpLadderStepExtraMoveRaw);
-   double extraSL      = MathMax(0.0, InpLadderStepExtraSLRaw);
-
-// USER RULE: Add extra profit movement (+$50) for all lot tiers if MathAbs(GlobalEmaAngle30) >= 4
    double curAngle = (GlobalEmaAngle30 != 0.0) ? GlobalEmaAngle30 : GetEmaAngleDegrees(30);
-   if(InpEnableLadderSteepAngleExtraMove && MathAbs(curAngle) >= InpLadderSteepAngleThreshold)
-     {
-      extraMove += InpLadderSteepAngleExtraMoveRaw;
-     }
+   bool isSteepAngle = (MathAbs(curAngle) >= InpLadderSteepAngleThreshold); // 4.0 deg
 
-// 2. Halve the gap if EMA momentum weakened by 50%
-   if(IsEmaWEAKDistanceReduced50PercentFromPeak())
-     {
-      //stepPriceGap = MathMax(MinimumSLModifyGapRaw, stepPriceGap / 2.0);
-     }
+   // Universal parameters for ALL lots:
+   double level1TriggerMove = isSteepAngle ? (100.0 + InpLadderStepExtraMoveRaw) : 100.0; // Angle >= 4: $125 | Angle < 4: $100
+   double stepPriceGap      = InpLadderStepIncrementRaw;                                   // Next every step $50 move
+   double baseLockSL        = InpLadderStepExtraSLRaw;                                     // Level 1 locks +$25
 
-   if(stepPriceGap <= 0.0)
-      return 0.0;
-
-// 3. Calculate maximum distance price has traveled into profit beyond broker buffer
+   // Calculate maximum distance price has traveled into profit beyond broker buffer
    double maxLockableDistance = 0.0;
    if(orderType == OP_BUY)
       maxLockableDistance = (Bid - stopLevel) - openPrice;
-   else
-      if(orderType == OP_SELL)
-         maxLockableDistance = openPrice - (Ask + stopLevel);
+   else if(orderType == OP_SELL)
+      maxLockableDistance = openPrice - (Ask + stopLevel);
 
-// If price has not reached Level 1 (1x stepPriceGap + extraMove, e.g. $125 for 0.01L), no ladder SL yet
-   if(maxLockableDistance + (Point * 0.5) < (stepPriceGap + extraMove))
+   if(maxLockableDistance + (Point * 0.5) < level1TriggerMove)
       return 0.0;
 
-// 4. Determine ladder step (1 = 1x gap + extraMove, 2 = 2x gap + extraMove, etc.)
-   int ladderLevel = (int)MathFloor(((maxLockableDistance - extraMove) + (Point * 0.5)) / stepPriceGap);
-   if(ladderLevel < 1)
-      return 0.0;
+   // ladderLevel: 1 = Level 1, 2 = Level 2, 3 = Level 3, etc.
+   int ladderLevel = 1 + (int)MathFloor(((maxLockableDistance - level1TriggerMove) + (Point * 0.5)) / stepPriceGap);
 
-// USER RULE (VMULTI-1148):
-// Level 1: triggers at stepPriceGap + 25 ($125 for 0.01L), locks +25 (SL = openPrice +/- 25)
-// Level 2: locks +(1 * stepPriceGap) + 25 (+$125 for 0.01L)
-// Level 3 onwards:
-//   - Under STRONG EMA: locks +((ladderLevel - 2) * stepPriceGap) + 25
-//   - Under WEAK EMA:   locks +((ladderLevel - 1) * stepPriceGap) + 25
-   double lockedDistance = 0.0;
-   if(ladderLevel == 1)
-     {
-      lockedDistance = extraSL;
-     }
-   else
-      if(ladderLevel == 2)
-        {
-         lockedDistance = (1.0 * stepPriceGap) + extraSL;
-        }
-      else // ladderLevel >= 3
-        {
-         if(!IsEmaWEAKDistanceReduced50PercentFromPeak())
-           {
-            // Under STRONG EMA: Level 3 onwards keep 2x step cushion behind market + extraSL
-            lockedDistance = ((ladderLevel - 2) * stepPriceGap) + extraSL;
-           }
-         else
-           {
-            // Under WEAK EMA: Retain standard 1x stepPriceGap cushion behind market + extraSL
-            lockedDistance = ((ladderLevel - 1) * stepPriceGap) + extraSL;
-           }
-        }
-
-   // USER RULE (VMULTI-1221): When steep trend (MathAbs(EMAangle) >= 4), Level 2 & Above locks +$150 raw price gap
-   if(ladderLevel >= 2 && InpEnableLadderSteepAngleExtraMove && MathAbs(curAngle) >= InpLadderSteepAngleThreshold)
-     {
-      double steepLocked = ((ladderLevel - 2) * stepPriceGap) + InpLadderSteepAngleLevel2LockedRaw;
-      if(steepLocked > lockedDistance)
-         lockedDistance = steepLocked;
-      if(lockedDistance < InpLadderSteepAngleLevel2LockedRaw)
-         lockedDistance = InpLadderSteepAngleLevel2LockedRaw;
-     }
+   // SL locked distance: Level 1 locks $25; next every step adds +$50 (Level 2 = $75, Level 3 = $125, Level 4 = $175...)
+   double lockedDistance = baseLockSL + ((ladderLevel - 1) * stepPriceGap);
 
    double ladderSL = 0.0;
-
    if(orderType == OP_BUY)
       ladderSL = NormalizeDouble(openPrice + lockedDistance, Digits);
-   else
-      if(orderType == OP_SELL)
-         ladderSL = NormalizeDouble(openPrice - lockedDistance, Digits);
-
-// USER RULE (VMULTI-1105): When Level 1 is exact Breakeven (lockedDistance <= 0) and MathAbs(EMAangle) > 4, allow extra -50 raw gap breathing SL
-   if(ladderLevel == 1 && lockedDistance <= 0.0)
-     {
-      ladderSL = GetEmaAngleBreakevenBreathingSL(orderType, openPrice, ladderSL);
-     }
+   else if(orderType == OP_SELL)
+      ladderSL = NormalizeDouble(openPrice - lockedDistance, Digits);
 
    return ladderSL;
   }
@@ -10123,19 +10066,7 @@ void SecureOneDollarProfit()
    if(SecureOneDollarProfitPerOrder <= 0.0 || GetTotalEAOrders() <= 0)
       return;
 
-   double stopLevel = GetRequiredStopDistance();
-   if(stopLevel < 10.0)
-      stopLevel = 10.0;
-
-   double extraMove = MathMax(0.0, InpLadderStepExtraMoveRaw);
-   double extraSL   = MathMax(0.0, InpLadderStepExtraSLRaw);
-   double curAngle  = (GlobalEmaAngle30 != 0.0) ? GlobalEmaAngle30 : GetEmaAngleDegrees(30);
-   if(InpEnableLadderSteepAngleExtraMove && MathAbs(curAngle) >= InpLadderSteepAngleThreshold)
-     {
-      extraMove += InpLadderSteepAngleExtraMoveRaw;
-     }
-   double slGapMin  = GetEffectiveMinSLModifyGap();
-
+   double slGapMin = GetEffectiveMinSLModifyGap();
    RefreshRates();
 
    for(int i = OrdersTotal() - 1; i >= 0; i--)
@@ -10169,92 +10100,26 @@ void SecureOneDollarProfit()
       if(curPL < minProfitUSD)
          continue; // Order must reach at least $1.00 * multiplier before securing profit
 
-      // 1. Get dynamic price gap based on Lot & Multiplier
-      double stepPriceGap = GetLotBasedPriceGap(orderLots, balancelomultipler);
-
-      // 2. Halve the gap if EMA momentum weakened by 50%
-      if(IsEmaWEAKDistanceReduced50PercentFromPeak())
-        {
-         //stepPriceGap = MathMax(MinimumSLModifyGapRaw, stepPriceGap / 2.0);
-        }
-
-      if(stepPriceGap <= 0.0)
+      double ladderSL = CalculateProportionalLadderSL(type, openPrice, orderLots);
+      if(ladderSL <= 0.0)
          continue;
 
-      // 3. Calculate maximum distance price has traveled into profit beyond broker buffer
-      double maxLockableDistance = 0.0;
-      if(type == OP_BUY)
-         maxLockableDistance = (Bid - stopLevel) - openPrice;
-      else
-         if(type == OP_SELL)
-            maxLockableDistance = openPrice - (Ask + stopLevel);
-
-      if(maxLockableDistance + (Point * 0.5) < (stepPriceGap + extraMove))
-         continue; // Price has not yet reached Level 1 threshold (stepPriceGap + extraMove)
-
-      // 4. Determine ladder step (1 = 1x gap + extraMove, 2 = 2x gap + extraMove, etc.)
-      int ladderLevel = (int)MathFloor(((maxLockableDistance - extraMove) + (Point * 0.5)) / stepPriceGap);
-      if(ladderLevel < 1)
-         continue;
-
-      // USER RULE (VMULTI-1148):
-      // Level 1: triggers at stepPriceGap + 25 ($125 for 0.01L), locks +25 (SL = openPrice +/- 25)
-      // Level 2: locks +(1 * stepPriceGap) + 25 (+$125 for 0.01L)
-      // Level 3 onwards:
-      //   - Under STRONG EMA: locks +((ladderLevel - 2) * stepPriceGap) + 25
-      //   - Under WEAK EMA:   locks +((ladderLevel - 1) * stepPriceGap) + 25
-      double lockedDistance = 0.0;
-      if(ladderLevel == 1)
-        {
-         lockedDistance = extraSL;
-        }
-      else
-         if(ladderLevel == 2)
-           {
-            lockedDistance = (1.0 * stepPriceGap) + extraSL;
-           }
-         else // ladderLevel >= 3
-           {
-            if(!IsEmaWEAKDistanceReduced50PercentFromPeak())
-              {
-               // Under STRONG EMA: Level 3 onwards keep 2x step cushion behind market + extraSL
-               lockedDistance = ((ladderLevel - 2) * stepPriceGap) + extraSL;
-              }
-            else
-              {
-               // Under WEAK EMA: Retain standard 1x stepPriceGap cushion behind market + extraSL
-               lockedDistance = ((ladderLevel - 1) * stepPriceGap) + extraSL;
-              }
-           }
-
-      // USER RULE (VMULTI-1221): When steep trend (MathAbs(EMAangle) >= 4), Level 2 & Above locks +$150 raw price gap
-      if(ladderLevel >= 2 && InpEnableLadderSteepAngleExtraMove && MathAbs(curAngle) >= InpLadderSteepAngleThreshold)
-        {
-         double steepLocked = ((ladderLevel - 2) * stepPriceGap) + InpLadderSteepAngleLevel2LockedRaw;
-         if(steepLocked > lockedDistance)
-            lockedDistance = steepLocked;
-         if(lockedDistance < InpLadderSteepAngleLevel2LockedRaw)
-            lockedDistance = InpLadderSteepAngleLevel2LockedRaw;
-        }
-
-      double newSL = 0.0;
+      double newSL = ladderSL;
       bool canModify = false;
 
       if(type == OP_BUY)
         {
-         newSL = NormalizeDouble(openPrice + lockedDistance, Digits);
          if(newSL >= openPrice && (currentSL == 0.0 || newSL >= currentSL + slGapMin))
             canModify = true;
         }
       else
          if(type == OP_SELL)
            {
-            newSL = NormalizeDouble(openPrice - lockedDistance, Digits);
             if(newSL <= openPrice && (currentSL == 0.0 || newSL <= currentSL - slGapMin))
                canModify = true;
            }
 
-      // 5. Modify order to lock profit at this ladder rung
+      // Modify order to lock profit at this ladder rung
       if(canModify)
         {
          ResetLastError();
@@ -10267,10 +10132,7 @@ void SecureOneDollarProfit()
                actualSL = OrderStopLoss();
             if(currentSL == 0.0 || MathAbs(actualSL - currentSL) >= Point * 0.5)
               {
-               Print("Secured Lot-Based Ladder: ", ladderLevel, "X (Move>=$", DoubleToString(stepPriceGap + extraMove, 2),
-                     " | Gap=$", DoubleToString(stepPriceGap, 2),
-                     " | Locked=+$", DoubleToString(lockedDistance, 2), " pts)",
-                     " | Ticket=", ticket,
+               Print("Secured Common Profit Ladder | Ticket=", ticket,
                      " | Lots=", DoubleToString(orderLots, 2),
                      " | Type=", (type == OP_BUY ? "BUY" : "SELL"),
                      " | P/L=$", DoubleToString(curPL, 2), " >= $", DoubleToString(minProfitUSD, 2),
@@ -10279,9 +10141,7 @@ void SecureOneDollarProfit()
            }
          else
            {
-            Print("FAILED to secure Lot-Based Ladder SL | Ticket=", ticket,
-                  " | Error=", GetLastError(),
-                  " | Attempted SL=", DoubleToString(newSL, Digits));
+            Print("Failed to secure profit for Ticket: ", ticket, " | Error: ", GetLastError());
            }
         }
      }
