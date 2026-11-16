@@ -42,7 +42,7 @@ CheckBasketProfitClose  Total open basket profit
 */
 
 
-string glbVersion = "VMULTI-1220  Disable combination profit orders except single orders";
+string glbVersion = "VMULTI-1221 Steep Angle ExtraMove 25 Level2 Lock 150";
 
 int AccountMultiplierLOT = 1000;//400;//200;//500; ALWAYS multiples of 1000 is better for best results
 //balance multiplier 
@@ -58,12 +58,13 @@ double protectgapOnOrderclose=31;//30;//101;//1000;//303;//11111111111111
 
 
 //Chance 1
-double SecureOneDollarProfitPerOrder=0;//5*100;//1.0*10; // DISABLED: 1X set modify order at profit $1(any lot)
+double SecureOneDollarProfitPerOrder=5;//0;//5*100;//1.0*10; // 1X set modify order at profit $1(any lot)
 double InpLadderStepExtraMoveRaw         = 25.0; // Extra raw BTC price move added to ladder thresholds (Level 1: $100 -> $125)
 double InpLadderStepExtraSLRaw           = 25.0; // Extra raw BTC price locked on ladder SL rungs (Level 1 SL = openPrice +/- 25)
 bool   InpEnableLadderSteepAngleExtraMove = true; // Proportional Ladder: Add extra profit movement on steep EMA angle (>= 4 deg)
-double InpLadderSteepAngleExtraMoveRaw    = 5.0; // Extra profit movement for all lot tiers when MathAbs(GlobalEmaAngle30) >= 4 (+$50)
-double InpLadderSteepAngleThreshold       = 4.0;  // Minimum MathAbs(GlobalEmaAngle30) to trigger extra +$50 profit movement (4.0 deg)
+double InpLadderSteepAngleExtraMoveRaw    = 25.0; // Extra profit movement for all lot tiers when MathAbs(GlobalEmaAngle30) >= 4 (+$25 raw price gap)
+double InpLadderSteepAngleThreshold       = 4.0;  // Minimum MathAbs(GlobalEmaAngle30) to trigger extra +$25 profit movement (4.0 deg)
+double InpLadderSteepAngleLevel2LockedRaw = 150.0; // Level 2 & Above locked raw price gap when MathAbs(GlobalEmaAngle30) >= 4 ($150 raw price gap)
 
 //chance 2
 int partialClose01in05IndividualPercentage=0;//20;//10;//2*2;//per lot 0.01// DISABLED: individual order partial close percentage
@@ -10084,6 +10085,17 @@ double CalculateProportionalLadderSL(int orderType, double openPrice, double ord
             lockedDistance = ((ladderLevel - 1) * stepPriceGap) + extraSL;
            }
         }
+
+   // USER RULE (VMULTI-1221): When steep trend (MathAbs(EMAangle) >= 4), Level 2 & Above locks +$150 raw price gap
+   if(ladderLevel >= 2 && InpEnableLadderSteepAngleExtraMove && MathAbs(curAngle) >= InpLadderSteepAngleThreshold)
+     {
+      double steepLocked = ((ladderLevel - 2) * stepPriceGap) + InpLadderSteepAngleLevel2LockedRaw;
+      if(steepLocked > lockedDistance)
+         lockedDistance = steepLocked;
+      if(lockedDistance < InpLadderSteepAngleLevel2LockedRaw)
+         lockedDistance = InpLadderSteepAngleLevel2LockedRaw;
+     }
+
    double ladderSL = 0.0;
 
    if(orderType == OP_BUY)
@@ -10214,6 +10226,17 @@ void SecureOneDollarProfit()
                lockedDistance = ((ladderLevel - 1) * stepPriceGap) + extraSL;
               }
            }
+
+      // USER RULE (VMULTI-1221): When steep trend (MathAbs(EMAangle) >= 4), Level 2 & Above locks +$150 raw price gap
+      if(ladderLevel >= 2 && InpEnableLadderSteepAngleExtraMove && MathAbs(curAngle) >= InpLadderSteepAngleThreshold)
+        {
+         double steepLocked = ((ladderLevel - 2) * stepPriceGap) + InpLadderSteepAngleLevel2LockedRaw;
+         if(steepLocked > lockedDistance)
+            lockedDistance = steepLocked;
+         if(lockedDistance < InpLadderSteepAngleLevel2LockedRaw)
+            lockedDistance = InpLadderSteepAngleLevel2LockedRaw;
+        }
+
       double newSL = 0.0;
       bool canModify = false;
 
