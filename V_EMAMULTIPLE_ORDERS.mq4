@@ -42,7 +42,7 @@ CheckBasketProfitClose  Total open basket profit
 */
 
 
-string glbVersion = "VMULTI-1225 Day Stop True Market Close And Delete All Pending";
+string glbVersion = "VMULTI-1226 Method 6 Profit Orders Modify SL To Live Price Never Close";
 
 int AccountMultiplierLOT = 1000;//400;//200;//500; ALWAYS multiples of 1000 is better for best results
 //balance multiplier 
@@ -7355,7 +7355,7 @@ int    InpMethod6HitFontSize                = 10;     // Method 6: Chart icon te
 int    InpMethod6HitIconCode                = 159;    // Method 6: Chart icon Wingdings code (159=circle dot, 171=star, 251=check)
 void   DrawMethod6HitIcon(int orderCount, double comboProfit, datetime hitTime = 0, double hitPrice = 0.0);
 bool   InpMethod6EnablePartialLotCombination= true;   // Method 6: Allow partial LOT combination close when full combo cannot reach threshold
-bool   InpMethod6PartialCloseWinnerAtMarket = true;   // Method 6: Close winning order at market (true) or tighten SL to live price (false)
+bool   InpMethod6PartialCloseWinnerAtMarket = false;  // Method 6: false = modify winner SL to live price (do not close profit orders); true = close winner at market
 double InpMethod6PartialMaxCutLots          = 0.0;    // Method 6: Max partial lots to cut from loser per trigger (0.0 = auto max safe)
 double InpMethod6LowAngleThresholdUSD       = 2.0;    // Method 6: Profit threshold when MathAbs(EMA Angle) < 4 deg ($2.00 * multiplier)
 double InpMethod6LowAngleEmaDegrees         = 4.0;    // Method 6: Dynamic EMA angle boundary in degrees (default 4.0)
@@ -9042,10 +9042,29 @@ void ExecuteMethod6CombinationAction(int &comboIndices[], int comboCount, double
       m6Tkts[m6i] = candTickets[comboIndices[m6i]];
       m6Pls[m6i]  = candProfits[comboIndices[m6i]];
      }
-   RecordMethodActionCluster(6, m6Tkts, m6Pls, comboCount, comboSum, "1) Close losing orders at market, 2) Modify winning orders with SL at current price");
+   bool hasLossOrders = false;
+   for(int chk = 0; chk < comboCount; chk++)
+     {
+      if(candProfits[comboIndices[chk]] < 0.0)
+         hasLossOrders = true;
+     }
 
-   Print(">>> [METHOD 6 TRIGGERED] Combination of ", comboCount, " orders hit Profit = $", DoubleToString(comboSum, 2),
-         " >= Threshold. Executing Action: 1) Close losing orders at market, 2) Modify profit orders with SL at current price.");
+   string actionDesc = (hasLossOrders) ?
+                       "1) Close losing orders at market, 2) Modify winning orders with SL at current price" :
+                       "Modify all profitable orders with StopLoss at current live price (no orders closed)";
+
+   RecordMethodActionCluster(6, m6Tkts, m6Pls, comboCount, comboSum, actionDesc);
+
+   if(hasLossOrders)
+     {
+      Print(">>> [METHOD 6 TRIGGERED] Combination of ", comboCount, " orders hit Profit = $", DoubleToString(comboSum, 2),
+            " >= Threshold. Executing Action: 1) Close losing orders at market, 2) Modify profit orders with SL at current price.");
+     }
+   else
+     {
+      Print(">>> [METHOD 6: ALL ORDERS IN PROFIT] Combination of ", comboCount, " profitable orders hit Profit = $", DoubleToString(comboSum, 2),
+            " >= Threshold. Modifying all orders' StopLoss to live price (do not close profit orders).");
+     }
 
 // 1. FIRST: Close losing orders at market
    for(int c = 0; c < comboCount; c++)
@@ -9102,6 +9121,12 @@ void ExecuteMethod6CombinationAction(int &comboIndices[], int comboCount, double
          else
             if(oType == OP_SELL && targetSL > beFloorM6)
                targetSL = beFloorM6;
+
+         // Final validity guard against live market price to respect broker stop level
+         if(oType == OP_BUY && targetSL >= curBid)
+            targetSL = NormalizeDouble(curBid - minStopDist, Digits);
+         else if(oType == OP_SELL && targetSL <= curAsk)
+            targetSL = NormalizeDouble(curAsk + minStopDist, Digits);
 
          if(targetSL > 0.0)
            {
@@ -9263,6 +9288,12 @@ void ExecuteMethod6PartialLotAction(int winIdx, int lossIdx, double partialLots,
       else if(winType == OP_SELL && targetSL > beFloorM6)
          targetSL = beFloorM6;
 
+      // Final validity guard against live market price to respect broker stop level
+      if(winType == OP_BUY && targetSL >= curBid)
+         targetSL = NormalizeDouble(curBid - minStopDist, Digits);
+      else if(winType == OP_SELL && targetSL <= curAsk)
+         targetSL = NormalizeDouble(curAsk + minStopDist, Digits);
+
       if(targetSL > 0.0)
         {
          bool modified = SafeOrderModify(winTkt, winOpen, targetSL, winTP, 0, (winType == OP_BUY ? clrLimeGreen : clrTomato), "Method 6");
@@ -9358,7 +9389,39 @@ void ModifyMethod6MultiOrderCombinationsOver5USD()
    if(candCount < minOrders)
       return;
 
-// 1. PRIORITY PAIR CHECK (Win + Loss): Pair with at least one losing order if sum >= threshold
+// 1. PRIORITY PAIR CHECK: BOTH ORDERS IN PROFIT (Win + Win >= Threshold)
+// USER RULE: "or BOTH orders are in profit hit InpMethod6ProfitThresholdUSD then modify orders stoploss with liveprice"
+   if(minOrders <= 2)
+     {
+      int searchLimit2 = MathMin(candCount, 30);
+      for(int i = 0; i < searchLimit2 - 1; i++)
+        {
+         if(isProcessed[i])
+            continue;
+         for(int j = i + 1; j < searchLimit2; j++)
+           {
+            if(isProcessed[j])
+               continue;
+
+            if(candProfits[i] >= 0.0 && candProfits[j] >= 0.0)
+              {
+               double sum2 = candProfits[i] + candProfits[j];
+               if(sum2 >= threshold)
+                 {
+                  int combo[2];
+                  combo[0] = i;
+                  combo[1] = j;
+                  ExecuteMethod6CombinationAction(combo, 2, sum2, candTickets, candTypes, candLots,
+                                                  candOpenPrices, candTakeProfits, candProfits, isProcessed);
+                  break;
+                 }
+              }
+           }
+        }
+     }
+
+// 2. PRIORITY PAIR CHECK: WIN + FULL LOSS (Win + Loss >= Threshold)
+// Full combination: closes the losing order at market and modifies the winning order's SL to live price
    if(minOrders <= 2)
      {
       int searchLimit2 = MathMin(candCount, 30);
