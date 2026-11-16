@@ -42,7 +42,7 @@ CheckBasketProfitClose  Total open basket profit
 */
 
 
-string glbVersion = "VMULTI-1219 Disable SecureOneDollar PartialClose01 CloseOrdersStep LowestEquityInc";
+string glbVersion = "VMULTI-1220  Disable combination profit orders except single orders";
 
 int AccountMultiplierLOT = 1000;//400;//200;//500; ALWAYS multiples of 1000 is better for best results
 //balance multiplier 
@@ -124,9 +124,9 @@ void   DrawEquityProfitLadder5HitIcon(int step, double curEquity, double lowestE
 //chance 6 - basket//IMPORTANT TO CLOSE ONE SIDE OPEN ORDERS as soon as possible
 double basketBUYorSELLProfitModifyUSD=1;//1*10; //if all combined basket BUY OR SELL Only basket is profit >0 then modify stoploss
 bool   InpEnableBasketProfitClose = true;        // Close open Buy/Sell/Total orders when basket profit target reached
-double InpBasketProfitTargetUSD     =5;//1;//5;// 2.0*10;         // Base target profit ($2.00 Golden Sweet Spot) multiplied by balancelomultipler
+double InpBasketProfitTargetUSD     =5*10;//1;//5;// 2.0*10;         // Base target profit ($2.00 Golden Sweet Spot) multiplied by balancelomultipler
 bool   InpEnableBasketMicroTrailing = true;        // Enable basket micro-trailing to let profitable baskets ride past $2 into $3-$5
-double InpBasketTrailActivationUSD  =5;// 1;//5;//2.0*10;         // Net profit in USD to activate basket trailing ($2.00 * multiplier)
+double InpBasketTrailActivationUSD  =5*10;// 1;//5;//2.0*10;         // Net profit in USD to activate basket trailing ($2.00 * multiplier)
 double InpBasketTrailStepUSD        = 1;//0.50;        // Pullback distance in USD from peak profit to close ($0.50 * multiplier)
 
 
