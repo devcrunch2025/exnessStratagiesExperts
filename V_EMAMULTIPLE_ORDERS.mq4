@@ -42,7 +42,7 @@ CheckBasketProfitClose  Total open basket profit
 */
 
 
-string glbVersion = "VMULTI-1224 Method 6 Dynamic Angle Threshold Under 4 Deg 2 USD";
+string glbVersion = "VMULTI-1225 Day Stop True Market Close And Delete All Pending";
 
 int AccountMultiplierLOT = 1000;//400;//200;//500; ALWAYS multiples of 1000 is better for best results
 //balance multiplier 
@@ -12813,6 +12813,22 @@ CheckForNewDay();
 IsDailyEquityStopReached(); // Check target every tick; sets g_dailyEquityTradingBlocked and closes all orders if hit
 if(g_dailyEquityTradingBlocked)
   {
+   // Safety check: ensure all EA orders are truly closed and pending deleted
+   int activeEAOrders = 0;
+   for(int act_i = OrdersTotal() - 1; act_i >= 0; act_i--)
+     {
+      if(OrderSelect(act_i, SELECT_BY_POS, MODE_TRADES))
+        {
+         if(OrderSymbol() == Symbol() && OrderMagicNumber() == MagicNumber)
+            activeEAOrders++;
+        }
+     }
+   if(activeEAOrders > 0)
+     {
+      PrintFormat(">>> [DAILY STOP SAFETY CHECK] %d order(s) still open/pending after stop! Forcing close/delete...", activeEAOrders);
+      CloseAndDeleteAllEAOrdersOnTradingStop();
+     }
+
    UpdateDubaiTradingPauseDashboard(); // Keep dashboard updated while paused
    UpdateLeftLiveOrdersDashboard();    // Refresh live dashboard while paused
    if(ShowTopCenterDubaiTime)
@@ -22802,64 +22818,82 @@ void CloseAndDeleteNonEmaMatchingOrders()
 //+------------------------------------------------------------------+
 void CloseAndDeleteAllEAOrdersOnTradingStop()
   {
+   Print(">>> [TRADING STOP ACTIVATED] Starting full emergency flattening of all EA orders & deleting all pending orders...");
 
-   Print("CloseAndDeleteAllEAOrdersOnTradingStop");
+   bool prevForceBudget = g_eqDdForceCloseBudget;
+   g_eqDdForceCloseBudget = true; // Bypass rate limiting and failure guards for emergency close
 
-   int freshPendingTickets[1000];
-   int freshPendingCount = 0;
-   for(int i=OrdersTotal()-1; i>=0; i--)
+   // Multiple passes to ensure complete closure even with high volatility / requotes
+   for(int pass = 0; pass < 3; pass++)
      {
-      if(!OrderSelect(i,SELECT_BY_POS,MODE_TRADES))
-         continue;
-      if(OrderSymbol()!=Symbol() || OrderMagicNumber()!=MagicNumber)
-         continue;
-      int type=OrderType();
-      if(type==OP_BUYSTOP || type==OP_SELLSTOP || type==OP_BUYLIMIT || type==OP_SELLLIMIT)
+      // 1. Delete all pending orders first so they don't trigger while closing market orders
+      for(int i = OrdersTotal() - 1; i >= 0; i--)
         {
-         if(freshPendingCount < 1000)
-            freshPendingTickets[freshPendingCount++]=OrderTicket();
+         if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
+            continue;
+         if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber)
+            continue;
+         int pType = OrderType();
+         if(pType == OP_BUYSTOP || pType == OP_SELLSTOP || pType == OP_BUYLIMIT || pType == OP_SELLLIMIT)
+           {
+            int pTicket = OrderTicket();
+            ResetLastError();
+            if(!SafeOrderDelete(pTicket, clrRed))
+              {
+               ResetLastError();
+               OrderDelete(pTicket, clrRed);
+              }
+           }
         }
-     }
-   int freshOpenTickets[1000];
-   int freshOpenCount=0;
-   for(int j=OrdersTotal()-1; j>=0; j--)
-     {
-      if(!OrderSelect(j,SELECT_BY_POS,MODE_TRADES))
-         continue;
-      if(OrderSymbol()!=Symbol() || OrderMagicNumber()!=MagicNumber)
-         continue;
-      int marketType=OrderType();
-      if(marketType==OP_BUY || marketType==OP_SELL)
+
+      // Also call ForceDeleteAllPendingOrders as secondary safety net
+      ForceDeleteAllPendingOrders();
+
+      // 2. Close all open market orders directly at MARKET
+      for(int j = OrdersTotal() - 1; j >= 0; j--)
         {
-         if(freshOpenCount < 1000)
-            freshOpenTickets[freshOpenCount++]=OrderTicket();
+         if(!OrderSelect(j, SELECT_BY_POS, MODE_TRADES))
+            continue;
+         if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber)
+            continue;
+         int mType = OrderType();
+         if(mType == OP_BUY || mType == OP_SELL)
+           {
+            int mTicket = OrderTicket();
+            double mLots = OrderLots();
+            color closeClr = (mType == OP_BUY ? clrRed : clrBlue);
+
+            // True market close via SafeOrderCloseMarket
+            bool closed = SafeOrderCloseMarket(mTicket, mLots, Slippage, closeClr);
+            if(!closed)
+              {
+               // Fallback direct OrderClose if SafeOrderCloseMarket failed
+               ResetLastError();
+               RefreshRates();
+               double closePrice = (mType == OP_BUY) ? Bid : Ask;
+               closePrice = NormalizeDouble(closePrice, Digits);
+               OrderClose(mTicket, mLots, closePrice, Slippage, closeClr);
+              }
+           }
         }
+
+      // Check remaining EA orders
+      int remaining = 0;
+      for(int k = OrdersTotal() - 1; k >= 0; k--)
+        {
+         if(!OrderSelect(k, SELECT_BY_POS, MODE_TRADES))
+            continue;
+         if(OrderSymbol() == Symbol() && OrderMagicNumber() == MagicNumber)
+            remaining++;
+        }
+      if(remaining == 0)
+         break;
+      Sleep(50);
      }
-   for(int k=0; k<freshOpenCount; k++)
-     {
-      int ticket=freshOpenTickets[k];
-      if(!OrderSelect(ticket,SELECT_BY_TICKET,MODE_TRADES))
-         continue;
-      if(OrderSymbol()!=Symbol() || OrderMagicNumber()!=MagicNumber)
-         continue;
-      int type=OrderType();
-      if(type!=OP_BUY && type!=OP_SELL)
-         continue;
-      double lots=OrderLots();
-      SafeOrderClose(ticket,lots,type,Slippage,(type==OP_BUY ? clrRed : clrBlue));
-     }
-   for(int p=0; p<freshPendingCount; p++)
-     {
-      int pendingTicket=freshPendingTickets[p];
-      if(!OrderSelect(pendingTicket,SELECT_BY_TICKET,MODE_TRADES))
-         continue;
-      if(OrderSymbol()!=Symbol() || OrderMagicNumber()!=MagicNumber)
-         continue;
-      int pendingType=OrderType();
-      if(pendingType!=OP_BUYSTOP && pendingType!=OP_SELLSTOP && pendingType!=OP_BUYLIMIT && pendingType!=OP_SELLLIMIT)
-         continue;
-      SafeOrderDelete(pendingTicket,clrRed);
-     }
+
+   g_eqDdForceCloseBudget = prevForceBudget;
+   InvalidateTotalEAOrdersCache();
+   InvalidateOrderCache();
   }
 
 //+------------------------------------------------------------------+
@@ -22913,7 +22947,7 @@ bool CloseAllEAOrdersForLadderReset()
       if(type!=OP_BUY && type!=OP_SELL)
          continue;
       double lots=OrderLots();
-      if(!SafeOrderClose(ticket,lots,type,Slippage,(type==OP_BUY ? clrRed : clrBlue)))
+      if(!SafeOrderCloseMarket(ticket,lots,Slippage,(type==OP_BUY ? clrRed : clrBlue)))
          anyRemaining=true;
      }
    for(int q=0; q<pendingCount; q++)
@@ -24164,7 +24198,7 @@ void CloseAllOrders()
       int orderType = OrderType();
       if(orderType == OP_BUY || orderType == OP_SELL)
         {
-         SafeOrderClose(OrderTicket(), OrderLots(), orderType, 3, (orderType == OP_BUY ? clrRed : clrBlue));
+         SafeOrderCloseMarket(OrderTicket(), OrderLots(), Slippage, (orderType == OP_BUY ? clrRed : clrBlue));
         }
      }
   }
