@@ -42,7 +42,7 @@ CheckBasketProfitClose  Total open basket profit
 */
 
 
-string glbVersion = "VMULTI-1218 Ladder Ratchet For Plan A C D";
+string glbVersion = "VMULTI-1219 Disable SecureOneDollar PartialClose01 CloseOrdersStep LowestEquityInc";
 
 int AccountMultiplierLOT = 1000;//400;//200;//500; ALWAYS multiples of 1000 is better for best results
 //balance multiplier 
@@ -58,7 +58,7 @@ double protectgapOnOrderclose=31;//30;//101;//1000;//303;//11111111111111
 
 
 //Chance 1
-double SecureOneDollarProfitPerOrder=5;//1.0*10; //1X set modify order at profit $1(any lot)
+double SecureOneDollarProfitPerOrder=0;//5*100;//1.0*10; // DISABLED: 1X set modify order at profit $1(any lot)
 double InpLadderStepExtraMoveRaw         = 25.0; // Extra raw BTC price move added to ladder thresholds (Level 1: $100 -> $125)
 double InpLadderStepExtraSLRaw           = 25.0; // Extra raw BTC price locked on ladder SL rungs (Level 1 SL = openPrice +/- 25)
 bool   InpEnableLadderSteepAngleExtraMove = true; // Proportional Ladder: Add extra profit movement on steep EMA angle (>= 4 deg)
@@ -66,7 +66,7 @@ double InpLadderSteepAngleExtraMoveRaw    = 5.0; // Extra profit movement for al
 double InpLadderSteepAngleThreshold       = 4.0;  // Minimum MathAbs(GlobalEmaAngle30) to trigger extra +$50 profit movement (4.0 deg)
 
 //chance 2
-int partialClose01in05IndividualPercentage=20;//10;//2*2;//per lot 0.01//if 0.05 close 0.01 at total profit of 20% means close 0.01 lot
+int partialClose01in05IndividualPercentage=0;//20;//10;//2*2;//per lot 0.01// DISABLED: individual order partial close percentage
 //int partialLossMultipler=10; //10 values 0.05 means $50 close 0.01 partial lot
 int partialLossMultipler=5;//5; //10 values 0.05 means $50 close 0.01 partial lot
 //50/5=10
@@ -74,7 +74,7 @@ int partialLossMultipler=5;//5; //10 values 0.05 means $50 close 0.01 partial lo
 // 45/3=15
 
 // ===== PARTIAL CLOSE & RUNNER PROTECTION SETTINGS =====
-bool   InpEnablePartialProfitClose        = true;  // Bank partial profit on high-volume positions
+bool   InpEnablePartialProfitClose        = false;//true;  // DISABLED: Bank partial profit on high-volume positions
 bool   InpEnableRunnerBreakevenProtection = true;  // Immediately lock remaining runner SL to Breakeven (+20 pts) on partial close
 double InpRunnerBreakevenBufferPoints     = 20.0;  // Breakeven profit buffer in points ($20 raw price gap)
 bool   InpEnablePartialLossCut            = true;//false; // Disabled by default: prevents chopping underwater orders into multi-step double losses
@@ -88,7 +88,7 @@ double FlipLadderStepUSD =10*10;//8;//0;//10;// 5;//10.0;//0 means nothing not w
 double modifyBasketProfitOrdersLotXPercent=50;//10.0;//20 % means 0.05 X 20 modify orders in basket $1 profit//work if basket is full profit mode
 
 //chance 5
-double CloseOrdersAtProfitFromOpeningBalanceEveryStep =5;//*10;//2;//0.4;//1;//3;//5;//10;//25;// 5;// 5X step close orders every step
+double CloseOrdersAtProfitFromOpeningBalanceEveryStep =0;//5;//*10;//2;//0.4;//1;//3;//5;//10;//25;// 5;// DISABLED: 5X step close orders every step
 double InpTargetEquityProfitTrailingGapUSD = 102.0; // Target Equity hit: Trailing SL gap for winning orders (Bid-102, Ask+102)
 double InpTargetEquityLossTighteningGapUSD = 20.0;  // Target Equity hit: Tight SL gap for losing orders (Bid-20, Ask+20)
 bool   InpPauseEquityProfitHitOnSingleWinningOrder = true; // Pause Equity Profit hit if only 1 order is open and moving in positive profit direction
@@ -97,7 +97,7 @@ bool   InpCloseLosingOrdersOnEquityTargetHit       = true; // When equity target
 
 //chage 55
 // double closeAllOrdersLowestEquityIncreasePercentage=20;
-double closeAllOrdersLowestEquityIncreasePercentage =20*10;//100//50;// 50.0;
+double closeAllOrdersLowestEquityIncreasePercentage =0;//20*10;//100//50;// 50.0; // DISABLED: close all orders on lowest equity increase
 // equity is going down and increased equity more than 50% even in loss then close all orders
 //$100 $50 to $75 close all orders - close one side orders if any
 
@@ -10108,7 +10108,7 @@ double CalculateProportionalLadderSL(int orderType, double openPrice, double ord
 //+------------------------------------------------------------------+
 void SecureOneDollarProfit()
   {
-   if(GetTotalEAOrders() <= 0)
+   if(SecureOneDollarProfitPerOrder <= 0.0 || GetTotalEAOrders() <= 0)
       return;
 
    double stopLevel = GetRequiredStopDistance();
@@ -10321,6 +10321,9 @@ void DrawTargetEquityHitCircle(datetime time, double price, double targetVal, in
 //+------------------------------------------------------------------+
 void Manage5PercentLadderReset()
   {
+   if(CloseOrdersAtProfitFromOpeningBalanceEveryStep <= 0.0)
+      return;
+
    double currentBalance = AccountBalance();
    double curEquity      = AccountEquity();
 
@@ -25256,7 +25259,7 @@ void ManagePartialCloses()
   {
 
 
-   if(!InpEnablePartialProfitClose)
+   if(!InpEnablePartialProfitClose || partialClose01in05IndividualPercentage <= 0)
       return;
 
    for(int i = OrdersTotal() - 1; i >= 0; i--)
