@@ -42,7 +42,7 @@ CheckBasketProfitClose  Total open basket profit
 */
 
 
-string glbVersion = "VMULTI-1216 Directional Precalculated ManagePartialClosesLoss";
+string glbVersion = "VMULTI-1217 50% bounce back with emaangle Precalculated ManagePartialClosesLoss";
 
 int AccountMultiplierLOT = 1000;//400;//200;//500; ALWAYS multiples of 1000 is better for best results
 //balance multiplier 
@@ -5658,6 +5658,9 @@ void Check50PctDrawdownReliefTightenSL()
   {
    if(!InpEnableDrawdownReliefTightenSL)
       return;
+      
+      if(MathAbs(GlobalEmaAngle30) < 5)
+       return;
 
    double balance = AccountBalance();
    double equity  = AccountEquity();
