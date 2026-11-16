@@ -42,9 +42,9 @@ CheckBasketProfitClose  Total open basket profit
 */
 
 
-string glbVersion = "VMULTI-1212 Hide Bid Ask Row On Right Dashboard";
+string glbVersion = "VMULTI-1216 Directional Precalculated ManagePartialClosesLoss";
 
-int AccountMultiplierLOT = 1001;//400;//200;//500;
+int AccountMultiplierLOT = 1000;//400;//200;//500; ALWAYS multiples of 1000 is better for best results
 //balance multiplier 
 
 double DailyEquityStopUSD          = 20;//20;//10;//50;//  $50 /10;//10%;//percentage //1000;//50;//20*2.5;//10;//20;// 10;//30.0; close all orders at $50Xmultipler
@@ -78,6 +78,8 @@ bool   InpEnablePartialProfitClose        = true;  // Bank partial profit on hig
 bool   InpEnableRunnerBreakevenProtection = true;  // Immediately lock remaining runner SL to Breakeven (+20 pts) on partial close
 double InpRunnerBreakevenBufferPoints     = 20.0;  // Breakeven profit buffer in points ($20 raw price gap)
 bool   InpEnablePartialLossCut            = true;//false; // Disabled by default: prevents chopping underwater orders into multi-step double losses
+double InpPartialLossSideThresholdUSD     = 50.0;  // Side floating loss threshold in USD ($50 * mult) before partial loss cuts are allowed
+double InpPartialLossMinEmaAngle          = 6.0;   // Minimum adverse EMA angle (> 6.0 deg) required to trigger partial loss cut
 
 //chance 3
 double FlipLadderStepUSD =10*10;//8;//0;//10;// 5;//10.0;//0 means nothing not work close all orders at $7Xmultipler
@@ -7292,12 +7294,12 @@ double InpDoubleSlGapMultiplier            = 2.0;   // Gap multiplier (default 2
 bool   InpEnableEmaAngleBreakevenBreathing = true;   // When MathAbs(EMAangle) > 4: allow extra -50 raw gap when SL is at openPrice
 double InpEmaAngleBreakevenBreathingAngle  = 4.0;    // Minimum MathAbs(EMAangle) threshold (default > 4.0)
 double InpEmaAngleBreakevenBreathingGapRaw = 50.0;   // Extra raw price gap based on order price (-50.0 raw gap)
-
+//50% relief-venu
 // USER RULE (VMULTI-1097): 50% Drawdown Relief StopLoss Tightening (Peak Drawdown >= $100)
-bool   InpEnableDrawdownReliefTightenSL   = false;  // Disabled: Tighten Losing Order SL on 50% Drawdown Relief (RLF)
-double InpDrawdownReliefMinPeakUSD        = 50;//100.0;  // Minimum peak drawdown in USD ($100 * mult) to qualify
+bool   InpEnableDrawdownReliefTightenSL   = true;//true;//false;//false;  // Disabled: Tighten Losing Order SL on 50% Drawdown Relief (RLF)
+double InpDrawdownReliefMinPeakUSD        = 200;//50;//100.0; GAP between accountbalance-equity // Minimum peak drawdown in USD ($100 * mult) to qualify
 double InpDrawdownReliefPercent           = 0.50;   // Drawdown reduction percentage from peak (50% = 0.50)
-double InpDrawdownReliefSLGapUSD          = 50.0;   // SL cushion in USD ($50) behind relief market price for losing orders (Bid - 50 / Ask + 50)
+double InpDrawdownReliefSLGapUSD          = 100;//50.0;   // SL cushion in USD ($50) behind relief market price for losing orders (Bid - 50 / Ask + 50)
 bool   InpDrawdownReliefModifyWinningOrders = true;   // Also modify winning orders during Drawdown Relief
 double InpDrawdownReliefWinningSLGapUSD     = 100.0;  // SL cushion in USD ($100) behind relief market price for winning orders (Bid - 100 / Ask + 100)
 double InpDrawdownReliefMinPriceDiff2Hours =0;// 1000;//0;//1000;//2000.0; // Minimum price difference in raw USD from last 2 hours (> $2000)
@@ -24849,15 +24851,20 @@ double GetTicketLastClosePrice(int ticket)
 //+------------------------------------------------------------------+
 void ManagePartialClosesLoss()
   {
+   double minAngle = (InpPartialLossMinEmaAngle > 0.0) ? InpPartialLossMinEmaAngle : 6.0;
+   if(MathAbs(GlobalEmaAngle30) < minAngle)
+      return;
 
+   int baseMult = (balancelomultipler > 0 ? balancelomultipler : 1);
+   double sideThresholdUSD = (InpPartialLossSideThresholdUSD > 0.0) ? InpPartialLossSideThresholdUSD : 50.0;
+   double sideLossThreshold = -(sideThresholdUSD * baseMult);
 
+   double buyOpenPL  = GetOpenPL(OP_BUY);
+   double sellOpenPL = GetOpenPL(OP_SELL);
 
-if( MathAbs( GlobalEmaAngle30)<6)
-{
-
-return ; 
-
-}
+   // Quick exit: If neither side has exceeded the basket loss threshold, exit early
+   if(buyOpenPL > sideLossThreshold && sellOpenPL > sideLossThreshold)
+      return;
 
    for(int i = OrdersTotal() - 1; i >= 0; i--)
      {
@@ -24873,13 +24880,27 @@ return ;
       if(orderType != OP_BUY && orderType != OP_SELL)
          continue;
 
+      // Side basket loss threshold & adverse trend direction check
+      if(orderType == OP_BUY)
+        {
+         // BUY basket floating loss must be worse than -$50*mult
+         if(buyOpenPL > sideLossThreshold)
+            continue;
 
-      //if(orderType == OP_BUY && GetOpenPL(OP_BUY)>-(50*balancelomultipler))
-        // continue;
+         // Trend must be moving AGAINST BUY position (downtrend: angle <= -minAngle)
+         if(GlobalEmaAngle30 > -minAngle)
+            continue;
+        }
+      else if(orderType == OP_SELL)
+        {
+         // SELL basket floating loss must be worse than -$50*mult
+         if(sellOpenPL > sideLossThreshold)
+            continue;
 
-
-      //if(orderType == OP_SELL && GetOpenPL(OP_SELL)>-(50*balancelomultipler))
-        // continue;
+         // Trend must be moving AGAINST SELL position (uptrend: angle >= +minAngle)
+         if(GlobalEmaAngle30 < minAngle)
+            continue;
+        }
 
       // Exclude recovery orders from regular scalp partial loss cuts
       if(IsAnyRecoveryOrder(OrderTicket(), OrderComment()))
