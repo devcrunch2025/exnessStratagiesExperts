@@ -42,7 +42,7 @@ CheckBasketProfitClose  Total open basket profit
 */
 
 
-string glbVersion = "VMULTI-1222 Universal Common Profit Ladder For All Lots";
+string glbVersion = "VMULTI-1223 Method 6 Partial LOT Combination Close";
 
 int AccountMultiplierLOT = 1000;//400;//200;//500; ALWAYS multiples of 1000 is better for best results
 //balance multiplier 
@@ -7354,6 +7354,9 @@ color  InpMethod6HitIconColor               = clrGold;// Method 6: Chart icon & 
 int    InpMethod6HitFontSize                = 10;     // Method 6: Chart icon text font size
 int    InpMethod6HitIconCode                = 159;    // Method 6: Chart icon Wingdings code (159=circle dot, 171=star, 251=check)
 void   DrawMethod6HitIcon(int orderCount, double comboProfit, datetime hitTime = 0, double hitPrice = 0.0);
+bool   InpMethod6EnablePartialLotCombination= true;   // Method 6: Allow partial LOT combination close when full combo cannot reach threshold
+bool   InpMethod6PartialCloseWinnerAtMarket = true;   // Method 6: Close winning order at market (true) or tighten SL to live price (false)
+double InpMethod6PartialMaxCutLots          = 0.0;    // Method 6: Max partial lots to cut from loser per trigger (0.0 = auto max safe)
 
 // Universal Trend-Aware StopLoss Modifier (Applies across all order modify methods)
 // User Rule:
@@ -7426,6 +7429,10 @@ string GetMethodDescription(int methodId, int orderCount, double netProfit = 0.0
 void   CheckAndDrawMultiOrderClosedIcons();
 void   CheckBasketProfitClose();
 void   ModifyMethod6MultiOrderCombinationsOver5USD();
+void   ExecuteMethod6PartialLotAction(int winIdx, int lossIdx, double partialLots, double partialLossUSD, double netProfitUSD,
+                                      int &candTickets[], int &candTypes[], double &candLots[],
+                                      double &candOpenPrices[], double &candTakeProfits[],
+                                      double &candProfits[], bool &isProcessed[]);
 void   CloseAllOpenBuyOrders(string reason = "");
 void   CloseAllOpenSellOrders(string reason = "");
 void   CloseProfitableOrderCombinations();
@@ -9118,6 +9125,158 @@ void ExecuteMethod6CombinationAction(int &comboIndices[], int comboCount, double
   }
 
 //+------------------------------------------------------------------+
+//| METHOD 6: Partial LOT Combination Action                         |
+//| Closes partial lot from losing order and either closes winner    |
+//| at market (default) or tightens winner SL to live price.         |
+//+------------------------------------------------------------------+
+void ExecuteMethod6PartialLotAction(int winIdx, int lossIdx, double partialLots, double partialLossUSD, double netProfitUSD,
+                                    int &candTickets[], int &candTypes[], double &candLots[],
+                                    double &candOpenPrices[], double &candTakeProfits[],
+                                    double &candProfits[], bool &isProcessed[])
+  {
+   int winTkt         = candTickets[winIdx];
+   int winType        = candTypes[winIdx];
+   double winLots     = candLots[winIdx];
+   double winOpen     = candOpenPrices[winIdx];
+   double winTP       = candTakeProfits[winIdx];
+   double winPL       = candProfits[winIdx];
+
+   int lossTkt        = candTickets[lossIdx];
+   int lossType       = candTypes[lossIdx];
+   double lossLots    = candLots[lossIdx];
+   double lossPL      = candProfits[lossIdx];
+
+   int m6Tkts[10];
+   double m6Pls[10];
+   ArrayInitialize(m6Tkts, 0);
+   ArrayInitialize(m6Pls, 0.0);
+   m6Tkts[0] = winTkt;
+   m6Pls[0]  = winPL;
+   m6Tkts[1] = lossTkt;
+   m6Pls[1]  = partialLossUSD;
+
+   string actionDesc = (InpMethod6PartialCloseWinnerAtMarket) ?
+                       "1) Close partial losing lot at market, 2) Close winning order at market" :
+                       "1) Close partial losing lot at market, 2) Modify winning order SL at live price";
+
+   RecordMethodActionCluster(6, m6Tkts, m6Pls, 2, netProfitUSD, actionDesc);
+
+   Print(">>> [METHOD 6 PARTIAL LOT TRIGGERED] Winner Ticket #", winTkt,
+         " (", (winType == OP_BUY ? "BUY " : "SELL "), DoubleToString(winLots, 2), "L, P/L=+$", DoubleToString(winPL, 2), ")",
+         " paired with Loser Ticket #", lossTkt,
+         " (", (lossType == OP_BUY ? "BUY " : "SELL "), DoubleToString(lossLots, 2), "L, Total Loss=-$", DoubleToString(MathAbs(lossPL), 2), ")",
+         " | Partial Cut = ", DoubleToString(partialLots, 2), "L (Loss=-$", DoubleToString(MathAbs(partialLossUSD), 2), ")",
+         " | Net Combo Profit = +$", DoubleToString(netProfitUSD, 2),
+         " >= Threshold $", DoubleToString(InpMethod6ProfitThresholdUSD, 2));
+
+   // 1. FIRST: Close partial lot of losing order at market
+   bool lossClosed = false;
+   double lossClosePrice = 0.0;
+   for(int attempt = 0; attempt < 3; attempt++)
+     {
+      RefreshRates();
+      lossClosePrice = (lossType == OP_BUY) ? Bid : Ask;
+      lossClosePrice = NormalizeDouble(lossClosePrice, Digits);
+      ResetLastError();
+      lossClosed = OrderClose(lossTkt, partialLots, lossClosePrice, Slippage, (lossType == OP_BUY ? clrRed : clrBlue));
+      if(lossClosed)
+         break;
+      int err = GetLastError();
+      Print("Method 6 Partial Close attempt ", (attempt + 1), " failed for Ticket #", lossTkt, " | Error=", err);
+      Sleep(100);
+     }
+
+   if(!lossClosed)
+     {
+      Print(">>> [METHOD 6 PARTIAL LOT ABORTED] Failed to close partial lot for Ticket #", lossTkt, ". Winner #", winTkt, " kept untouched.");
+      return;
+     }
+
+   RecordMethodModification(lossTkt, 6, 2, partialLossUSD);
+   Print(">>> [METHOD 6: PARTIAL LOSS CUT EXECUTED] Ticket #", lossTkt,
+         " closed ", DoubleToString(partialLots, 2), "L of ", DoubleToString(lossLots, 2), "L at ",
+         DoubleToString(lossClosePrice, Digits), " | Realized Loss = -$", DoubleToString(MathAbs(partialLossUSD), 2));
+
+   // 2. SECOND: Handle winning order
+   if(InpMethod6PartialCloseWinnerAtMarket)
+     {
+      bool winClosed = false;
+      double winClosePrice = 0.0;
+      for(int attempt = 0; attempt < 3; attempt++)
+        {
+         RefreshRates();
+         winClosePrice = (winType == OP_BUY) ? Bid : Ask;
+         winClosePrice = NormalizeDouble(winClosePrice, Digits);
+         ResetLastError();
+         winClosed = OrderClose(winTkt, winLots, winClosePrice, Slippage, (winType == OP_BUY ? clrLimeGreen : clrTomato));
+         if(winClosed)
+            break;
+         int err = GetLastError();
+         Print("Method 6 Winner Close attempt ", (attempt + 1), " failed for Ticket #", winTkt, " | Error=", err);
+         Sleep(100);
+        }
+
+      if(winClosed)
+        {
+         RecordMethodModification(winTkt, 6, 2, winPL);
+         Print(">>> [METHOD 6: WINNER CLOSED AT MARKET] Ticket #", winTkt,
+               " (", (winType == OP_BUY ? "BUY " : "SELL "), DoubleToString(winLots, 2), "L)",
+               " closed at ", DoubleToString(winClosePrice, Digits),
+               " | Realized Profit = +$", DoubleToString(winPL, 2),
+               " | Net Combo Realized = +$", DoubleToString(netProfitUSD, 2));
+        }
+      else
+        {
+         RefreshRates();
+         double curBid = MarketInfo(Symbol(), MODE_BID);
+         double curAsk = MarketInfo(Symbol(), MODE_ASK);
+         double minStopDist = GetRequiredStopDistance();
+         if(minStopDist < 20.0) minStopDist = 20.0;
+         double targetSL = (winType == OP_BUY) ? NormalizeDouble(curBid - minStopDist, Digits)
+                                               : NormalizeDouble(curAsk + minStopDist, Digits);
+         SafeOrderModify(winTkt, winOpen, targetSL, winTP, 0, (winType == OP_BUY ? clrLimeGreen : clrTomato), "Method 6 Fallback");
+        }
+     }
+   else
+     {
+      // Tighten StopLoss to Live Price (Classic Method 6 runner behavior)
+      RefreshRates();
+      double curBid = MarketInfo(Symbol(), MODE_BID);
+      double curAsk = MarketInfo(Symbol(), MODE_ASK);
+      double minStopDist = GetRequiredStopDistance();
+      if(minStopDist < 20.0) minStopDist = 20.0;
+      double targetSL = (winType == OP_BUY) ? NormalizeDouble(curBid - minStopDist, Digits)
+                                            : NormalizeDouble(curAsk + minStopDist, Digits);
+
+      double beFloorM6 = GetEmaAngleBreakevenBreathingSL(winType, winOpen, winOpen);
+      if(winType == OP_BUY && targetSL < beFloorM6)
+         targetSL = beFloorM6;
+      else if(winType == OP_SELL && targetSL > beFloorM6)
+         targetSL = beFloorM6;
+
+      if(targetSL > 0.0)
+        {
+         bool modified = SafeOrderModify(winTkt, winOpen, targetSL, winTP, 0, (winType == OP_BUY ? clrLimeGreen : clrTomato), "Method 6");
+         if(modified)
+           {
+            RecordMethodModification(winTkt, 6, 2, winPL);
+            Print(">>> [METHOD 6: WINNER SL LOCKED AT CURRENT PRICE] Ticket #", winTkt,
+                  " (", (winType == OP_BUY ? "BUY " : "SELL "), DoubleToString(winLots, 2), "L)",
+                  " | Profit=+$", DoubleToString(winPL, 2),
+                  " | Locked SL=", DoubleToString(targetSL, Digits));
+           }
+        }
+     }
+
+   isProcessed[winIdx]  = true;
+   isProcessed[lossIdx] = true;
+
+   double iconPrice = (winType == OP_BUY ? MarketInfo(Symbol(), MODE_BID) : MarketInfo(Symbol(), MODE_ASK));
+   DrawMethod6HitIcon(2, netProfitUSD, TimeCurrent(), iconPrice);
+   InvalidateTotalEAOrdersCache();
+  }
+
+//+------------------------------------------------------------------+
 //| ModifyMethod6MultiOrderCombinationsOver5USD                      |
 //+------------------------------------------------------------------+
 void ModifyMethod6MultiOrderCombinationsOver5USD()
@@ -9293,7 +9452,90 @@ void ModifyMethod6MultiOrderCombinationsOver5USD()
         }
      }
 
-// 4. ANY REMAINING PAIRS (e.g. 2 Wins >= threshold)
+// 4. PARTIAL LOT COMBINATION CHECK (Win + Partial Loss >= Threshold)
+// Allows pairing a winning order with a partial lot slice of a losing order
+// when the full losing order is too large to reach threshold.
+   if(InpMethod6EnablePartialLotCombination)
+     {
+      int searchLimitP = MathMin(candCount, 30);
+      for(int i = 0; i < searchLimitP; i++)
+        {
+         if(isProcessed[i])
+            continue;
+         if(candProfits[i] < threshold)
+            continue; // Must be in profit at least reaching base threshold
+
+         double winPL = candProfits[i];
+         int bestLossIdx = -1;
+         double bestCutLots = 0.0;
+         double bestPartialLoss = 0.0;
+         double bestNetProfit = 0.0;
+
+         for(int j = 0; j < searchLimitP; j++)
+           {
+            if(i == j || isProcessed[j])
+               continue;
+            if(candProfits[j] >= 0.0)
+               continue; // Target must be losing order
+
+            double lossTotalLots = candLots[j];
+            if(lossTotalLots <= 0.01)
+               continue; // Cannot partially close 0.01 lots in MT4
+
+            double lossPL = candProfits[j];
+            double absLoss = MathAbs(lossPL);
+            if(absLoss <= 0.0001)
+               continue;
+
+            double lossPerLot = absLoss / lossTotalLots;
+            if(lossPerLot <= 0.0)
+               continue;
+
+            double maxAbsorbableLoss = winPL - threshold;
+            if(maxAbsorbableLoss <= 0.0)
+               continue;
+
+            double maxLotsToCut = maxAbsorbableLoss / lossPerLot;
+            double pLots = MathFloor((maxLotsToCut + 0.00001) / 0.01) * 0.01;
+            pLots = NormalizeDouble(pLots, 2);
+
+            // Ensure remaining lot is at least 0.01 (partial cut only)
+            double maxAllowedCut = NormalizeDouble(lossTotalLots - 0.01, 2);
+            if(pLots > maxAllowedCut)
+               pLots = maxAllowedCut;
+
+            // Apply user cap if specified
+            if(InpMethod6PartialMaxCutLots > 0.0 && pLots > InpMethod6PartialMaxCutLots)
+               pLots = NormalizeDouble(InpMethod6PartialMaxCutLots, 2);
+
+            if(pLots < 0.01)
+               continue;
+
+            double pLossUSD = -1.0 * NormalizeDouble(lossPerLot * pLots, 2);
+            double nProfitUSD = NormalizeDouble(winPL + pLossUSD, 2);
+
+            if(nProfitUSD >= threshold)
+              {
+               if(pLots > bestCutLots || (pLots == bestCutLots && MathAbs(pLossUSD) > MathAbs(bestPartialLoss)))
+                 {
+                  bestCutLots     = pLots;
+                  bestLossIdx     = j;
+                  bestPartialLoss = pLossUSD;
+                  bestNetProfit   = nProfitUSD;
+                 }
+              }
+           }
+
+         if(bestLossIdx >= 0 && bestCutLots >= 0.01)
+           {
+            ExecuteMethod6PartialLotAction(i, bestLossIdx, bestCutLots, bestPartialLoss, bestNetProfit,
+                                           candTickets, candTypes, candLots, candOpenPrices,
+                                           candTakeProfits, candProfits, isProcessed);
+           }
+        }
+     }
+
+// 5. ANY REMAINING PAIRS (e.g. 2 Wins >= threshold)
    if(minOrders <= 2)
      {
       int searchLimit2 = MathMin(candCount, 30);
@@ -9320,7 +9562,7 @@ void ModifyMethod6MultiOrderCombinationsOver5USD()
         }
      }
 
-// 5. ANY REMAINING TRIPLETS (e.g. 3 Wins >= threshold)
+// 6. ANY REMAINING TRIPLETS (e.g. 3 Wins >= threshold)
    for(int i = 0; i < searchLimit3 - 2; i++)
      {
       if(isProcessed[i])
@@ -9351,7 +9593,7 @@ void ModifyMethod6MultiOrderCombinationsOver5USD()
         }
      }
 
-// 6. TOTAL BASKET CHECK (All remaining un-processed open orders)
+// 7. TOTAL BASKET CHECK (All remaining un-processed open orders)
    int remainingCount = 0;
    double totalBasketPL = 0.0;
    int basketIndices[MAX_M6_ORDERS];
