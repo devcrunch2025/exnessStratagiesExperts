@@ -42,7 +42,7 @@ CheckBasketProfitClose  Total open basket profit
 */
 
 
-string glbVersion = "VMULTI-1226 Method 6 Pending ReEntry On Profit Close When Zero Open";
+string glbVersion = "VMULTI-1227 Method 6 Enforce Loser First Atomic Close With Retries";
 
 int AccountMultiplierLOT = 1000;//400;//200;//500; ALWAYS multiples of 1000 is better for best results
 //balance multiplier 
@@ -9050,7 +9050,8 @@ void ExecuteMethod6CombinationAction(int &comboIndices[], int comboCount, double
    Print(">>> [METHOD 6 TRIGGERED] Combination of ", comboCount, " orders hit Profit = $", DoubleToString(comboSum, 2),
          " >= Threshold. Executing Action: 1) Close losing orders at market, 2) Modify profit orders with SL at current price.");
 
-// 1. FIRST: Close losing orders at market
+// 1. FIRST: Close losing orders at market (Enforce losers closed first with atomic abort)
+   bool allLosersClosed = true;
    for(int c = 0; c < comboCount; c++)
      {
       int idx = comboIndices[c];
@@ -9058,7 +9059,7 @@ void ExecuteMethod6CombinationAction(int &comboIndices[], int comboCount, double
         {
          int tkt = candTickets[idx];
          double lossUSD = candProfits[idx];
-         Print(">>> [METHOD 6: CLOSING LOSING ORDER] Ticket #", tkt,
+         Print(">>> [METHOD 6: CLOSING LOSING ORDER FIRST] Ticket #", tkt,
                " (", (candTypes[idx] == OP_BUY ? "BUY " : "SELL "), DoubleToString(candLots[idx], 2), "L)",
                " | Loss=-$", DoubleToString(MathAbs(lossUSD), 2),
                " closed at market as part of +$", DoubleToString(comboSum, 2), " combination!");
@@ -9066,9 +9067,21 @@ void ExecuteMethod6CombinationAction(int &comboIndices[], int comboCount, double
          if(CloseMarketOrderDirect(tkt))
            {
             RecordMethodModification(tkt, 6, comboCount, lossUSD);
+            isProcessed[idx] = true;
            }
-         isProcessed[idx] = true;
+         else
+           {
+            Print(">>> [METHOD 6 ERROR] Failed to close losing order Ticket #", tkt, ". Aborting combination to protect winners!");
+            allLosersClosed = false;
+            break;
+           }
         }
+     }
+
+   if(!allLosersClosed)
+     {
+      Print(">>> [METHOD 6 ABORTED] Not all losing orders were closed. Winning orders kept untouched.");
+      return;
      }
 
 // 2. SECOND: Modify winning orders with StopLoss at Current Price
@@ -9765,7 +9778,7 @@ void ModifyMethod6MultiOrderCombinationsOver5USD()
   }
 
 //+------------------------------------------------------------------+
-//| Modify SL to live price with $50 gap or close on server error    |
+//| Direct market close with 3-attempt retries for combinations      |
 //+------------------------------------------------------------------+
 bool CloseMarketOrderDirect(int ticket)
   {
@@ -9778,8 +9791,19 @@ bool CloseMarketOrderDirect(int ticket)
 
    double lots = OrderLots();
 
-// Direct market close to bank net combination profit
-   return SafeOrderCloseMarket(ticket, lots, Slippage, (type == OP_BUY ? clrRed : clrBlue));
+   bool closed = false;
+   for(int attempt = 0; attempt < 3; attempt++)
+     {
+      RefreshRates();
+      ResetLastError();
+      closed = SafeOrderCloseMarket(ticket, lots, Slippage, (type == OP_BUY ? clrRed : clrBlue));
+      if(closed)
+         return true;
+      int err = GetLastError();
+      Print("CloseMarketOrderDirect attempt ", (attempt + 1), " failed for Ticket #", ticket, " | Error=", err);
+      Sleep(100);
+     }
+   return false;
   }
 
 //+------------------------------------------------------------------+
