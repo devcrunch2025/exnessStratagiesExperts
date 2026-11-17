@@ -42,7 +42,7 @@ CheckBasketProfitClose  Total open basket profit
 */
 
 
-string glbVersion = "VMULTI-1242- Fast Tester Pause Mode Throttle Top Dubai Gap Box";
+string glbVersion = "VMULTI-1243- Priority 1 Method 6 Combo Close Priority 2 Profit Ladder";
 
 int AccountMultiplierLOT = 1000;//400;//200;//500; ALWAYS multiples of 1000 is better for best results
 //balance multiplier 
@@ -794,6 +794,7 @@ int MagicNumber = 6600123;
 int MaxTradeRequestsPerTick = 10;
 int TradeRequestsThisTick = 0;
 int  CurrentTickSequence = 0;
+int  g_lastMethod6ActionTick = -1;
 int  g_onTickSequence = 0;
 bool g_eqDdForceCloseBudget = false;
 int CachedTotalEAOrders = -1;
@@ -9221,6 +9222,7 @@ void ExecuteMethod6CombinationAction(int &comboIndices[], int comboCount, double
 // Draw chart icon
    double iconPrice = (candTypes[comboIndices[0]] == OP_BUY ? MarketInfo(Symbol(), MODE_BID) : MarketInfo(Symbol(), MODE_ASK));
    DrawMethod6HitIcon(comboCount, comboSum, TimeCurrent(), iconPrice);
+   g_lastMethod6ActionTick = CurrentTickSequence;
    InvalidateTotalEAOrdersCache();
   }
 
@@ -9546,6 +9548,7 @@ void ExecuteMethod6PartialLotAction(int winIdx, int lossIdx, double partialLots,
 
    double iconPrice = (winType == OP_BUY ? MarketInfo(Symbol(), MODE_BID) : MarketInfo(Symbol(), MODE_ASK));
    DrawMethod6HitIcon(2, netProfitUSD, TimeCurrent(), iconPrice);
+   g_lastMethod6ActionTick = CurrentTickSequence;
    InvalidateTotalEAOrdersCache();
   }
 
@@ -12358,6 +12361,7 @@ void ResetAllRuntimeVariablesOnFreshStart()
    CachedTotalEAOrders          = -1;
    CachedTotalEAOrdersTick      = -1;
    CurrentTickSequence          = 0;
+   g_lastMethod6ActionTick      = -1;
    g_onTickSequence             = 0;
    TradeOperationFailedThisTick = false;
    TradeRequestsThisTick        = 0;
@@ -13421,7 +13425,11 @@ MinimumSLModifyGapRaw=10;//
    // balancelomultipler is fixed per session/day to prevent floating drawdown truncation
 
 
-   SecureOneDollarProfit();
+   // Priority #1 (VMULTI-1243): Method 6 Multi-Order Combination Close / Release
+   ModifyMethod6MultiOrderCombinationsOver5USD();
+   // Priority #2: Individual Order Profit Ladder (All Lots + Level 1+ Half-Close)
+   if(g_lastMethod6ActionTick != CurrentTickSequence)
+      SecureOneDollarProfit();
    CheckEmaFlipHalfDistancePartialLossCut();
    CheckMaxLossCap001Lots();
    Check90PctSLAdversePartialCutAndDoubleSL();
@@ -13501,7 +13509,7 @@ if((MathAbs(GlobalEmaAngle30)<=3 && EMADirection==1  ) || MathAbs(GlobalEmaAngle
    OnTickPerformanceEnd(tickStartMs);
 
    ModifyPairProfitWithStopLoss(); // Method 1: Multi-order pair/triplet SL modifier (> $1*mult, $150 SL gap)
-   ModifyMethod6MultiOrderCombinationsOver5USD(); // Method 6: Multi-order combinations (> 2 orders, profit/loss mix) > $5 SL modifier ($150 SL gap)
+   // ModifyMethod6MultiOrderCombinationsOver5USD(); // Moved to Priority #1 before SecureOneDollarProfit() (VMULTI-1243)
    CheckAndDrawMultiOrderClosedIcons(); // Multi-order closed icons (+2, +3, +4...) for all 6 methods
    ProcessMethodAnalyticsTracker(); // Track released profit for all methods
 
