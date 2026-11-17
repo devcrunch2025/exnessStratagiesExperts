@@ -42,7 +42,7 @@ CheckBasketProfitClose  Total open basket profit
 */
 
 
-string glbVersion = "VMULTI-1229 Method 6 Two Step Opp and Same Plan A Full Plan B Partial";
+string glbVersion = "VMULTI-1230- FINAL Close Order partialy loosing orders";
 
 int AccountMultiplierLOT = 1000;//400;//200;//500; ALWAYS multiples of 1000 is better for best results
 //balance multiplier 
