@@ -42,7 +42,7 @@ CheckBasketProfitClose  Total open basket profit
 */
 
 
-string glbVersion = "VMULTI-1236- Separate Gap Content Box Next To Dubai Time";
+string glbVersion = "VMULTI-1237- Remove Hard Ceiling 500 On Same Order Gap";
 
 int AccountMultiplierLOT = 1000;//400;//200;//500; ALWAYS multiples of 1000 is better for best results
 //balance multiplier 
@@ -507,7 +507,7 @@ double InpBoundaryFloorPercent             = 35.0;   // Below 35% of box: BUY bi
 // Adaptive Grid Gap Scaling (R / 8)
 bool   InpEnableAdaptiveGridGap            = true;   // Dynamically scale base order gap to range width (R / 8)
 double InpAdaptiveGridGapMin               = 40.0;   // Minimum adaptive order gap ( in tight ranges)
-double InpAdaptiveGridGapMax               = 200.0;  // Maximum adaptive order gap ( in wide ranges)
+double InpAdaptiveGridGapMax               =  200.0;  // Maximum adaptive order gap ( in wide ranges)
 
 // Dynamic Basket Profit Harvest
 double InpTightRangeTargetUSD              = 1.0;    // Basket profit target in tight compression (.00)
@@ -701,7 +701,6 @@ double SSLLongShortPendingGapRaw = 20.0; // Raw price gap ($20) for SSL Long / S
 // double MinimumSameOrderGapRawSSLLongShort =50;// 50;
 double MinimumSameOrderGapRawMatched =50;//30;//50;//100;//50;//30;//10;//20;//50;//20;// 50;//SSL long //SSL short
 double MinimumSameOrderGapRawUnmatched =50;//10;//10;//20;// 100;
-double InpMaxSameOrderGapRaw          = 500.0; // USER RULE (VMULTI-1233): Maximum same order gap in USD across all calculations (Caps required gap to $500 max)
 
 bool EnableReEntryNOnMatchingSignal=true;
 
@@ -7368,7 +7367,7 @@ bool   InpMethod6CreatePendingOnWinnerClose = true;   // Method 6: Create new pe
 bool   InpMethod6CloseWinnerAtMarket        = false;  // Method 6 full combo: false = modify SL to live price; true = close winner at market
 bool   InpMethod6PrioritizeOppositeLosers   = true;   // Method 6: 1st Priority = Close opposite-type losers, 2nd Priority = Close same-type losers
 double InpMethod6PartialMaxCutLots          = 0.0;    // Method 6: Max partial lots to cut from loser per trigger (0.0 = auto max safe)
-double InpMethod6LowAngleThresholdUSD       = 2.0;    // Method 6: Profit threshold when MathAbs(EMA Angle) < 4 deg ($2.00 * multiplier)
+double InpMethod6LowAngleThresholdUSD       = 10;//2.0;    // Method 6: Profit threshold when MathAbs(EMA Angle) < 4 deg ($2.00 * multiplier)
 double InpMethod6LowAngleEmaDegrees         = 4.0;    // Method 6: Dynamic EMA angle boundary in degrees (default 4.0)
 
 // Universal Trend-Aware StopLoss Modifier (Applies across all order modify methods)
@@ -14280,11 +14279,6 @@ void ManageEmaAngleOppositeClose()
 //+------------------------------------------------------------------+
 bool HasMinimumSameOrderGap(int orderType, double minimumGapRaw, double proposedEntryPrice = 0.0)
   {
-   // USER RULE (VMULTI-1233): Any calculation maximum same order gap is $500 raw price gap
-   double maxCap = (InpMaxSameOrderGapRaw > 0.0) ? InpMaxSameOrderGapRaw : 500.0;
-   if(minimumGapRaw > maxCap)
-      minimumGapRaw = maxCap;
-
    RefreshRates();
    bool isBuy = (orderType == OP_BUY || orderType == OP_BUYSTOP || orderType == OP_BUYLIMIT);
    double checkPrice = proposedEntryPrice;
@@ -20317,8 +20311,7 @@ double GetDynamicOrderGapDetails(int orderType, double &rawGapBeforeCap, string 
               }
             rawGapBeforeCap = reducedGap;
             reasonStr = "Aging Halved";
-            double maxCap = (InpMaxSameOrderGapRaw > 0.0) ? InpMaxSameOrderGapRaw : 500.0;
-            return (rawGapBeforeCap > maxCap) ? maxCap : rawGapBeforeCap;
+            return reducedGap;
            }
         }
      }
@@ -20390,11 +20383,6 @@ double GetDynamicOrderGapDetails(int orderType, double &rawGapBeforeCap, string 
       reasonStr = "SSL Matched";
    else
       reasonStr = "Unmatched Fallback";
-
-   // USER RULE (VMULTI-1233): Maximum same order gap is $500 raw price gap
-   double maxCap = (InpMaxSameOrderGapRaw > 0.0) ? InpMaxSameOrderGapRaw : 500.0;
-   if(resultGap > maxCap)
-      resultGap = maxCap;
 
    return resultGap;
   }
@@ -28512,39 +28500,17 @@ void UpdateTopCenterDubaiTimeDisplay()
    double finalBuy  = GetDynamicOrderGapDetails(OP_BUY, rawBuy, reasonBuy, false);
    double finalSell = GetDynamicOrderGapDetails(OP_SELL, rawSell, reasonSell, false);
 
-   // USER RULE: Display format e.g. "REQUIRED GAP : $1600 then set to $500" if capped
-   string buyGapStr = "";
-   color  buyGapColor = clrWhite;
-   if(rawBuy > finalBuy)
-     {
-      buyGapStr = StringFormat("REQUIRED GAP BUY : $%.0f then set to $%.0f (%s)", rawBuy, finalBuy, reasonBuy);
-      buyGapColor = clrGold;
-     }
-   else
-     {
-      buyGapStr = StringFormat("REQUIRED GAP BUY : $%.0f (%s)", finalBuy, reasonBuy);
-      buyGapColor = C'180,240,180';
-     }
+   string buyGapStr   = StringFormat("REQUIRED GAP BUY : $%.0f (%s)", finalBuy, reasonBuy);
+   color  buyGapColor = (finalBuy >= 500.0) ? clrGold : C'180,240,180';
 
-   string sellGapStr = "";
-   color  sellGapColor = clrWhite;
-   if(rawSell > finalSell)
-     {
-      sellGapStr = StringFormat("REQUIRED GAP SELL: $%.0f then set to $%.0f (%s)", rawSell, finalSell, reasonSell);
-      sellGapColor = clrGold;
-     }
-   else
-     {
-      sellGapStr = StringFormat("REQUIRED GAP SELL: $%.0f (%s)", finalSell, reasonSell);
-      sellGapColor = C'180,240,180';
-     }
+   string sellGapStr   = StringFormat("REQUIRED GAP SELL: $%.0f (%s)", finalSell, reasonSell);
+   color  sellGapColor = (finalSell >= 500.0) ? clrGold : C'180,240,180';
 
-   string gapTooltip = StringFormat("REQUIRED SAME ORDER GAP (Max Cap: $%.0f):\n" +
-                                    "BUY : Raw $%.2f -> Req $%.2f (%s)\n" +
-                                    "SELL: Raw $%.2f -> Req $%.2f (%s)",
-                                    InpMaxSameOrderGapRaw,
-                                    rawBuy, finalBuy, reasonBuy,
-                                    rawSell, finalSell, reasonSell);
+   string gapTooltip = StringFormat("REQUIRED SAME ORDER GAP:\n" +
+                                    "BUY : Req $%.2f (%s)\n" +
+                                    "SELL: Req $%.2f (%s)",
+                                    finalBuy, reasonBuy,
+                                    finalSell, reasonSell);
    ObjectSetString(0, gapPnlName, OBJPROP_TOOLTIP, gapTooltip);
 
    // Remove any legacy labels that were inside the Dubai panel
