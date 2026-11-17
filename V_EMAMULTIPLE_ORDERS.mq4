@@ -42,7 +42,7 @@ CheckBasketProfitClose  Total open basket profit
 */
 
 
-string glbVersion = "VMULTI-1239- Steep Angle Ladder Option B Half Close Every Level 2+";
+string glbVersion = "VMULTI-1240- Steep Angle Ladder Half Close Every Level From Level 1+";
 
 int AccountMultiplierLOT = 1000;//400;//200;//500; ALWAYS multiples of 1000 is better for best results
 //balance multiplier 
@@ -63,8 +63,8 @@ double InpLadderStepExtraMoveRaw         = 25.0; // Extra raw BTC price move add
 double InpLadderStepExtraSLRaw           = 25.0; // Initial raw BTC price locked on Level 1 SL (openPrice +/- 25)
 double InpLadderStepIncrementRaw         = 50.0; // Next every step move and SL lock increment ($50 raw price gap)
 double InpLadderSteepAngleThreshold       = 4.0;  // Minimum MathAbs(GlobalEmaAngle30) for steep trend ($125 trigger move)
-bool   InpEnableSteepAngleLadderHalfClose = true; // Option B: When |EMA Angle| >= 4, half-close order (>0.01L) after every ladder SL modify from Level 2+
-int    InpSteepAngleLadderHalfCloseStartLevel = 2; // Starting ladder level for steep-angle half-close (2 = Level 2+; Level 1 stays full lot)
+bool   InpEnableSteepAngleLadderHalfClose = true; // When |EMA Angle| >= 4, half-close order (>0.01L) after every ladder SL modify from Level 1+
+int    InpSteepAngleLadderHalfCloseStartLevel = 1; // Starting ladder level for steep-angle half-close (1 = Level 1+)
 
 //chance 2
 int partialClose01in05IndividualPercentage=0;//20;//10;//2*2;//per lot 0.01// DISABLED: individual order partial close percentage
@@ -10873,7 +10873,7 @@ void SecureOneDollarProfit()
                      " | P/L=$", DoubleToString(curPL, 2), " >= $", DoubleToString(minProfitUSD, 2),
                      " | New SL=", DoubleToString(actualSL, Digits));
 
-               // USER RULE (VMULTI-1239): Option B - When |EMA Angle| >= 4, half-close order (>0.01L) after every ladder SL modify from Level 2+
+               // USER RULE (VMULTI-1240): When |EMA Angle| >= 4, half-close order (>0.01L) after every ladder SL modify from Level 1+
                if(InpEnableSteepAngleLadderHalfClose && ladderLevel >= InpSteepAngleLadderHalfCloseStartLevel)
                  {
                   double curAngleLadder = (GlobalEmaAngle30 != 0.0) ? GlobalEmaAngle30 : GetEmaAngleDegrees(30);
