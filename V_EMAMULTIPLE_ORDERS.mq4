@@ -42,7 +42,7 @@ CheckBasketProfitClose  Total open basket profit
 */
 
 
-string glbVersion = "VMULTI-1230- FINAL Close Order partialy loosing orders";
+string glbVersion = "VMULTI-1231- Method 6 Same Type Both Profit Full Threshold 5 USD";
 
 int AccountMultiplierLOT = 1000;//400;//200;//500; ALWAYS multiples of 1000 is better for best results
 //balance multiplier 
@@ -78,7 +78,7 @@ bool   InpEnableRunnerBreakevenProtection = true;  // Immediately lock remaining
 double InpRunnerBreakevenBufferPoints     = 20.0;  // Breakeven profit buffer in points ($20 raw price gap)
 bool   InpEnablePartialLossCut            = true;//false; // Disabled by default: prevents chopping underwater orders into multi-step double losses
 double InpPartialLossSideThresholdUSD     = 50.0;  // Side floating loss threshold in USD ($50 * mult) before partial loss cuts are allowed
-double InpPartialLossMinEmaAngle          = 6.0;   // Minimum adverse EMA angle (> 6.0 deg) required to trigger partial loss cut
+double InpPartialLossMinEmaAngle          = 4.0;   // Minimum adverse EMA angle (> 6.0 deg) required to trigger partial loss cut
 
 //chance 3
 double FlipLadderStepUSD =10*10;//8;//0;//10;// 5;//10.0;//0 means nothing not work close all orders at $7Xmultipler
@@ -9615,6 +9615,9 @@ void ModifyMethod6MultiOrderCombinationsOver5USD()
    if(baseThreshold <= 0.0)
       baseThreshold = 2.0;
    double threshold = baseThreshold * mult;
+   double fullThreshold = InpMethod6ProfitThresholdUSD * mult;
+   if(fullThreshold <= 0.0)
+      fullThreshold = 5.0 * mult;
    int minOrders = (InpMethod6MinOrderCount >= 2) ? InpMethod6MinOrderCount : 2;
 
    for(int i = OrdersTotal() - 1; i >= 0 && candCount < MAX_M6_ORDERS; i--)
@@ -9927,8 +9930,12 @@ void ModifyMethod6MultiOrderCombinationsOver5USD()
             if(isProcessed[j])
                continue;
 
+            // USER RULE: Same Type (Both Profit) -> use full InpMethod6ProfitThresholdUSD ($5 * mult), not $2
+            bool isSameTypeBothProfit = (candTypes[i] == candTypes[j] && candProfits[i] >= 0.0 && candProfits[j] >= 0.0);
+            double reqThreshold = isSameTypeBothProfit ? fullThreshold : threshold;
+
             double sum2 = candProfits[i] + candProfits[j];
-            if(sum2 >= threshold)
+            if(sum2 >= reqThreshold)
               {
                int combo[2];
                combo[0] = i;
@@ -9955,8 +9962,13 @@ void ModifyMethod6MultiOrderCombinationsOver5USD()
             if(isProcessed[k])
                continue;
 
+            // USER RULE: Same Type (All Profit) -> use full InpMethod6ProfitThresholdUSD ($5 * mult), not $2
+            bool isSameTypeAllProfit = (candTypes[i] == candTypes[j] && candTypes[j] == candTypes[k] &&
+                                        candProfits[i] >= 0.0 && candProfits[j] >= 0.0 && candProfits[k] >= 0.0);
+            double reqThreshold = isSameTypeAllProfit ? fullThreshold : threshold;
+
             double sum3 = candProfits[i] + candProfits[j] + candProfits[k];
-            if(sum3 >= threshold)
+            if(sum3 >= reqThreshold)
               {
                int combo[3];
                combo[0] = i;
@@ -9976,17 +9988,27 @@ void ModifyMethod6MultiOrderCombinationsOver5USD()
    int remainingCount = 0;
    double totalBasketPL = 0.0;
    int basketIndices[MAX_M6_ORDERS];
+   bool basketAllSameTypeProfit = true;
+   int firstType = -1;
    for(int b = 0; b < candCount; b++)
      {
       if(!isProcessed[b])
         {
          basketIndices[remainingCount] = b;
          totalBasketPL += candProfits[b];
+         if(candProfits[b] < 0.0)
+            basketAllSameTypeProfit = false;
+         if(firstType < 0)
+            firstType = candTypes[b];
+         else if(candTypes[b] != firstType)
+            basketAllSameTypeProfit = false;
          remainingCount++;
         }
      }
 
-   if(remainingCount >= minOrders && totalBasketPL >= threshold)
+   // USER RULE: Same Type (All Profit) -> use full InpMethod6ProfitThresholdUSD ($5 * mult), not $2
+   double reqBasketThreshold = (remainingCount >= 2 && basketAllSameTypeProfit) ? fullThreshold : threshold;
+   if(remainingCount >= minOrders && totalBasketPL >= reqBasketThreshold)
      {
       ExecuteMethod6CombinationAction(basketIndices, remainingCount, totalBasketPL, candTickets, candTypes, candLots,
                                       candOpenPrices, candTakeProfits, candProfits, isProcessed);
