@@ -42,7 +42,7 @@ CheckBasketProfitClose  Total open basket profit
 */
 
 
-string glbVersion = "VMULTI-1228 Method 6 Prioritize Opposite Losers Over Same Type";
+string glbVersion = "VMULTI-1229 Method 6 Two Step Opp and Same Plan A Full Plan B Partial";
 
 int AccountMultiplierLOT = 1000;//400;//200;//500; ALWAYS multiples of 1000 is better for best results
 //balance multiplier 
@@ -7435,6 +7435,10 @@ void   CheckAndDrawMultiOrderClosedIcons();
 void   CheckBasketProfitClose();
 void   ModifyMethod6MultiOrderCombinationsOver5USD();
 void   CreateMethod6PendingOrderAfterClose(int winType);
+void   ExecuteMethod6PartialLotSearch(bool targetOpposite, double threshold, int candCount,
+                                      int &candTickets[], int &candTypes[], double &candLots[],
+                                      double &candOpenPrices[], double &candTakeProfits[],
+                                      double &candProfits[], bool &isProcessed[]);
 void   ExecuteMethod6PartialLotAction(int winIdx, int lossIdx, double partialLots, double partialLossUSD, double netProfitUSD,
                                       int &candTickets[], int &candTypes[], double &candLots[],
                                       double &candOpenPrices[], double &candTakeProfits[],
@@ -9480,6 +9484,104 @@ void ExecuteMethod6PartialLotAction(int winIdx, int lossIdx, double partialLots,
   }
 
 //+------------------------------------------------------------------+
+//| METHOD 6: Partial Lot Slice Search Helper                        |
+//| targetOpposite = true  -> search strictly for OPPOSITE losers    |
+//| targetOpposite = false -> search strictly for SAME-TYPE losers   |
+//+------------------------------------------------------------------+
+void ExecuteMethod6PartialLotSearch(bool targetOpposite, double threshold, int candCount,
+                                    int &candTickets[], int &candTypes[], double &candLots[],
+                                    double &candOpenPrices[], double &candTakeProfits[],
+                                    double &candProfits[], bool &isProcessed[])
+  {
+   if(!InpMethod6EnablePartialLotCombination)
+      return;
+
+   int searchLimitP = MathMin(candCount, 30);
+   for(int i = 0; i < searchLimitP; i++)
+     {
+      if(isProcessed[i])
+         continue;
+      if(candProfits[i] < threshold)
+         continue; // Must be in profit at least reaching base threshold
+
+      double winPL = candProfits[i];
+      int bestLossIdx = -1;
+      double bestCutLots = 0.0;
+      double bestPartialLoss = 0.0;
+      double bestNetProfit = 0.0;
+
+      for(int j = 0; j < searchLimitP; j++)
+        {
+         if(i == j || isProcessed[j])
+            continue;
+         if(candProfits[j] >= 0.0)
+            continue; // Target must be losing order
+
+         // Filter by opposite vs same order type
+         bool isOpp = (candTypes[j] != candTypes[i]);
+         if(targetOpposite && !isOpp)
+            continue; // Looking strictly for OPPOSITE losers
+         if(!targetOpposite && isOpp)
+            continue; // Looking strictly for SAME-TYPE losers
+
+         double lossTotalLots = candLots[j];
+         if(lossTotalLots <= 0.01)
+            continue; // Cannot partially close 0.01 lots in MT4
+
+         double lossPL = candProfits[j];
+         double absLoss = MathAbs(lossPL);
+         if(absLoss <= 0.0001)
+            continue;
+
+         double lossPerLot = absLoss / lossTotalLots;
+         if(lossPerLot <= 0.0)
+            continue;
+
+         double maxAbsorbableLoss = winPL - threshold;
+         if(maxAbsorbableLoss <= 0.0)
+            continue;
+
+         double maxLotsToCut = maxAbsorbableLoss / lossPerLot;
+         double pLots = MathFloor((maxLotsToCut + 0.00001) / 0.01) * 0.01;
+         pLots = NormalizeDouble(pLots, 2);
+
+         // Ensure remaining lot is at least 0.01 (partial cut only)
+         double maxAllowedCut = NormalizeDouble(lossTotalLots - 0.01, 2);
+         if(pLots > maxAllowedCut)
+            pLots = maxAllowedCut;
+
+         // Apply user cap if specified
+         if(InpMethod6PartialMaxCutLots > 0.0 && pLots > InpMethod6PartialMaxCutLots)
+            pLots = NormalizeDouble(InpMethod6PartialMaxCutLots, 2);
+
+         if(pLots < 0.01)
+            continue;
+
+         double pLossUSD = -1.0 * NormalizeDouble(lossPerLot * pLots, 2);
+         double nProfitUSD = NormalizeDouble(winPL + pLossUSD, 2);
+
+         if(nProfitUSD >= threshold)
+           {
+            if(pLots > bestCutLots || (pLots == bestCutLots && MathAbs(pLossUSD) > MathAbs(bestPartialLoss)))
+              {
+               bestCutLots     = pLots;
+               bestLossIdx     = j;
+               bestPartialLoss = pLossUSD;
+               bestNetProfit   = nProfitUSD;
+              }
+           }
+        }
+
+      if(bestLossIdx >= 0 && bestCutLots >= 0.01)
+        {
+         ExecuteMethod6PartialLotAction(i, bestLossIdx, bestCutLots, bestPartialLoss, bestNetProfit,
+                                        candTickets, candTypes, candLots, candOpenPrices,
+                                        candTakeProfits, candProfits, isProcessed);
+        }
+     }
+  }
+
+//+------------------------------------------------------------------+
 //| ModifyMethod6MultiOrderCombinationsOver5USD                      |
 //+------------------------------------------------------------------+
 void ModifyMethod6MultiOrderCombinationsOver5USD()
@@ -9552,8 +9654,13 @@ void ModifyMethod6MultiOrderCombinationsOver5USD()
    if(candCount < minOrders)
       return;
 
-// 1. PRIORITY PAIR CHECK (Win + Loss):
-// 1A. First Priority: Pairs with OPPOSITE order type (e.g. Win BUY + Loss SELL or Win SELL + Loss BUY)
+//====================================================================
+// STEP 1: CLOSE OPPOSITE LOSERS FIRST
+//====================================================================
+
+// --- PLAN A: FULL ORDER LOT (Opposite Losers) ---
+
+// 1A-1. Opposite Pairs (Full Lot)
    if(minOrders <= 2)
      {
       int searchLimit2 = MathMin(candCount, 30);
@@ -9581,36 +9688,9 @@ void ModifyMethod6MultiOrderCombinationsOver5USD()
               }
            }
         }
-
-// 1B. Second Priority: Pairs with SAME order type (e.g. Win BUY + Loss BUY or Win SELL + Loss SELL)
-      for(int i = 0; i < searchLimit2 - 1; i++)
-        {
-         if(isProcessed[i])
-            continue;
-         for(int j = i + 1; j < searchLimit2; j++)
-           {
-            if(isProcessed[j])
-               continue;
-
-            if((candProfits[i] < 0.0 || candProfits[j] < 0.0) && (candTypes[i] == candTypes[j]))
-              {
-               double sum2 = candProfits[i] + candProfits[j];
-               if(sum2 >= threshold)
-                 {
-                  int combo[2];
-                  combo[0] = i;
-                  combo[1] = j;
-                  ExecuteMethod6CombinationAction(combo, 2, sum2, candTickets, candTypes, candLots,
-                                                  candOpenPrices, candTakeProfits, candProfits, isProcessed);
-                  break;
-                 }
-              }
-           }
-        }
      }
 
-// 2. PRIORITY TRIPLET CHECK (Win + Losses):
-// 2A. First Priority: Triplets containing at least one OPPOSITE order type loser
+// 1A-2. Opposite Triplets (Full Lot)
    int searchLimit3 = MathMin(candCount, 20);
    for(int i = 0; i < searchLimit3 - 2; i++)
      {
@@ -9650,47 +9730,7 @@ void ModifyMethod6MultiOrderCombinationsOver5USD()
         }
      }
 
-// 2B. Second Priority: Triplets with SAME order type only
-   for(int i = 0; i < searchLimit3 - 2; i++)
-     {
-      if(isProcessed[i])
-         continue;
-      for(int j = i + 1; j < searchLimit3 - 1; j++)
-        {
-         if(isProcessed[j])
-            continue;
-         for(int k = j + 1; k < searchLimit3; k++)
-           {
-            if(isProcessed[k])
-               continue;
-
-            if(candProfits[i] < 0.0 || candProfits[j] < 0.0 || candProfits[k] < 0.0)
-              {
-               bool hasBuy  = (candTypes[i] == OP_BUY  || candTypes[j] == OP_BUY  || candTypes[k] == OP_BUY);
-               bool hasSell = (candTypes[i] == OP_SELL || candTypes[j] == OP_SELL || candTypes[k] == OP_SELL);
-               if(!hasBuy || !hasSell) // All same order type
-                 {
-                  double sum3 = candProfits[i] + candProfits[j] + candProfits[k];
-                  if(sum3 >= threshold)
-                    {
-                     int combo[3];
-                     combo[0] = i;
-                     combo[1] = j;
-                     combo[2] = k;
-                     ExecuteMethod6CombinationAction(combo, 3, sum3, candTickets, candTypes, candLots,
-                                                     candOpenPrices, candTakeProfits, candProfits, isProcessed);
-                     break;
-                    }
-                 }
-              }
-           }
-         if(isProcessed[i])
-            break;
-        }
-     }
-
-// 3. PRIORITY QUARTET CHECK (Win + Losses):
-// 3A. First Priority: Quartets containing at least one OPPOSITE order type loser
+// 1A-3. Opposite Quartets (Full Lot)
    int searchLimit4 = MathMin(candCount, 12);
    for(int i = 0; i < searchLimit4 - 3; i++)
      {
@@ -9738,7 +9778,87 @@ void ModifyMethod6MultiOrderCombinationsOver5USD()
         }
      }
 
-// 3B. Second Priority: Quartets with SAME order type only
+// --- PLAN B: PARTIAL ORDER LOT (Opposite Losers) ---
+   ExecuteMethod6PartialLotSearch(true, threshold, candCount, candTickets, candTypes, candLots,
+                                  candOpenPrices, candTakeProfits, candProfits, isProcessed);
+
+
+//====================================================================
+// STEP 2: CLOSE SAME-TYPE LOSERS SECOND
+//====================================================================
+
+// --- PLAN A: FULL ORDER LOT (Same-Type Losers) ---
+
+// 2A-1. Same-Type Pairs (Full Lot)
+   if(minOrders <= 2)
+     {
+      int searchLimit2 = MathMin(candCount, 30);
+      for(int i = 0; i < searchLimit2 - 1; i++)
+        {
+         if(isProcessed[i])
+            continue;
+         for(int j = i + 1; j < searchLimit2; j++)
+           {
+            if(isProcessed[j])
+               continue;
+
+            if((candProfits[i] < 0.0 || candProfits[j] < 0.0) && (candTypes[i] == candTypes[j]))
+              {
+               double sum2 = candProfits[i] + candProfits[j];
+               if(sum2 >= threshold)
+                 {
+                  int combo[2];
+                  combo[0] = i;
+                  combo[1] = j;
+                  ExecuteMethod6CombinationAction(combo, 2, sum2, candTickets, candTypes, candLots,
+                                                  candOpenPrices, candTakeProfits, candProfits, isProcessed);
+                  break;
+                 }
+              }
+           }
+        }
+     }
+
+// 2A-2. Same-Type Triplets (Full Lot)
+   for(int i = 0; i < searchLimit3 - 2; i++)
+     {
+      if(isProcessed[i])
+         continue;
+      for(int j = i + 1; j < searchLimit3 - 1; j++)
+        {
+         if(isProcessed[j])
+            continue;
+         for(int k = j + 1; k < searchLimit3; k++)
+           {
+            if(isProcessed[k])
+               continue;
+
+            if(candProfits[i] < 0.0 || candProfits[j] < 0.0 || candProfits[k] < 0.0)
+              {
+               bool hasBuy  = (candTypes[i] == OP_BUY  || candTypes[j] == OP_BUY  || candTypes[k] == OP_BUY);
+               bool hasSell = (candTypes[i] == OP_SELL || candTypes[j] == OP_SELL || candTypes[k] == OP_SELL);
+               if(!hasBuy || !hasSell) // All same order type
+                 {
+                  double sum3 = candProfits[i] + candProfits[j] + candProfits[k];
+                  if(sum3 >= threshold)
+                    {
+                     int combo[3];
+                     combo[0] = i;
+                     combo[1] = j;
+                     combo[2] = k;
+                     ExecuteMethod6CombinationAction(combo, 3, sum3, candTickets, candTypes, candLots,
+                                                     candOpenPrices, candTakeProfits, candProfits, isProcessed);
+                     break;
+                    }
+                 }
+              }
+           }
+         if(isProcessed[i])
+            break;
+        }
+     }
+
+// 2A-3. Same-Type Quartets (Full Lot)
    for(int i = 0; i < searchLimit4 - 3; i++)
      {
       if(isProcessed[i])
@@ -9785,102 +9905,14 @@ void ModifyMethod6MultiOrderCombinationsOver5USD()
         }
      }
 
-// 4. PARTIAL LOT COMBINATION CHECK (Win + Partial Loss >= Threshold)
-// Allows pairing a winning order with a partial lot slice of a losing order
-// when the full losing order is too large to reach threshold.
-   if(InpMethod6EnablePartialLotCombination)
-     {
-      int searchLimitP = MathMin(candCount, 30);
-      for(int i = 0; i < searchLimitP; i++)
-        {
-         if(isProcessed[i])
-            continue;
-         if(candProfits[i] < threshold)
-            continue; // Must be in profit at least reaching base threshold
+// --- PLAN B: PARTIAL ORDER LOT (Same-Type Losers) ---
+   ExecuteMethod6PartialLotSearch(false, threshold, candCount, candTickets, candTypes, candLots,
+                                  candOpenPrices, candTakeProfits, candProfits, isProcessed);
 
-         double winPL = candProfits[i];
-         int bestLossIdx = -1;
-         double bestCutLots = 0.0;
-         double bestPartialLoss = 0.0;
-         double bestNetProfit = 0.0;
 
-         for(int j = 0; j < searchLimitP; j++)
-           {
-            if(i == j || isProcessed[j])
-               continue;
-            if(candProfits[j] >= 0.0)
-               continue; // Target must be losing order
-
-            double lossTotalLots = candLots[j];
-            if(lossTotalLots <= 0.01)
-               continue; // Cannot partially close 0.01 lots in MT4
-
-            double lossPL = candProfits[j];
-            double absLoss = MathAbs(lossPL);
-            if(absLoss <= 0.0001)
-               continue;
-
-            double lossPerLot = absLoss / lossTotalLots;
-            if(lossPerLot <= 0.0)
-               continue;
-
-            double maxAbsorbableLoss = winPL - threshold;
-            if(maxAbsorbableLoss <= 0.0)
-               continue;
-
-            double maxLotsToCut = maxAbsorbableLoss / lossPerLot;
-            double pLots = MathFloor((maxLotsToCut + 0.00001) / 0.01) * 0.01;
-            pLots = NormalizeDouble(pLots, 2);
-
-            // Ensure remaining lot is at least 0.01 (partial cut only)
-            double maxAllowedCut = NormalizeDouble(lossTotalLots - 0.01, 2);
-            if(pLots > maxAllowedCut)
-               pLots = maxAllowedCut;
-
-            // Apply user cap if specified
-            if(InpMethod6PartialMaxCutLots > 0.0 && pLots > InpMethod6PartialMaxCutLots)
-               pLots = NormalizeDouble(InpMethod6PartialMaxCutLots, 2);
-
-            if(pLots < 0.01)
-               continue;
-
-            double pLossUSD = -1.0 * NormalizeDouble(lossPerLot * pLots, 2);
-            double nProfitUSD = NormalizeDouble(winPL + pLossUSD, 2);
-
-            if(nProfitUSD >= threshold)
-              {
-               bool isOpp = (candTypes[j] != candTypes[i]);
-               bool bestIsOpp = (bestLossIdx >= 0 && candTypes[bestLossIdx] != candTypes[i]);
-
-               // 1st Priority: Opposite order type loser takes absolute priority over same-type loser
-               if(InpMethod6PrioritizeOppositeLosers && isOpp && !bestIsOpp)
-                 {
-                  bestCutLots     = pLots;
-                  bestLossIdx     = j;
-                  bestPartialLoss = pLossUSD;
-                  bestNetProfit   = nProfitUSD;
-                 }
-               else if(!InpMethod6PrioritizeOppositeLosers || (isOpp == bestIsOpp))
-                 {
-                  if(pLots > bestCutLots || (pLots == bestCutLots && MathAbs(pLossUSD) > MathAbs(bestPartialLoss)))
-                    {
-                     bestCutLots     = pLots;
-                     bestLossIdx     = j;
-                     bestPartialLoss = pLossUSD;
-                     bestNetProfit   = nProfitUSD;
-                    }
-                 }
-              }
-           }
-
-         if(bestLossIdx >= 0 && bestCutLots >= 0.01)
-           {
-            ExecuteMethod6PartialLotAction(i, bestLossIdx, bestCutLots, bestPartialLoss, bestNetProfit,
-                                           candTickets, candTypes, candLots, candOpenPrices,
-                                           candTakeProfits, candProfits, isProcessed);
-           }
-        }
-     }
+//====================================================================
+// STEP 3: PURE WINNING COMBINATIONS (No Losers)
+//====================================================================
 
 // 5. ANY REMAINING PAIRS (e.g. 2 Wins >= threshold)
    if(minOrders <= 2)
