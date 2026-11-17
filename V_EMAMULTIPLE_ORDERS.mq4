@@ -42,7 +42,7 @@ CheckBasketProfitClose  Total open basket profit
 */
 
 
-string glbVersion = "VMULTI-1241- FINAL - Ladder Half Close Every Level Any Angle";
+string glbVersion = "VMULTI-1242- Fast Tester Pause Mode Throttle Top Dubai Gap Box";
 
 int AccountMultiplierLOT = 1000;//400;//200;//500; ALWAYS multiples of 1000 is better for best results
 //balance multiplier 
@@ -2271,7 +2271,7 @@ int      g_eqDdSellLastHitOrders     = 0;
 double   g_eqDdSellLastHitLots       = 0.0;
 
 void UpdateLeftLiveOrdersDashboard(bool force = false);
-void UpdateTopCenterDubaiTimeDisplay();
+void UpdateTopCenterDubaiTimeDisplay(bool force = false);
 void DeleteDashboardObjects();
 void DeleteLeftLiveOrdersDashboardObjects();
 void DeleteTopCenterDubaiTimeObjects();
@@ -12805,7 +12805,7 @@ void OnChartEvent(const int id, const long &lparam, const double &dparam, const 
    if(id == CHARTEVENT_CHART_CHANGE)
      {
       if(ShowTopCenterDubaiTime)
-         UpdateTopCenterDubaiTimeDisplay();
+         UpdateTopCenterDubaiTimeDisplay(true);
      }
   }
 
@@ -15073,7 +15073,7 @@ void UpdateDashboardsThrottled(DailyProtectionState &state, bool force = false)
    if(ShowLeftLiveOrdersDashboard)
       UpdateLeftLiveOrdersDashboard(force);
    if(ShowTopCenterDubaiTime)
-      UpdateTopCenterDubaiTimeDisplay();
+      UpdateTopCenterDubaiTimeDisplay(force);
   }
 
 //+------------------------------------------------------------------+
@@ -28421,6 +28421,10 @@ void DeleteLeftLiveOrdersDashboardObjects()
 //+------------------------------------------------------------------+
 string TOP_CENTER_DUBAI_PREFIX = "SSL_TOP_DUBAI_";
 string TOP_CENTER_GAP_PREFIX   = "SSL_TOP_GAP_";
+uint   g_lastTopDubaiUpdateMs  = 0;
+bool   g_topDubaiLegacyCleaned = false;
+string g_lastTopDubaiTooltip   = "";
+string g_lastTopGapTooltip     = "";
 
 void DeleteTopCenterDubaiTimeObjects()
   {
@@ -28431,6 +28435,10 @@ void DeleteTopCenterDubaiTimeObjects()
       if(StringFind(name, TOP_CENTER_DUBAI_PREFIX, 0) == 0 || StringFind(name, TOP_CENTER_GAP_PREFIX, 0) == 0)
          ObjectDelete(0, name);
      }
+   g_lastTopDubaiUpdateMs  = 0;
+   g_topDubaiLegacyCleaned = false;
+   g_lastTopDubaiTooltip   = "";
+   g_lastTopGapTooltip     = "";
   }
 
 void CreateTopCenterDubaiLabel(string name, string text, int x, int y, int fontSize, color textColor, string font = "Consolas")
@@ -28466,13 +28474,20 @@ void CreateTopCenterDubaiLabel(string name, string text, int x, int y, int fontS
       ObjectSetInteger(0, name, OBJPROP_ANCHOR, ANCHOR_UPPER);
   }
 
-void UpdateTopCenterDubaiTimeDisplay()
+void UpdateTopCenterDubaiTimeDisplay(bool force = false)
   {
    if(!ShowTopCenterDubaiTime)
      {
       DeleteTopCenterDubaiTimeObjects();
       return;
      }
+
+   // Throttle UI/gap recalculation so Strategy Tester (especially while paused) runs at full speed
+   uint nowMs = GetTickCount();
+   uint minInterval = IsTesting() ? 1000 : 500;
+   if(!force && g_lastTopDubaiUpdateMs != 0 && (uint)(nowMs - g_lastTopDubaiUpdateMs) < minInterval)
+      return;
+   g_lastTopDubaiUpdateMs = nowMs;
 
    int chartWidth = (int)ChartGetInteger(0, CHART_WIDTH_IN_PIXELS, 0);
    if(chartWidth <= 0)
@@ -28615,40 +28630,70 @@ void UpdateTopCenterDubaiTimeDisplay()
    string   headerStr = "DUBAI TIME (UTC+4)";
 
    string dubaiTooltip = StringFormat("Dubai GST (UTC+4) | Day Rollover: 16:00 Dubai | Server Offset: %+dh", ServerToDubaiOffsetHours);
-   ObjectSetString(0, dubaiPnlName, OBJPROP_TOOLTIP, dubaiTooltip);
 
    CreateTopCenterDubaiLabel(TOP_CENTER_DUBAI_PREFIX + "TITLE", headerStr, dubaiMidX, dubaiY + 4,  8, C'175,220,255', "Arial");
    CreateTopCenterDubaiLabel(TOP_CENTER_DUBAI_PREFIX + "CLOCK", clockStr,  dubaiMidX, dubaiY + 18, 9, clrWhite,       "Consolas");
-   ObjectSetString(0, TOP_CENTER_DUBAI_PREFIX + "TITLE", OBJPROP_TOOLTIP, dubaiTooltip);
-   ObjectSetString(0, TOP_CENTER_DUBAI_PREFIX + "CLOCK", OBJPROP_TOOLTIP, dubaiTooltip);
+   if(dubaiTooltip != g_lastTopDubaiTooltip)
+     {
+      ObjectSetString(0, dubaiPnlName, OBJPROP_TOOLTIP, dubaiTooltip);
+      ObjectSetString(0, TOP_CENTER_DUBAI_PREFIX + "TITLE", OBJPROP_TOOLTIP, dubaiTooltip);
+      ObjectSetString(0, TOP_CENTER_DUBAI_PREFIX + "CLOCK", OBJPROP_TOOLTIP, dubaiTooltip);
+      g_lastTopDubaiTooltip = dubaiTooltip;
+     }
 
-   // Live Dynamic Gap Calculation (Dry-run without log spam)
-   double rawBuy = 0.0, rawSell = 0.0;
-   string reasonBuy = "", reasonSell = "";
-   double finalBuy  = GetDynamicOrderGapDetails(OP_BUY, rawBuy, reasonBuy, false);
-   double finalSell = GetDynamicOrderGapDetails(OP_SELL, rawSell, reasonSell, false);
+   string buyGapStr    = "";
+   string sellGapStr   = "";
+   color  buyGapColor  = C'180,240,180';
+   color  sellGapColor = C'180,240,180';
+   string gapTooltip   = "";
 
-   string buyGapStr   = StringFormat("REQUIRED GAP BUY : $%.0f (%s)", finalBuy, reasonBuy);
-   color  buyGapColor = (finalBuy >= 500.0) ? clrGold : C'180,240,180';
+   if(g_dailyEquityTradingBlocked)
+     {
+      // Skip heavy dynamic gap / iCustom calculations while daily trading is paused
+      buyGapStr    = "TRADING PAUSED (DAILY TARGET HIT)";
+      sellGapStr   = "WAITING FOR NEXT DAY (DUBAI 16:00)";
+      buyGapColor  = clrGold;
+      sellGapColor = C'175,220,255';
+      gapTooltip   = "Daily Equity Stop Hit - Trading Paused Until Next Day Dubai 16:00";
+     }
+   else
+     {
+      // Live Dynamic Gap Calculation (Dry-run without log spam)
+      double rawBuy = 0.0, rawSell = 0.0;
+      string reasonBuy = "", reasonSell = "";
+      double finalBuy  = GetDynamicOrderGapDetails(OP_BUY, rawBuy, reasonBuy, false);
+      double finalSell = GetDynamicOrderGapDetails(OP_SELL, rawSell, reasonSell, false);
 
-   string sellGapStr   = StringFormat("REQUIRED GAP SELL: $%.0f (%s)", finalSell, reasonSell);
-   color  sellGapColor = (finalSell >= 500.0) ? clrGold : C'180,240,180';
+      buyGapStr   = StringFormat("REQUIRED GAP BUY : $%.0f (%s)", finalBuy, reasonBuy);
+      buyGapColor = (finalBuy >= 500.0) ? clrGold : C'180,240,180';
 
-   string gapTooltip = StringFormat("REQUIRED SAME ORDER GAP:\n" +
-                                    "BUY : Req $%.2f (%s)\n" +
-                                    "SELL: Req $%.2f (%s)",
-                                    finalBuy, reasonBuy,
-                                    finalSell, reasonSell);
-   ObjectSetString(0, gapPnlName, OBJPROP_TOOLTIP, gapTooltip);
+      sellGapStr   = StringFormat("REQUIRED GAP SELL: $%.0f (%s)", finalSell, reasonSell);
+      sellGapColor = (finalSell >= 500.0) ? clrGold : C'180,240,180';
 
-   // Remove any legacy labels that were inside the Dubai panel
-   ObjectDelete(0, TOP_CENTER_DUBAI_PREFIX + "GAP_BUY");
-   ObjectDelete(0, TOP_CENTER_DUBAI_PREFIX + "GAP_SELL");
+      gapTooltip = StringFormat("REQUIRED SAME ORDER GAP:\n" +
+                                "BUY : Req $%.2f (%s)\n" +
+                                "SELL: Req $%.2f (%s)",
+                                finalBuy, reasonBuy,
+                                finalSell, reasonSell);
+     }
+
+   // Remove any legacy labels that were inside the Dubai panel (once only)
+   if(!g_topDubaiLegacyCleaned)
+     {
+      ObjectDelete(0, TOP_CENTER_DUBAI_PREFIX + "GAP_BUY");
+      ObjectDelete(0, TOP_CENTER_DUBAI_PREFIX + "GAP_SELL");
+      g_topDubaiLegacyCleaned = true;
+     }
 
    CreateTopCenterDubaiLabel(TOP_CENTER_GAP_PREFIX + "GAP_BUY",  buyGapStr,  gapMidX, gapY + 4,  8, buyGapColor,  "Consolas");
    CreateTopCenterDubaiLabel(TOP_CENTER_GAP_PREFIX + "GAP_SELL", sellGapStr, gapMidX, gapY + 18, 8, sellGapColor, "Consolas");
-   ObjectSetString(0, TOP_CENTER_GAP_PREFIX + "GAP_BUY", OBJPROP_TOOLTIP, gapTooltip);
-   ObjectSetString(0, TOP_CENTER_GAP_PREFIX + "GAP_SELL", OBJPROP_TOOLTIP, gapTooltip);
+   if(gapTooltip != g_lastTopGapTooltip)
+     {
+      ObjectSetString(0, gapPnlName, OBJPROP_TOOLTIP, gapTooltip);
+      ObjectSetString(0, TOP_CENTER_GAP_PREFIX + "GAP_BUY", OBJPROP_TOOLTIP, gapTooltip);
+      ObjectSetString(0, TOP_CENTER_GAP_PREFIX + "GAP_SELL", OBJPROP_TOOLTIP, gapTooltip);
+      g_lastTopGapTooltip = gapTooltip;
+     }
   }
 
 //+------------------------------------------------------------------+
@@ -30028,7 +30073,7 @@ void UpdateLeftLiveOrdersDashboard(bool force = false)
    else
       CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"EMPTY", "Showing "+IntegerToString(MathMin(total,rows))+" of "+IntegerToString(total)+" orders", tx, orderRowsStartY+(rows*20)+4, 8, clrSilver);
    if(ShowTopCenterDubaiTime)
-      UpdateTopCenterDubaiTimeDisplay();
+      UpdateTopCenterDubaiTimeDisplay(force);
    ChartRedraw(0);
   }
 //+------------------------------------------------------------------+
