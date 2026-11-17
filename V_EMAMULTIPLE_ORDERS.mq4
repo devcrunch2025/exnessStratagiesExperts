@@ -42,7 +42,7 @@ CheckBasketProfitClose  Total open basket profit
 */
 
 
-string glbVersion = "VMULTI-1225 Day Stop True Market Close And Delete All Pending";
+string glbVersion = "VMULTI-1226 Method 6 Pending ReEntry On Profit Close When Zero Open";
 
 int AccountMultiplierLOT = 1000;//400;//200;//500; ALWAYS multiples of 1000 is better for best results
 //balance multiplier 
@@ -7356,6 +7356,8 @@ int    InpMethod6HitIconCode                = 159;    // Method 6: Chart icon Wi
 void   DrawMethod6HitIcon(int orderCount, double comboProfit, datetime hitTime = 0, double hitPrice = 0.0);
 bool   InpMethod6EnablePartialLotCombination= true;   // Method 6: Allow partial LOT combination close when full combo cannot reach threshold
 bool   InpMethod6PartialCloseWinnerAtMarket = true;   // Method 6: Close winning order at market (true) or tighten SL to live price (false)
+bool   InpMethod6CreatePendingOnWinnerClose = true;   // Method 6: Create new pending order (SSL Long/Short) in same direction after closing profit order (only when open order count == 0)
+bool   InpMethod6CloseWinnerAtMarket        = false;  // Method 6 full combo: false = modify SL to live price; true = close winner at market
 double InpMethod6PartialMaxCutLots          = 0.0;    // Method 6: Max partial lots to cut from loser per trigger (0.0 = auto max safe)
 double InpMethod6LowAngleThresholdUSD       = 2.0;    // Method 6: Profit threshold when MathAbs(EMA Angle) < 4 deg ($2.00 * multiplier)
 double InpMethod6LowAngleEmaDegrees         = 4.0;    // Method 6: Dynamic EMA angle boundary in degrees (default 4.0)
@@ -7431,6 +7433,7 @@ string GetMethodDescription(int methodId, int orderCount, double netProfit = 0.0
 void   CheckAndDrawMultiOrderClosedIcons();
 void   CheckBasketProfitClose();
 void   ModifyMethod6MultiOrderCombinationsOver5USD();
+void   CreateMethod6PendingOrderAfterClose(int winType);
 void   ExecuteMethod6PartialLotAction(int winIdx, int lossIdx, double partialLots, double partialLossUSD, double netProfitUSD,
                                       int &candTickets[], int &candTypes[], double &candLots[],
                                       double &candOpenPrices[], double &candTakeProfits[],
@@ -9087,6 +9090,28 @@ void ExecuteMethod6CombinationAction(int &comboIndices[], int comboCount, double
          double oTP = candTakeProfits[idx];
          double winUSD = candProfits[idx];
 
+         if(InpMethod6CloseWinnerAtMarket)
+           {
+            RefreshRates();
+            double curClosePrice = (oType == OP_BUY) ? Bid : Ask;
+            curClosePrice = NormalizeDouble(curClosePrice, Digits);
+            bool winClosed = CloseMarketOrderDirect(tkt);
+            if(winClosed)
+              {
+               RecordMethodModification(tkt, 6, comboCount, winUSD);
+               Print(">>> [METHOD 6: FULL COMBO WINNER CLOSED AT MARKET] Ticket #", tkt,
+                     " (", (oType == OP_BUY ? "BUY " : "SELL "), DoubleToString(candLots[idx], 2), "L)",
+                     " closed at ", DoubleToString(curClosePrice, Digits),
+                     " | Realized Profit = +$", DoubleToString(winUSD, 2));
+               if(InpMethod6CreatePendingOnWinnerClose)
+                 {
+                  CreateMethod6PendingOrderAfterClose(oType);
+                 }
+              }
+            isProcessed[idx] = true;
+            continue;
+           }
+
          RefreshRates();
          curBid = MarketInfo(Symbol(), MODE_BID);
          curAsk = MarketInfo(Symbol(), MODE_ASK);
@@ -9124,6 +9149,112 @@ void ExecuteMethod6CombinationAction(int &comboIndices[], int comboCount, double
    double iconPrice = (candTypes[comboIndices[0]] == OP_BUY ? MarketInfo(Symbol(), MODE_BID) : MarketInfo(Symbol(), MODE_ASK));
    DrawMethod6HitIcon(comboCount, comboSum, TimeCurrent(), iconPrice);
    InvalidateTotalEAOrdersCache();
+  }
+
+//+------------------------------------------------------------------+
+//| METHOD 6: Create Pending Re-entry Order After Closing Winner     |
+//| Places new pending order (BUY STOP "SSL Long" / SELL STOP        |
+//| "SSL Short") ONLY when open order count in that same direction is 0.|
+//+------------------------------------------------------------------+
+void CreateMethod6PendingOrderAfterClose(int winType)
+  {
+   if(winType != OP_BUY && winType != OP_SELL)
+      return;
+
+   // USER RULE: Condition: only when openordercount is 0 in same direction
+   int openCountSameDir = 0;
+   int pendingCountSameDir = 0;
+   int expectedPendingType = (winType == OP_BUY) ? OP_BUYSTOP : OP_SELLSTOP;
+
+   for(int i = OrdersTotal() - 1; i >= 0; i--)
+     {
+      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
+         continue;
+      if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber)
+         continue;
+      if(OrderType() == winType)
+         openCountSameDir++;
+      else if(OrderType() == expectedPendingType)
+         pendingCountSameDir++;
+     }
+
+   if(openCountSameDir > 0)
+     {
+      Print(">>> [METHOD 6 PENDING SKIPPED] Open order count in ", (winType == OP_BUY ? "BUY" : "SELL"),
+            " direction is ", openCountSameDir, " (> 0). Pending re-entry not created.");
+      return;
+     }
+
+   if(pendingCountSameDir > 0)
+     {
+      Print(">>> [METHOD 6 PENDING SKIPPED] Pending order ", (winType == OP_BUY ? "BUY STOP (SSL Long)" : "SELL STOP (SSL Short)"),
+            " already exists (count=", pendingCountSameDir, "). Duplicate skipped.");
+      return;
+     }
+
+   RefreshRates();
+   double pendingGap = (SSLLongShortPendingGapRaw > 0.0) ? SSLLongShortPendingGapRaw : 20.0;
+   double minStopDist = GetRequiredStopDistance();
+   double entryPrice = 0.0;
+   double stopLoss = 0.0;
+   double takeProfit = 0.0;
+   string orderComment = "";
+   color orderColor = clrNONE;
+
+   double slDistance = (StopLossRawPriceGap > 0.0) ? StopLossRawPriceGap : 3000.0;
+   double tpDistance = (TakeProfitRawPriceGap > 0.0) ? TakeProfitRawPriceGap : 500.0;
+
+   if(winType == OP_BUY)
+     {
+      entryPrice = Ask + pendingGap;
+      if(entryPrice < Ask + minStopDist)
+         entryPrice = Ask + minStopDist;
+      entryPrice = NormalizeDouble(entryPrice, Digits);
+
+      stopLoss = (slDistance > 0.0) ? NormalizeDouble(entryPrice - slDistance, Digits) : 0.0;
+      takeProfit = (tpDistance > 0.0) ? NormalizeDouble(entryPrice + tpDistance, Digits) : 0.0;
+
+      ChangeLots(GlobalSellPL, "SSL Long", OP_BUY, 0, "");
+      Lots = NormalizeLots(Lots);
+      orderComment = "SSL Long";
+      orderColor = BuyColor;
+     }
+   else // OP_SELL
+     {
+      entryPrice = Bid - pendingGap;
+      if(entryPrice > Bid - minStopDist)
+         entryPrice = Bid - minStopDist;
+      entryPrice = NormalizeDouble(entryPrice, Digits);
+
+      stopLoss = (slDistance > 0.0) ? NormalizeDouble(entryPrice + slDistance, Digits) : 0.0;
+      takeProfit = (tpDistance > 0.0) ? NormalizeDouble(entryPrice - tpDistance, Digits) : 0.0;
+
+      ChangeLots(GlobalBuyPL, "SSL Short", OP_SELL, 0, "");
+      Lots = NormalizeLots(Lots);
+      orderComment = "SSL Short";
+      orderColor = SellColor;
+     }
+
+   if(DeleteOppositePendingOnSignal)
+      DeleteOppositePendingOrders(winType);
+
+   int ticket = SafeOrderSend(Symbol(), expectedPendingType, Lots, entryPrice, Slippage, stopLoss, takeProfit, orderComment, MagicNumber, orderColor);
+   if(ticket > 0)
+     {
+      OrderCreatedThisCandle = true;
+      LastOrderCandleTime = Time[0];
+      Print(">>> [METHOD 6 PENDING CREATED] ", orderComment, " Ticket #", ticket,
+            " Lots=", DoubleToString(Lots, 2),
+            " Entry=", DoubleToString(entryPrice, Digits),
+            " SL=", DoubleToString(stopLoss, Digits),
+            " TP=", DoubleToString(takeProfit, Digits),
+            " (Open count in direction was 0)");
+      InvalidateTotalEAOrdersCache();
+     }
+   else
+     {
+      Print(">>> [METHOD 6 PENDING FAILED] SafeOrderSend failed for ", orderComment, " Error=", GetLastError());
+     }
   }
 
 //+------------------------------------------------------------------+
@@ -9233,6 +9364,11 @@ void ExecuteMethod6PartialLotAction(int winIdx, int lossIdx, double partialLots,
                " closed at ", DoubleToString(winClosePrice, Digits),
                " | Realized Profit = +$", DoubleToString(winPL, 2),
                " | Net Combo Realized = +$", DoubleToString(netProfitUSD, 2));
+
+         if(InpMethod6CreatePendingOnWinnerClose)
+           {
+            CreateMethod6PendingOrderAfterClose(winType);
+           }
         }
       else
         {
