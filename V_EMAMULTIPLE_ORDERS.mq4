@@ -42,7 +42,7 @@ CheckBasketProfitClose  Total open basket profit
 */
 
 
-string glbVersion = "VMULTI-1233- Cap Maximum Same Order Gap To 500 USD";
+string glbVersion = "VMULTI-1234- Display Required Gap After Dubai Time On Chart";
 
 int AccountMultiplierLOT = 1000;//400;//200;//500; ALWAYS multiples of 1000 is better for best results
 //balance multiplier 
@@ -20189,17 +20189,25 @@ int GetActiveLsdSweepSignalForGap()
   }
 
 //+------------------------------------------------------------------+
-double GetDynamicOrderGap(int orderType)
+//| Details calculation for Dynamic Order Gap (raw before cap, reason) |
+//+------------------------------------------------------------------+
+double GetDynamicOrderGapDetails(int orderType, double &rawGapBeforeCap, string &reasonStr, bool logMessages = false)
   {
+   rawGapBeforeCap = 0.0;
+   reasonStr = "";
+
    // USER RULE (VMULTI-1232): Allow tighter gap for MOM breakout entries (default $50, bypassing large drawdown grid gaps)
    if(isMOMOrder)
      {
       double momGap = (InpMomOrderMinGapRaw > 0.0) ? InpMomOrderMinGapRaw : 50.0;
+      rawGapBeforeCap = momGap;
+      reasonStr = "MOM Order";
       return momGap;
      }
 
    double baseGap = (MinimumSameOrderGapRawMatched > 0.0) ? MinimumSameOrderGapRawMatched : 50.0;
    double unmatchedGap = (MinimumSameOrderGapRawUnmatched > 0.0) ? MinimumSameOrderGapRawUnmatched : 50.0;
+   bool isAdaptive = false;
 
 // Adaptive Grid Gap scaling to current oscillation width (R / 8)
    if(InpEnableOscillationEngine && InpEnableAdaptiveGridGap)
@@ -20211,6 +20219,7 @@ double GetDynamicOrderGap(int orderType)
          double adaptGap = rW / 8.0;
          adaptGap = MathMax(InpAdaptiveGridGapMin, MathMin(InpAdaptiveGridGapMax, adaptGap));
          baseGap = adaptGap;
+         isAdaptive = true;
         }
      }
 
@@ -20267,45 +20276,60 @@ double GetDynamicOrderGap(int orderType)
             if(reducedGap < 20.0)
                reducedGap = 20.0; // Enforce safe minimum separation
 
-            static datetime lastAgingLog = 0;
-            if(TimeCurrent() - lastAgingLog >= 60)
+            if(logMessages)
               {
-               lastAgingLog = TimeCurrent();
-               Print(">>> [AGING REVERSAL GAP REDUCTION] Direction=", (orderType == OP_BUY ? "BUY" : "SELL"),
-                     " | LatestOrderAge=", (int)((TimeCurrent() - latestTime) / 60), "m >= ", InpAgingGapElapsedMinutes, "m",
-                     " | Basket PL=$", DoubleToString(pl, 2),
-                     " | Overriding Drawdown Gap $", DoubleToString(baseGap * multiplier, 2),
-                     " -> Halved Gap $", DoubleToString(reducedGap, 2));
+               static datetime lastAgingLog = 0;
+               if(TimeCurrent() - lastAgingLog >= 60)
+                 {
+                  lastAgingLog = TimeCurrent();
+                  Print(">>> [AGING REVERSAL GAP REDUCTION] Direction=", (orderType == OP_BUY ? "BUY" : "SELL"),
+                        " | LatestOrderAge=", (int)((TimeCurrent() - latestTime) / 60), "m >= ", InpAgingGapElapsedMinutes, "m",
+                        " | Basket PL=$", DoubleToString(pl, 2),
+                        " | Overriding Drawdown Gap $", DoubleToString(baseGap * multiplier, 2),
+                        " -> Halved Gap $", DoubleToString(reducedGap, 2));
+                 }
               }
-            return reducedGap;
+            rawGapBeforeCap = reducedGap;
+            reasonStr = "Aging Halved";
+            double maxCap = (InpMaxSameOrderGapRaw > 0.0) ? InpMaxSameOrderGapRaw : 500.0;
+            return (rawGapBeforeCap > maxCap) ? maxCap : rawGapBeforeCap;
            }
         }
      }
 
 // 4C. LSD SWEEP GAP EXPANSION (BSLS doubles BUY gap, SSLS doubles SELL gap)
    double sweepMult = 1.0;
+   string sweepName = "";
    int sweepSig = GetActiveLsdSweepSignalForGap();
    if(sweepSig == -1 && (orderType == OP_BUY || orderType == OP_BUYSTOP || orderType == OP_BUYLIMIT))
      {
       sweepMult = (InpLsdAdverseSweepGapMultiplier > 0.0) ? InpLsdAdverseSweepGapMultiplier : 2.0;
-      static datetime lastBslsGapLog = 0;
-      if(TimeCurrent() - lastBslsGapLog >= 60)
+      sweepName = "BSLS 2X";
+      if(logMessages)
         {
-         lastBslsGapLog = TimeCurrent();
-         Print(">>> [LSD BSLS DUMP GUARD] BSLS active -> BUY order gap DOUBLED (", DoubleToString(sweepMult, 1),
-               "X) to protect against dump!");
+         static datetime lastBslsGapLog = 0;
+         if(TimeCurrent() - lastBslsGapLog >= 60)
+           {
+            lastBslsGapLog = TimeCurrent();
+            Print(">>> [LSD BSLS DUMP GUARD] BSLS active -> BUY order gap DOUBLED (", DoubleToString(sweepMult, 1),
+                  "X) to protect against dump!");
+           }
         }
      }
    else
       if(sweepSig == 1 && (orderType == OP_SELL || orderType == OP_SELLSTOP || orderType == OP_SELLLIMIT))
         {
          sweepMult = (InpLsdAdverseSweepGapMultiplier > 0.0) ? InpLsdAdverseSweepGapMultiplier : 2.0;
-         static datetime lastSslsGapLog = 0;
-         if(TimeCurrent() - lastSslsGapLog >= 60)
+         sweepName = "SSLS 2X";
+         if(logMessages)
            {
-            lastSslsGapLog = TimeCurrent();
-            Print(">>> [LSD SSLS SQUEEZE GUARD] SSLS active -> SELL order gap DOUBLED (", DoubleToString(sweepMult, 1),
-                  "X) to protect against pump squeeze!");
+            static datetime lastSslsGapLog = 0;
+            if(TimeCurrent() - lastSslsGapLog >= 60)
+              {
+               lastSslsGapLog = TimeCurrent();
+               Print(">>> [LSD SSLS SQUEEZE GUARD] SSLS active -> SELL order gap DOUBLED (", DoubleToString(sweepMult, 1),
+                     "X) to protect against pump squeeze!");
+              }
            }
         }
 
@@ -20325,12 +20349,36 @@ double GetDynamicOrderGap(int orderType)
          resultGap = MathMax(unmatchedGap, baseGap * multiplier) * sweepMult;
      }
 
+   rawGapBeforeCap = resultGap;
+
+   // Build descriptive reason string
+   if(multiplier > 1 && sweepMult > 1.0)
+      reasonStr = StringFormat("DD %dX * %s", multiplier, sweepName);
+   else if(sweepMult > 1.0)
+      reasonStr = sweepName;
+   else if(multiplier > 1)
+      reasonStr = StringFormat("DD %dX", multiplier);
+   else if(isAdaptive)
+      reasonStr = "Adaptive Grid";
+   else if(sslMatches)
+      reasonStr = "SSL Matched";
+   else
+      reasonStr = "Unmatched Fallback";
+
    // USER RULE (VMULTI-1233): Maximum same order gap is $500 raw price gap
    double maxCap = (InpMaxSameOrderGapRaw > 0.0) ? InpMaxSameOrderGapRaw : 500.0;
    if(resultGap > maxCap)
       resultGap = maxCap;
 
    return resultGap;
+  }
+
+//+------------------------------------------------------------------+
+double GetDynamicOrderGap(int orderType)
+  {
+   double rawGap = 0.0;
+   string reason = "";
+   return GetDynamicOrderGapDetails(orderType, rawGap, reason, true);
   }
 
 //+------------------------------------------------------------------+
@@ -28318,8 +28366,8 @@ void UpdateTopCenterDubaiTimeDisplay()
       rightStart = chartWidth - (DashboardRightGap + 10 + rW);
      }
 
-   int panelWidth  = 240;
-   int panelHeight = 38;
+   int panelWidth  = 380;
+   int panelHeight = 68;
    int centerMidX  = 0;
 
    if(rightStart > (leftEnd + panelWidth + 20))
@@ -28368,13 +28416,58 @@ void UpdateTopCenterDubaiTimeDisplay()
    string   clockStr  = (dubaiTime > 0) ? TimeToString(dubaiTime, TIME_DATE|TIME_MINUTES|TIME_SECONDS) : "--:--:--";
    string   headerStr = "DUBAI TIME (UTC+4)";
 
-   string tooltip = StringFormat("Dubai GST (UTC+4) | Day Rollover: 16:00 Dubai | Server Offset: %+dh", ServerToDubaiOffsetHours);
+   // Live Dynamic Gap Calculation (Dry-run without log spam)
+   double rawBuy = 0.0, rawSell = 0.0;
+   string reasonBuy = "", reasonSell = "";
+   double finalBuy  = GetDynamicOrderGapDetails(OP_BUY, rawBuy, reasonBuy, false);
+   double finalSell = GetDynamicOrderGapDetails(OP_SELL, rawSell, reasonSell, false);
+
+   // USER RULE: Display format e.g. "REQUIRED GAP : $1600 then set to $500" if capped
+   string buyGapStr = "";
+   color  buyGapColor = clrWhite;
+   if(rawBuy > finalBuy)
+     {
+      buyGapStr = StringFormat("REQUIRED GAP BUY : $%.0f then set to $%.0f (%s)", rawBuy, finalBuy, reasonBuy);
+      buyGapColor = clrGold;
+     }
+   else
+     {
+      buyGapStr = StringFormat("REQUIRED GAP BUY : $%.0f (%s)", finalBuy, reasonBuy);
+      buyGapColor = C'180,240,180';
+     }
+
+   string sellGapStr = "";
+   color  sellGapColor = clrWhite;
+   if(rawSell > finalSell)
+     {
+      sellGapStr = StringFormat("REQUIRED GAP SELL: $%.0f then set to $%.0f (%s)", rawSell, finalSell, reasonSell);
+      sellGapColor = clrGold;
+     }
+   else
+     {
+      sellGapStr = StringFormat("REQUIRED GAP SELL: $%.0f (%s)", finalSell, reasonSell);
+      sellGapColor = C'180,240,180';
+     }
+
+   string tooltip = StringFormat("Dubai GST (UTC+4) | Day Rollover: 16:00 Dubai | Server Offset: %+dh\n" +
+                                 "--------------------------------------------------\n" +
+                                 "REQUIRED SAME ORDER GAP (Max Cap: $%.0f):\n" +
+                                 "BUY : Raw $%.2f -> Req $%.2f (%s)\n" +
+                                 "SELL: Raw $%.2f -> Req $%.2f (%s)",
+                                 ServerToDubaiOffsetHours,
+                                 InpMaxSameOrderGapRaw,
+                                 rawBuy, finalBuy, reasonBuy,
+                                 rawSell, finalSell, reasonSell);
    ObjectSetString(0, pnlName, OBJPROP_TOOLTIP, tooltip);
 
    CreateTopCenterDubaiLabel(TOP_CENTER_DUBAI_PREFIX + "TITLE", headerStr, centerMidX, panelY + 4,  8, C'175,220,255', "Arial");
-   CreateTopCenterDubaiLabel(TOP_CENTER_DUBAI_PREFIX + "CLOCK", clockStr,  centerMidX, panelY + 18, 10, clrWhite,       "Consolas");
+   CreateTopCenterDubaiLabel(TOP_CENTER_DUBAI_PREFIX + "CLOCK", clockStr,  centerMidX, panelY + 18, 9, clrWhite,       "Consolas");
+   CreateTopCenterDubaiLabel(TOP_CENTER_DUBAI_PREFIX + "GAP_BUY",  buyGapStr,  centerMidX, panelY + 34, 8, buyGapColor,  "Consolas");
+   CreateTopCenterDubaiLabel(TOP_CENTER_DUBAI_PREFIX + "GAP_SELL", sellGapStr, centerMidX, panelY + 49, 8, sellGapColor, "Consolas");
    ObjectSetString(0, TOP_CENTER_DUBAI_PREFIX + "TITLE", OBJPROP_TOOLTIP, tooltip);
    ObjectSetString(0, TOP_CENTER_DUBAI_PREFIX + "CLOCK", OBJPROP_TOOLTIP, tooltip);
+   ObjectSetString(0, TOP_CENTER_DUBAI_PREFIX + "GAP_BUY", OBJPROP_TOOLTIP, tooltip);
+   ObjectSetString(0, TOP_CENTER_DUBAI_PREFIX + "GAP_SELL", OBJPROP_TOOLTIP, tooltip);
   }
 
 //+------------------------------------------------------------------+
