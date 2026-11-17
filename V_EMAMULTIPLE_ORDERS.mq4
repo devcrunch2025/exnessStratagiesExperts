@@ -42,7 +42,7 @@ CheckBasketProfitClose  Total open basket profit
 */
 
 
-string glbVersion = "VMULTI-1232- MOM Markers Align GlobalSSLDirection & MOM Order Gap";
+string glbVersion = "VMULTI-1233- Cap Maximum Same Order Gap To 500 USD";
 
 int AccountMultiplierLOT = 1000;//400;//200;//500; ALWAYS multiples of 1000 is better for best results
 //balance multiplier 
@@ -701,6 +701,7 @@ double SSLLongShortPendingGapRaw = 20.0; // Raw price gap ($20) for SSL Long / S
 // double MinimumSameOrderGapRawSSLLongShort =50;// 50;
 double MinimumSameOrderGapRawMatched =50;//30;//50;//100;//50;//30;//10;//20;//50;//20;// 50;//SSL long //SSL short
 double MinimumSameOrderGapRawUnmatched =50;//10;//10;//20;// 100;
+double InpMaxSameOrderGapRaw          = 500.0; // USER RULE (VMULTI-1233): Maximum same order gap in USD across all calculations (Caps required gap to $500 max)
 
 bool EnableReEntryNOnMatchingSignal=true;
 
@@ -14253,6 +14254,11 @@ void ManageEmaAngleOppositeClose()
 //+------------------------------------------------------------------+
 bool HasMinimumSameOrderGap(int orderType, double minimumGapRaw, double proposedEntryPrice = 0.0)
   {
+   // USER RULE (VMULTI-1233): Any calculation maximum same order gap is $500 raw price gap
+   double maxCap = (InpMaxSameOrderGapRaw > 0.0) ? InpMaxSameOrderGapRaw : 500.0;
+   if(minimumGapRaw > maxCap)
+      minimumGapRaw = maxCap;
+
    RefreshRates();
    bool isBuy = (orderType == OP_BUY || orderType == OP_BUYSTOP || orderType == OP_BUYLIMIT);
    double checkPrice = proposedEntryPrice;
@@ -20303,19 +20309,28 @@ double GetDynamicOrderGap(int orderType)
            }
         }
 
+   double resultGap = 0.0;
 // 5. Check signal alignment (SSL or Chart Pattern)
    bool sslMatches = ((orderType == OP_BUY && sslDir == 1) || (orderType == OP_SELL && sslDir == -1));
    if(sslMatches)
-      return baseGap * multiplier * sweepMult;
+      resultGap = baseGap * multiplier * sweepMult;
+   else
+     {
+      // Lazy evaluation of pattern direction only if SSL is not matching
+      int patternDir = GetCachedPatternDirection();
+      bool patternMatches = ((orderType == OP_BUY && patternDir == 1) || (orderType == OP_SELL && patternDir == -1));
+      if(patternMatches)
+         resultGap = baseGap * multiplier * sweepMult;
+      else
+         resultGap = MathMax(unmatchedGap, baseGap * multiplier) * sweepMult;
+     }
 
-// Lazy evaluation of pattern direction only if SSL is not matching
-   int patternDir = GetCachedPatternDirection();
-   bool patternMatches = ((orderType == OP_BUY && patternDir == 1) || (orderType == OP_SELL && patternDir == -1));
-   if(patternMatches)
-      return baseGap * multiplier * sweepMult;
+   // USER RULE (VMULTI-1233): Maximum same order gap is $500 raw price gap
+   double maxCap = (InpMaxSameOrderGapRaw > 0.0) ? InpMaxSameOrderGapRaw : 500.0;
+   if(resultGap > maxCap)
+      resultGap = maxCap;
 
-// 6. Unmatched / Counter-trend fallback
-   return MathMax(unmatchedGap, baseGap * multiplier) * sweepMult;
+   return resultGap;
   }
 
 //+------------------------------------------------------------------+
