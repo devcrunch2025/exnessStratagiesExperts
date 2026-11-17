@@ -42,7 +42,7 @@ CheckBasketProfitClose  Total open basket profit
 */
 
 
-string glbVersion = "VMULTI-1238- Method 6 Partial Combo Half Close Winner Above 0.01L";
+string glbVersion = "VMULTI-1239- Steep Angle Ladder Option B Half Close Every Level 2+";
 
 int AccountMultiplierLOT = 1000;//400;//200;//500; ALWAYS multiples of 1000 is better for best results
 //balance multiplier 
@@ -63,6 +63,8 @@ double InpLadderStepExtraMoveRaw         = 25.0; // Extra raw BTC price move add
 double InpLadderStepExtraSLRaw           = 25.0; // Initial raw BTC price locked on Level 1 SL (openPrice +/- 25)
 double InpLadderStepIncrementRaw         = 50.0; // Next every step move and SL lock increment ($50 raw price gap)
 double InpLadderSteepAngleThreshold       = 4.0;  // Minimum MathAbs(GlobalEmaAngle30) for steep trend ($125 trigger move)
+bool   InpEnableSteepAngleLadderHalfClose = true; // Option B: When |EMA Angle| >= 4, half-close order (>0.01L) after every ladder SL modify from Level 2+
+int    InpSteepAngleLadderHalfCloseStartLevel = 2; // Starting ladder level for steep-angle half-close (2 = Level 2+; Level 1 stays full lot)
 
 //chance 2
 int partialClose01in05IndividualPercentage=0;//20;//10;//2*2;//per lot 0.01// DISABLED: individual order partial close percentage
@@ -7560,6 +7562,7 @@ double   GetLowestPriceSinceEmaFlip();
 double   GetHighestEmaDistanceSinceEmaFlip();
 double   GetLowestEmaDistanceSinceEmaFlip();
 double   CalculateProportionalLadderSL(int orderType, double openPrice, double orderLots);
+double   CalculateProportionalLadderSLWithLevel(int orderType, double openPrice, double orderLots, int &outLadderLevel);
 void     ApplyEmaFlipWideBreathingProtection(int prevDirection, int newDirection);
 void     CheckEmaFlipHalfDistancePartialLossCut();
 void     CheckMaxLossCap001Lots();
@@ -10735,8 +10738,9 @@ double GetEmaAngleBreakevenBreathingSL(int orderType, double openPrice, double p
 //| - EMA Angle >= 4: order moves $125 -> SL to $25 (locks +$25)     |
 //|   Next every $50 move -> SL moves extra $50 ($75, $125, $175...) |
 //+------------------------------------------------------------------+
-double CalculateProportionalLadderSL(int orderType, double openPrice, double orderLots)
+double CalculateProportionalLadderSLWithLevel(int orderType, double openPrice, double orderLots, int &outLadderLevel)
   {
+   outLadderLevel = 0;
    if(orderLots <= 0.0 || openPrice <= 0.0)
       return 0.0;
 
@@ -10765,6 +10769,7 @@ double CalculateProportionalLadderSL(int orderType, double openPrice, double ord
 
    // ladderLevel: 1 = Level 1, 2 = Level 2, 3 = Level 3, etc.
    int ladderLevel = 1 + (int)MathFloor(((maxLockableDistance - level1TriggerMove) + (Point * 0.5)) / stepPriceGap);
+   outLadderLevel = ladderLevel;
 
    // SL locked distance: Level 1 locks $25; next every step adds +$50 (Level 2 = $75, Level 3 = $125, Level 4 = $175...)
    double lockedDistance = baseLockSL + ((ladderLevel - 1) * stepPriceGap);
@@ -10776,6 +10781,12 @@ double CalculateProportionalLadderSL(int orderType, double openPrice, double ord
       ladderSL = NormalizeDouble(openPrice - lockedDistance, Digits);
 
    return ladderSL;
+  }
+
+double CalculateProportionalLadderSL(int orderType, double openPrice, double orderLots)
+  {
+   int dummyLevel = 0;
+   return CalculateProportionalLadderSLWithLevel(orderType, openPrice, orderLots, dummyLevel);
   }
 
 
@@ -10822,7 +10833,8 @@ void SecureOneDollarProfit()
       if(curPL < minProfitUSD)
          continue; // Order must reach at least $1.00 * multiplier before securing profit
 
-      double ladderSL = CalculateProportionalLadderSL(type, openPrice, orderLots);
+      int ladderLevel = 0;
+      double ladderSL = CalculateProportionalLadderSLWithLevel(type, openPrice, orderLots, ladderLevel);
       if(ladderSL <= 0.0)
          continue;
 
@@ -10854,11 +10866,69 @@ void SecureOneDollarProfit()
                actualSL = OrderStopLoss();
             if(currentSL == 0.0 || MathAbs(actualSL - currentSL) >= Point * 0.5)
               {
-               Print("Secured Common Profit Ladder | Ticket=", ticket,
+               Print("Secured Common Profit Ladder | Level=", ladderLevel,
+                     " | Ticket=", ticket,
                      " | Lots=", DoubleToString(orderLots, 2),
                      " | Type=", (type == OP_BUY ? "BUY" : "SELL"),
                      " | P/L=$", DoubleToString(curPL, 2), " >= $", DoubleToString(minProfitUSD, 2),
                      " | New SL=", DoubleToString(actualSL, Digits));
+
+               // USER RULE (VMULTI-1239): Option B - When |EMA Angle| >= 4, half-close order (>0.01L) after every ladder SL modify from Level 2+
+               if(InpEnableSteepAngleLadderHalfClose && ladderLevel >= InpSteepAngleLadderHalfCloseStartLevel)
+                 {
+                  double curAngleLadder = (GlobalEmaAngle30 != 0.0) ? GlobalEmaAngle30 : GetEmaAngleDegrees(30);
+                  if(MathAbs(curAngleLadder) >= InpLadderSteepAngleThreshold)
+                    {
+                     double minLotL  = MarketInfo(Symbol(), MODE_MINLOT);
+                     double lotStepL = MarketInfo(Symbol(), MODE_LOTSTEP);
+                     if(minLotL <= 0.0)
+                        minLotL = 0.01;
+                     if(lotStepL <= 0.0)
+                        lotStepL = 0.01;
+
+                     double normLotsL = NormalizeDouble(orderLots, 2);
+                     if(normLotsL > minLotL + 0.00001)
+                       {
+                        double halfCloseLots = MathFloor(((normLotsL * 0.5) + 0.00001) / lotStepL) * lotStepL;
+                        halfCloseLots = NormalizeDouble(halfCloseLots, 2);
+                        if(halfCloseLots < minLotL)
+                           halfCloseLots = minLotL;
+
+                        if(halfCloseLots >= minLotL && (normLotsL - halfCloseLots) >= (minLotL - 0.00001))
+                          {
+                           bool halfClosed = false;
+                           double closePx = 0.0;
+                           for(int attempt = 0; attempt < 3; attempt++)
+                             {
+                              RefreshRates();
+                              closePx = (type == OP_BUY) ? Bid : Ask;
+                              closePx = NormalizeDouble(closePx, Digits);
+                              ResetLastError();
+                              halfClosed = OrderClose(ticket, halfCloseLots, closePx, Slippage, (type == OP_BUY ? clrLimeGreen : clrOrangeRed));
+                              if(halfClosed)
+                                 break;
+                              int err = GetLastError();
+                              Print(">>> [LADDER STEEP ANGLE HALF-CLOSE RETRY] Ticket=#", ticket,
+                                    " | Attempt=", (attempt + 1), " | Lots=", DoubleToString(halfCloseLots, 2), " | Error=", err);
+                              Sleep(100);
+                             }
+
+                           if(halfClosed)
+                             {
+                              double remLotsL = NormalizeDouble(normLotsL - halfCloseLots, 2);
+                              Print(">>> [LADDER STEEP ANGLE HALF-CLOSE] Level=", ladderLevel,
+                                    " | Ticket=#", ticket,
+                                    " | Type=", (type == OP_BUY ? "BUY" : "SELL"),
+                                    " | Closed=", DoubleToString(halfCloseLots, 2), "L of ", DoubleToString(normLotsL, 2), "L",
+                                    " | Remaining=", DoubleToString(remLotsL, 2), "L (SL=", DoubleToString(actualSL, Digits), ")",
+                                    " | ClosePrice=", DoubleToString(closePx, Digits),
+                                    " | EMA Angle=", DoubleToString(curAngleLadder, 1), " deg");
+                              InvalidateTotalEAOrdersCache();
+                             }
+                          }
+                       }
+                    }
+                 }
               }
            }
          else
