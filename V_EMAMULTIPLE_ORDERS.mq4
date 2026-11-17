@@ -42,7 +42,7 @@ CheckBasketProfitClose  Total open basket profit
 */
 
 
-string glbVersion = "VMULTI-1235- Tiered Dynamic Daily Equity Retrace Floor";
+string glbVersion = "VMULTI-1236- Separate Gap Content Box Next To Dubai Time";
 
 int AccountMultiplierLOT = 1000;//400;//200;//500; ALWAYS multiples of 1000 is better for best results
 //balance multiplier 
@@ -28304,6 +28304,7 @@ void DeleteLeftLiveOrdersDashboardObjects()
 //| TOP-CENTER DUBAI TIME DISPLAY (CENTERED BETWEEN DASHBOARDS)      |
 //+------------------------------------------------------------------+
 string TOP_CENTER_DUBAI_PREFIX = "SSL_TOP_DUBAI_";
+string TOP_CENTER_GAP_PREFIX   = "SSL_TOP_GAP_";
 
 void DeleteTopCenterDubaiTimeObjects()
   {
@@ -28311,7 +28312,7 @@ void DeleteTopCenterDubaiTimeObjects()
    for(int i = total - 1; i >= 0; i--)
      {
       string name = ObjectName(0, i, -1, -1);
-      if(StringFind(name, TOP_CENTER_DUBAI_PREFIX, 0) == 0)
+      if(StringFind(name, TOP_CENTER_DUBAI_PREFIX, 0) == 0 || StringFind(name, TOP_CENTER_GAP_PREFIX, 0) == 0)
          ObjectDelete(0, name);
      }
   }
@@ -28392,48 +28393,103 @@ void UpdateTopCenterDubaiTimeDisplay()
       rightStart = chartWidth - (DashboardRightGap + 10 + rW);
      }
 
-   int panelWidth  = 380;
-   int panelHeight = 68;
-   int centerMidX  = 0;
+   int dubaiWidth  = 200;
+   int dubaiHeight = 38;
+   int gapWidth    = 380;
+   int gapHeight   = 38;
+   int gapSpacing  = 6;
+   int totalWidth  = dubaiWidth + gapSpacing + gapWidth;
 
-   if(rightStart > (leftEnd + panelWidth + 20))
-      centerMidX = (leftEnd + rightStart) / 2;
-   else
-      centerMidX = chartWidth / 2;
+   int dubaiX = 10;
+   int dubaiY = MathMin(LeftDashboardY, DashboardTopGap);
+   int gapX   = 10;
+   int gapY   = dubaiY;
 
-   int panelX = MathMax(10, centerMidX - (panelWidth / 2));
-   int panelY = MathMin(LeftDashboardY, DashboardTopGap);
-
-   // Background Panel
-   string pnlName = TOP_CENTER_DUBAI_PREFIX + "PANEL";
-   if(ObjectFind(0, pnlName) < 0)
+   if(rightStart > (leftEnd + totalWidth + 20))
      {
-      ObjectCreate(0, pnlName, OBJ_RECTANGLE_LABEL, 0, 0, 0);
-      ObjectSetInteger(0, pnlName, OBJPROP_CORNER, CORNER_LEFT_UPPER);
-      ObjectSetInteger(0, pnlName, OBJPROP_BACK, false);
-      ObjectSetInteger(0, pnlName, OBJPROP_ZORDER, 1000);
-      ObjectSetInteger(0, pnlName, OBJPROP_XDISTANCE, panelX);
-      ObjectSetInteger(0, pnlName, OBJPROP_YDISTANCE, panelY);
-      ObjectSetInteger(0, pnlName, OBJPROP_XSIZE, panelWidth);
-      ObjectSetInteger(0, pnlName, OBJPROP_YSIZE, panelHeight);
-      ObjectSetInteger(0, pnlName, OBJPROP_BGCOLOR, C'20,48,82');
-      ObjectSetInteger(0, pnlName, OBJPROP_BORDER_TYPE, BORDER_FLAT);
-      ObjectSetInteger(0, pnlName, OBJPROP_COLOR, C'45,95,155');
-      ObjectSetInteger(0, pnlName, OBJPROP_SELECTABLE, false);
-      ObjectSetInteger(0, pnlName, OBJPROP_HIDDEN, true);
+      int startX = (leftEnd + rightStart - totalWidth) / 2;
+      dubaiX = MathMax(10, startX);
+      gapX   = dubaiX + dubaiWidth + gapSpacing;
+      gapY   = dubaiY;
+     }
+   else if(rightStart > (leftEnd + dubaiWidth + 20))
+     {
+      dubaiX = MathMax(10, (leftEnd + rightStart - dubaiWidth) / 2);
+      gapX   = MathMax(10, (leftEnd + rightStart - gapWidth) / 2);
+      gapY   = dubaiY + dubaiHeight + 4;
      }
    else
      {
-      if((int)ObjectGetInteger(0, pnlName, OBJPROP_XDISTANCE) != panelX)
-         ObjectSetInteger(0, pnlName, OBJPROP_XDISTANCE, panelX);
-      if((int)ObjectGetInteger(0, pnlName, OBJPROP_YDISTANCE) != panelY)
-         ObjectSetInteger(0, pnlName, OBJPROP_YDISTANCE, panelY);
-      if((int)ObjectGetInteger(0, pnlName, OBJPROP_XSIZE) != panelWidth)
-         ObjectSetInteger(0, pnlName, OBJPROP_XSIZE, panelWidth);
-      if((int)ObjectGetInteger(0, pnlName, OBJPROP_YSIZE) != panelHeight)
-         ObjectSetInteger(0, pnlName, OBJPROP_YSIZE, panelHeight);
-      if((color)ObjectGetInteger(0, pnlName, OBJPROP_BGCOLOR) != C'20,48,82')
-         ObjectSetInteger(0, pnlName, OBJPROP_BGCOLOR, C'20,48,82');
+      dubaiX = 10;
+      gapX   = 10;
+      gapY   = dubaiY + dubaiHeight + 4;
+     }
+
+   int dubaiMidX = dubaiX + (dubaiWidth / 2);
+   int gapMidX   = gapX + (gapWidth / 2);
+
+   // --- BOX 1: DUBAI TIME PANEL ---
+   string dubaiPnlName = TOP_CENTER_DUBAI_PREFIX + "PANEL";
+   if(ObjectFind(0, dubaiPnlName) < 0)
+     {
+      ObjectCreate(0, dubaiPnlName, OBJ_RECTANGLE_LABEL, 0, 0, 0);
+      ObjectSetInteger(0, dubaiPnlName, OBJPROP_CORNER, CORNER_LEFT_UPPER);
+      ObjectSetInteger(0, dubaiPnlName, OBJPROP_BACK, false);
+      ObjectSetInteger(0, dubaiPnlName, OBJPROP_ZORDER, 1000);
+      ObjectSetInteger(0, dubaiPnlName, OBJPROP_XDISTANCE, dubaiX);
+      ObjectSetInteger(0, dubaiPnlName, OBJPROP_YDISTANCE, dubaiY);
+      ObjectSetInteger(0, dubaiPnlName, OBJPROP_XSIZE, dubaiWidth);
+      ObjectSetInteger(0, dubaiPnlName, OBJPROP_YSIZE, dubaiHeight);
+      ObjectSetInteger(0, dubaiPnlName, OBJPROP_BGCOLOR, C'20,48,82');
+      ObjectSetInteger(0, dubaiPnlName, OBJPROP_BORDER_TYPE, BORDER_FLAT);
+      ObjectSetInteger(0, dubaiPnlName, OBJPROP_COLOR, C'45,95,155');
+      ObjectSetInteger(0, dubaiPnlName, OBJPROP_SELECTABLE, false);
+      ObjectSetInteger(0, dubaiPnlName, OBJPROP_HIDDEN, true);
+     }
+   else
+     {
+      if((int)ObjectGetInteger(0, dubaiPnlName, OBJPROP_XDISTANCE) != dubaiX)
+         ObjectSetInteger(0, dubaiPnlName, OBJPROP_XDISTANCE, dubaiX);
+      if((int)ObjectGetInteger(0, dubaiPnlName, OBJPROP_YDISTANCE) != dubaiY)
+         ObjectSetInteger(0, dubaiPnlName, OBJPROP_YDISTANCE, dubaiY);
+      if((int)ObjectGetInteger(0, dubaiPnlName, OBJPROP_XSIZE) != dubaiWidth)
+         ObjectSetInteger(0, dubaiPnlName, OBJPROP_XSIZE, dubaiWidth);
+      if((int)ObjectGetInteger(0, dubaiPnlName, OBJPROP_YSIZE) != dubaiHeight)
+         ObjectSetInteger(0, dubaiPnlName, OBJPROP_YSIZE, dubaiHeight);
+      if((color)ObjectGetInteger(0, dubaiPnlName, OBJPROP_BGCOLOR) != C'20,48,82')
+         ObjectSetInteger(0, dubaiPnlName, OBJPROP_BGCOLOR, C'20,48,82');
+     }
+
+   // --- BOX 2: REQUIRED GAP PANEL ---
+   string gapPnlName = TOP_CENTER_GAP_PREFIX + "PANEL";
+   if(ObjectFind(0, gapPnlName) < 0)
+     {
+      ObjectCreate(0, gapPnlName, OBJ_RECTANGLE_LABEL, 0, 0, 0);
+      ObjectSetInteger(0, gapPnlName, OBJPROP_CORNER, CORNER_LEFT_UPPER);
+      ObjectSetInteger(0, gapPnlName, OBJPROP_BACK, false);
+      ObjectSetInteger(0, gapPnlName, OBJPROP_ZORDER, 1000);
+      ObjectSetInteger(0, gapPnlName, OBJPROP_XDISTANCE, gapX);
+      ObjectSetInteger(0, gapPnlName, OBJPROP_YDISTANCE, gapY);
+      ObjectSetInteger(0, gapPnlName, OBJPROP_XSIZE, gapWidth);
+      ObjectSetInteger(0, gapPnlName, OBJPROP_YSIZE, gapHeight);
+      ObjectSetInteger(0, gapPnlName, OBJPROP_BGCOLOR, C'20,48,82');
+      ObjectSetInteger(0, gapPnlName, OBJPROP_BORDER_TYPE, BORDER_FLAT);
+      ObjectSetInteger(0, gapPnlName, OBJPROP_COLOR, C'45,95,155');
+      ObjectSetInteger(0, gapPnlName, OBJPROP_SELECTABLE, false);
+      ObjectSetInteger(0, gapPnlName, OBJPROP_HIDDEN, true);
+     }
+   else
+     {
+      if((int)ObjectGetInteger(0, gapPnlName, OBJPROP_XDISTANCE) != gapX)
+         ObjectSetInteger(0, gapPnlName, OBJPROP_XDISTANCE, gapX);
+      if((int)ObjectGetInteger(0, gapPnlName, OBJPROP_YDISTANCE) != gapY)
+         ObjectSetInteger(0, gapPnlName, OBJPROP_YDISTANCE, gapY);
+      if((int)ObjectGetInteger(0, gapPnlName, OBJPROP_XSIZE) != gapWidth)
+         ObjectSetInteger(0, gapPnlName, OBJPROP_XSIZE, gapWidth);
+      if((int)ObjectGetInteger(0, gapPnlName, OBJPROP_YSIZE) != gapHeight)
+         ObjectSetInteger(0, gapPnlName, OBJPROP_YSIZE, gapHeight);
+      if((color)ObjectGetInteger(0, gapPnlName, OBJPROP_BGCOLOR) != C'20,48,82')
+         ObjectSetInteger(0, gapPnlName, OBJPROP_BGCOLOR, C'20,48,82');
      }
 
    // Time Calculation
@@ -28441,6 +28497,14 @@ void UpdateTopCenterDubaiTimeDisplay()
    datetime dubaiTime = (nowServer > 0) ? (nowServer + (ServerToDubaiOffsetHours * 3600)) : 0;
    string   clockStr  = (dubaiTime > 0) ? TimeToString(dubaiTime, TIME_DATE|TIME_MINUTES|TIME_SECONDS) : "--:--:--";
    string   headerStr = "DUBAI TIME (UTC+4)";
+
+   string dubaiTooltip = StringFormat("Dubai GST (UTC+4) | Day Rollover: 16:00 Dubai | Server Offset: %+dh", ServerToDubaiOffsetHours);
+   ObjectSetString(0, dubaiPnlName, OBJPROP_TOOLTIP, dubaiTooltip);
+
+   CreateTopCenterDubaiLabel(TOP_CENTER_DUBAI_PREFIX + "TITLE", headerStr, dubaiMidX, dubaiY + 4,  8, C'175,220,255', "Arial");
+   CreateTopCenterDubaiLabel(TOP_CENTER_DUBAI_PREFIX + "CLOCK", clockStr,  dubaiMidX, dubaiY + 18, 9, clrWhite,       "Consolas");
+   ObjectSetString(0, TOP_CENTER_DUBAI_PREFIX + "TITLE", OBJPROP_TOOLTIP, dubaiTooltip);
+   ObjectSetString(0, TOP_CENTER_DUBAI_PREFIX + "CLOCK", OBJPROP_TOOLTIP, dubaiTooltip);
 
    // Live Dynamic Gap Calculation (Dry-run without log spam)
    double rawBuy = 0.0, rawSell = 0.0;
@@ -28475,25 +28539,22 @@ void UpdateTopCenterDubaiTimeDisplay()
       sellGapColor = C'180,240,180';
      }
 
-   string tooltip = StringFormat("Dubai GST (UTC+4) | Day Rollover: 16:00 Dubai | Server Offset: %+dh\n" +
-                                 "--------------------------------------------------\n" +
-                                 "REQUIRED SAME ORDER GAP (Max Cap: $%.0f):\n" +
-                                 "BUY : Raw $%.2f -> Req $%.2f (%s)\n" +
-                                 "SELL: Raw $%.2f -> Req $%.2f (%s)",
-                                 ServerToDubaiOffsetHours,
-                                 InpMaxSameOrderGapRaw,
-                                 rawBuy, finalBuy, reasonBuy,
-                                 rawSell, finalSell, reasonSell);
-   ObjectSetString(0, pnlName, OBJPROP_TOOLTIP, tooltip);
+   string gapTooltip = StringFormat("REQUIRED SAME ORDER GAP (Max Cap: $%.0f):\n" +
+                                    "BUY : Raw $%.2f -> Req $%.2f (%s)\n" +
+                                    "SELL: Raw $%.2f -> Req $%.2f (%s)",
+                                    InpMaxSameOrderGapRaw,
+                                    rawBuy, finalBuy, reasonBuy,
+                                    rawSell, finalSell, reasonSell);
+   ObjectSetString(0, gapPnlName, OBJPROP_TOOLTIP, gapTooltip);
 
-   CreateTopCenterDubaiLabel(TOP_CENTER_DUBAI_PREFIX + "TITLE", headerStr, centerMidX, panelY + 4,  8, C'175,220,255', "Arial");
-   CreateTopCenterDubaiLabel(TOP_CENTER_DUBAI_PREFIX + "CLOCK", clockStr,  centerMidX, panelY + 18, 9, clrWhite,       "Consolas");
-   CreateTopCenterDubaiLabel(TOP_CENTER_DUBAI_PREFIX + "GAP_BUY",  buyGapStr,  centerMidX, panelY + 34, 8, buyGapColor,  "Consolas");
-   CreateTopCenterDubaiLabel(TOP_CENTER_DUBAI_PREFIX + "GAP_SELL", sellGapStr, centerMidX, panelY + 49, 8, sellGapColor, "Consolas");
-   ObjectSetString(0, TOP_CENTER_DUBAI_PREFIX + "TITLE", OBJPROP_TOOLTIP, tooltip);
-   ObjectSetString(0, TOP_CENTER_DUBAI_PREFIX + "CLOCK", OBJPROP_TOOLTIP, tooltip);
-   ObjectSetString(0, TOP_CENTER_DUBAI_PREFIX + "GAP_BUY", OBJPROP_TOOLTIP, tooltip);
-   ObjectSetString(0, TOP_CENTER_DUBAI_PREFIX + "GAP_SELL", OBJPROP_TOOLTIP, tooltip);
+   // Remove any legacy labels that were inside the Dubai panel
+   ObjectDelete(0, TOP_CENTER_DUBAI_PREFIX + "GAP_BUY");
+   ObjectDelete(0, TOP_CENTER_DUBAI_PREFIX + "GAP_SELL");
+
+   CreateTopCenterDubaiLabel(TOP_CENTER_GAP_PREFIX + "GAP_BUY",  buyGapStr,  gapMidX, gapY + 4,  8, buyGapColor,  "Consolas");
+   CreateTopCenterDubaiLabel(TOP_CENTER_GAP_PREFIX + "GAP_SELL", sellGapStr, gapMidX, gapY + 18, 8, sellGapColor, "Consolas");
+   ObjectSetString(0, TOP_CENTER_GAP_PREFIX + "GAP_BUY", OBJPROP_TOOLTIP, gapTooltip);
+   ObjectSetString(0, TOP_CENTER_GAP_PREFIX + "GAP_SELL", OBJPROP_TOOLTIP, gapTooltip);
   }
 
 //+------------------------------------------------------------------+
