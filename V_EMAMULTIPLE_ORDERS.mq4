@@ -42,7 +42,7 @@ CheckBasketProfitClose  Total open basket profit
 */
 
 
-string glbVersion = "VMULTI-1231- Method 6 Same Type Both Profit Full Threshold 5 USD";
+string glbVersion = "VMULTI-1232- MOM Markers Align GlobalSSLDirection & MOM Order Gap";
 
 int AccountMultiplierLOT = 1000;//400;//200;//500; ALWAYS multiples of 1000 is better for best results
 //balance multiplier 
@@ -50,7 +50,7 @@ int AccountMultiplierLOT = 1000;//400;//200;//500; ALWAYS multiples of 1000 is b
 double DailyEquityStopUSD          = 20;//20;//10;//50;//  $50 /10;//10%;//percentage //1000;//50;//20*2.5;//10;//20;// 10;//30.0; close all orders at $50Xmultipler
 double DailyEquityTrailStepUSD     = 5.0;  // Collect $5 step profit step-by-step after DailyEquityStopUSD hit
 double DailyEquityRetraceFloorPct  = 50.0; // Pause trading for the day when profit retraces to 70% of maximum profit hit (target + steps)
-double DailyEquityMaxLossUSD       = 200.0; // Adverse Day Protection ($200): Close all orders & pause trading till next day Dubai 16:00 if day equity drops $200
+double DailyEquityMaxLossUSD       = 1000;//200.0; // Adverse Day Protection ($200): Close all orders & pause trading till next day Dubai 16:00 if day equity drops $200
 
 double TargetProfitPerFlipUSD =1000;//50;//;//percentage////1000;//20;//10;//10*2;//10;//5;//20;// 10.0; close all orders at $20Xmultipler
 
@@ -623,8 +623,11 @@ double StopLossRawPriceGap =3000;// 2000.0;   // Raw price gap ($2000 BTC price 
 double TakeProfitRawPriceGap = 5000.0;  // Raw price gap ($500 BTC price points) for TakeProfit
 double StopLossUSD =30;//20;//10;//6;//10;//6;//5;//10;//2;// 10;
 
-// ===== MOM ORDER FLAG (global - set before OpenBuy/OpenSell, cleared after) =====
-bool isMOMOrder = false; // Set to true only during MOM order placement
+// ===== MOM ORDER FLAG & OVERRIDE SETTINGS (VMULTI-1232) =====
+bool     isMOMOrder              = false; // Set to true only during MOM order placement
+double   InpMomOrderMinGapRaw    = 50.0;  // Minimum price gap in USD for MOM breakout orders (bypasses large drawdown gap)
+int      g_momOverrideDirection  = 0;     // Direction set by MOM marker (+1 Buy, -1 Sell)
+datetime g_momOverrideBarTime    = 0;     // Bar time when MOM marker was created
 
 
 
@@ -1069,6 +1072,10 @@ datetime LastPatternCalcTime = 0;
 bool PassesUserRules(int orderType)
   {
    if(!InpEnableCustomRules)
+      return true;
+
+   // USER RULE (VMULTI-1232): MOM orders have verified momentum trigger; bypass lagging SSL direction check
+   if(isMOMOrder)
       return true;
 
    double emaAngle = GlobalEmaAngle30;
@@ -13863,6 +13870,16 @@ void OnTickCore()
    GlobalEmaAngle200 = GetEmaAngleDegrees(200);
 
    int currentSSLDirection = GetCurrentSSLDirection();
+
+   // USER RULE (VMULTI-1232): When MOM marker is active on current bar and EMA direction confirms or flipped, align SSL with MOM
+   if(g_momOverrideBarTime == Time[0] && g_momOverrideDirection != 0)
+     {
+      if(EMADirection == 0 || EMADirection == g_momOverrideDirection)
+        {
+         currentSSLDirection = g_momOverrideDirection;
+        }
+     }
+
    if(LiveSSLInitialized && LastTrackedSSLDirection != 0 && currentSSLDirection != 0 && currentSSLDirection != LastTrackedSSLDirection)
      {
       if(DeletePendingOrdersOnSSLChange)
@@ -20168,6 +20185,13 @@ int GetActiveLsdSweepSignalForGap()
 //+------------------------------------------------------------------+
 double GetDynamicOrderGap(int orderType)
   {
+   // USER RULE (VMULTI-1232): Allow tighter gap for MOM breakout entries (default $50, bypassing large drawdown grid gaps)
+   if(isMOMOrder)
+     {
+      double momGap = (InpMomOrderMinGapRaw > 0.0) ? InpMomOrderMinGapRaw : 50.0;
+      return momGap;
+     }
+
    double baseGap = (MinimumSameOrderGapRawMatched > 0.0) ? MinimumSameOrderGapRawMatched : 50.0;
    double unmatchedGap = (MinimumSameOrderGapRawUnmatched > 0.0) ? MinimumSameOrderGapRawUnmatched : 50.0;
 
@@ -26615,53 +26639,52 @@ void DrawMomentumMarkers()
 
       if(IsStrongMomentum(OP_BUY, i))
         {
-         if(ObjectFind(0, objName) < 0) // Only draw if it doesn't already exist
+         bool isNew = (ObjectFind(0, objName) < 0);
+         if(isNew) // Only draw if it doesn't already exist
            {
             ObjectCreate(0, objName, OBJ_ARROW, 0, Time[i], Low[i] - (30 * Point));
             ObjectSetInteger(0, objName, OBJPROP_ARROWCODE, 233); // Wingdings Up Arrow
             ObjectSetInteger(0, objName, OBJPROP_COLOR, clrLime);
             ObjectSetInteger(0, objName, OBJPROP_WIDTH, 2);
-            //if(EMADirection == 1)// && !IsEmaWEAKDistanceReduced50PercentFromPeak(1))
-              {
-
-
-
-              }
            }
 
-         isMOMOrder=true;
-         GlobalSSLDirection=1;
-         // Print("MOM Buy open");
-         OpenBuy("MOM_BUY");
+         // USER RULE (VMULTI-1232): Trigger MOM BUY order only for the newly closed bar (i == 1) when marker is fresh
+         if(i == 1 && isNew)
+           {
+            GlobalSSLDirection     = 1;
+            g_momOverrideDirection = 1;
+            g_momOverrideBarTime   = Time[0];
 
-         isMOMOrder=false;
-
-
-
-
+            isMOMOrder = true;
+            Print(">>> [MOM BUY TRIGGER] Green MOM marker on Bar ", TimeToString(Time[1]), " -> GlobalSSLDirection set to BUY (+1)");
+            OpenBuy("MOM_BUY");
+            isMOMOrder = false;
+           }
         }
       else
          if(IsStrongMomentum(OP_SELL, i))
            {
-            if(ObjectFind(0, objName) < 0)
+            bool isNew = (ObjectFind(0, objName) < 0);
+            if(isNew)
               {
                ObjectCreate(0, objName, OBJ_ARROW, 0, Time[i], High[i] + (30 * Point));
                ObjectSetInteger(0, objName, OBJPROP_ARROWCODE, 234); // Wingdings Down Arrow
                ObjectSetInteger(0, objName, OBJPROP_COLOR, clrRed);
                ObjectSetInteger(0, objName, OBJPROP_WIDTH, 2);
-               GlobalSSLDirection=-1;
-               // if(EMADirection == -1)// && !IsEmaWEAKDistanceReduced50PercentFromPeak(-1))
-
               }
+
+            // USER RULE (VMULTI-1232): Trigger MOM SELL order only for the newly closed bar (i == 1) when marker is fresh
+            if(i == 1 && isNew)
               {
+               GlobalSSLDirection     = -1;
+               g_momOverrideDirection = -1;
+               g_momOverrideBarTime   = Time[0];
 
-               isMOMOrder=true;
-               // Print("MOM Sell open");
+               isMOMOrder = true;
+               Print(">>> [MOM SELL TRIGGER] Red MOM marker on Bar ", TimeToString(Time[1]), " -> GlobalSSLDirection set to SELL (-1)");
                OpenSell("MOM_SELL");
-               isMOMOrder=false;
-
+               isMOMOrder = false;
               }
-
            }
      }
   }
