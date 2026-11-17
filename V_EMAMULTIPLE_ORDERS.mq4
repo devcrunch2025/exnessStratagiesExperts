@@ -42,7 +42,7 @@ CheckBasketProfitClose  Total open basket profit
 */
 
 
-string glbVersion = "VMULTI-1241- Ladder Half Close Every Level Any Angle";
+string glbVersion = "VMULTI-1241- FINAL - Ladder Half Close Every Level Any Angle";
 
 int AccountMultiplierLOT = 1000;//400;//200;//500; ALWAYS multiples of 1000 is better for best results
 //balance multiplier 
@@ -7370,8 +7370,8 @@ bool   InpMethod6CreatePendingOnWinnerClose = true;   // Method 6: Create new pe
 bool   InpMethod6CloseWinnerAtMarket        = false;  // Method 6 full combo: false = modify SL to live price; true = close winner at market
 bool   InpMethod6PrioritizeOppositeLosers   = true;   // Method 6: 1st Priority = Close opposite-type losers, 2nd Priority = Close same-type losers
 double InpMethod6PartialMaxCutLots          = 0.0;    // Method 6: Max partial lots to cut from loser per trigger (0.0 = auto max safe)
-double InpMethod6LowAngleThresholdUSD       = 10;//2.0;    // Method 6: Profit threshold when MathAbs(EMA Angle) < 4 deg ($2.00 * multiplier)
-double InpMethod6LowAngleEmaDegrees         = 4.0;    // Method 6: Dynamic EMA angle boundary in degrees (default 4.0)
+double InpMethod6LowAngleThresholdUSD       = 5;//10;//2.0;    // Method 6: Profit threshold when MathAbs(EMA Angle) < 4 deg ($2.00 * multiplier)
+double InpMethod6LowAngleEmaDegrees         = 0;//4.0;    // Method 6: Dynamic EMA angle boundary in degrees (default 4.0)
 
 // Universal Trend-Aware StopLoss Modifier (Applies across all order modify methods)
 // User Rule:
