@@ -42,7 +42,7 @@ CheckBasketProfitClose  Total open basket profit
 */
 
 
-string glbVersion = "VMULTI-1227 Method 6 Enforce Loser First Atomic Close With Retries";
+string glbVersion = "VMULTI-1228 Method 6 Prioritize Opposite Losers Over Same Type";
 
 int AccountMultiplierLOT = 1000;//400;//200;//500; ALWAYS multiples of 1000 is better for best results
 //balance multiplier 
@@ -7358,6 +7358,7 @@ bool   InpMethod6EnablePartialLotCombination= true;   // Method 6: Allow partial
 bool   InpMethod6PartialCloseWinnerAtMarket = true;   // Method 6: Close winning order at market (true) or tighten SL to live price (false)
 bool   InpMethod6CreatePendingOnWinnerClose = true;   // Method 6: Create new pending order (SSL Long/Short) in same direction after closing profit order (only when open order count == 0)
 bool   InpMethod6CloseWinnerAtMarket        = false;  // Method 6 full combo: false = modify SL to live price; true = close winner at market
+bool   InpMethod6PrioritizeOppositeLosers   = true;   // Method 6: 1st Priority = Close opposite-type losers, 2nd Priority = Close same-type losers
 double InpMethod6PartialMaxCutLots          = 0.0;    // Method 6: Max partial lots to cut from loser per trigger (0.0 = auto max safe)
 double InpMethod6LowAngleThresholdUSD       = 2.0;    // Method 6: Profit threshold when MathAbs(EMA Angle) < 4 deg ($2.00 * multiplier)
 double InpMethod6LowAngleEmaDegrees         = 4.0;    // Method 6: Dynamic EMA angle boundary in degrees (default 4.0)
@@ -9050,16 +9051,30 @@ void ExecuteMethod6CombinationAction(int &comboIndices[], int comboCount, double
    Print(">>> [METHOD 6 TRIGGERED] Combination of ", comboCount, " orders hit Profit = $", DoubleToString(comboSum, 2),
          " >= Threshold. Executing Action: 1) Close losing orders at market, 2) Modify profit orders with SL at current price.");
 
-// 1. FIRST: Close losing orders at market (Enforce losers closed first with atomic abort)
+// 1. FIRST: Close losing orders at market (Priority 1: Opposite order type, Priority 2: Same order type)
    bool allLosersClosed = true;
+
+   // Identify primary winning order type in combo
+   int primaryWinType = -1;
    for(int c = 0; c < comboCount; c++)
      {
       int idx = comboIndices[c];
-      if(candProfits[idx] < 0.0)
+      if(candProfits[idx] >= 0.0)
+        {
+         primaryWinType = candTypes[idx];
+         break;
+        }
+     }
+
+   // Priority 1: Close losing orders with OPPOSITE order type first
+   for(int c = 0; c < comboCount; c++)
+     {
+      int idx = comboIndices[c];
+      if(candProfits[idx] < 0.0 && (primaryWinType < 0 || candTypes[idx] != primaryWinType))
         {
          int tkt = candTickets[idx];
          double lossUSD = candProfits[idx];
-         Print(">>> [METHOD 6: CLOSING LOSING ORDER FIRST] Ticket #", tkt,
+         Print(">>> [METHOD 6: CLOSING OPPOSITE LOSING ORDER FIRST] Ticket #", tkt,
                " (", (candTypes[idx] == OP_BUY ? "BUY " : "SELL "), DoubleToString(candLots[idx], 2), "L)",
                " | Loss=-$", DoubleToString(MathAbs(lossUSD), 2),
                " closed at market as part of +$", DoubleToString(comboSum, 2), " combination!");
@@ -9071,9 +9086,39 @@ void ExecuteMethod6CombinationAction(int &comboIndices[], int comboCount, double
            }
          else
            {
-            Print(">>> [METHOD 6 ERROR] Failed to close losing order Ticket #", tkt, ". Aborting combination to protect winners!");
+            Print(">>> [METHOD 6 ERROR] Failed to close opposite losing order Ticket #", tkt, ". Aborting combination to protect winners!");
             allLosersClosed = false;
             break;
+           }
+        }
+     }
+
+   // Priority 2: Close losing orders with SAME order type second
+   if(allLosersClosed)
+     {
+      for(int c = 0; c < comboCount; c++)
+        {
+         int idx = comboIndices[c];
+         if(candProfits[idx] < 0.0 && !isProcessed[idx])
+           {
+            int tkt = candTickets[idx];
+            double lossUSD = candProfits[idx];
+            Print(">>> [METHOD 6: CLOSING SAME-TYPE LOSING ORDER SECOND] Ticket #", tkt,
+                  " (", (candTypes[idx] == OP_BUY ? "BUY " : "SELL "), DoubleToString(candLots[idx], 2), "L)",
+                  " | Loss=-$", DoubleToString(MathAbs(lossUSD), 2),
+                  " closed at market as part of +$", DoubleToString(comboSum, 2), " combination!");
+
+            if(CloseMarketOrderDirect(tkt))
+              {
+               RecordMethodModification(tkt, 6, comboCount, lossUSD);
+               isProcessed[idx] = true;
+              }
+            else
+              {
+               Print(">>> [METHOD 6 ERROR] Failed to close same-type losing order Ticket #", tkt, ". Aborting combination to protect winners!");
+               allLosersClosed = false;
+               break;
+              }
            }
         }
      }
@@ -9507,7 +9552,8 @@ void ModifyMethod6MultiOrderCombinationsOver5USD()
    if(candCount < minOrders)
       return;
 
-// 1. PRIORITY PAIR CHECK (Win + Loss): Pair with at least one losing order if sum >= threshold
+// 1. PRIORITY PAIR CHECK (Win + Loss):
+// 1A. First Priority: Pairs with OPPOSITE order type (e.g. Win BUY + Loss SELL or Win SELL + Loss BUY)
    if(minOrders <= 2)
      {
       int searchLimit2 = MathMin(candCount, 30);
@@ -9520,7 +9566,33 @@ void ModifyMethod6MultiOrderCombinationsOver5USD()
             if(isProcessed[j])
                continue;
 
-            if(candProfits[i] < 0.0 || candProfits[j] < 0.0)
+            if((candProfits[i] < 0.0 || candProfits[j] < 0.0) && (candTypes[i] != candTypes[j]))
+              {
+               double sum2 = candProfits[i] + candProfits[j];
+               if(sum2 >= threshold)
+                 {
+                  int combo[2];
+                  combo[0] = i;
+                  combo[1] = j;
+                  ExecuteMethod6CombinationAction(combo, 2, sum2, candTickets, candTypes, candLots,
+                                                  candOpenPrices, candTakeProfits, candProfits, isProcessed);
+                  break;
+                 }
+              }
+           }
+        }
+
+// 1B. Second Priority: Pairs with SAME order type (e.g. Win BUY + Loss BUY or Win SELL + Loss SELL)
+      for(int i = 0; i < searchLimit2 - 1; i++)
+        {
+         if(isProcessed[i])
+            continue;
+         for(int j = i + 1; j < searchLimit2; j++)
+           {
+            if(isProcessed[j])
+               continue;
+
+            if((candProfits[i] < 0.0 || candProfits[j] < 0.0) && (candTypes[i] == candTypes[j]))
               {
                double sum2 = candProfits[i] + candProfits[j];
                if(sum2 >= threshold)
@@ -9537,7 +9609,8 @@ void ModifyMethod6MultiOrderCombinationsOver5USD()
         }
      }
 
-// 2. PRIORITY TRIPLET CHECK (Win + Losses): Check combinations of 3 orders with at least one loss
+// 2. PRIORITY TRIPLET CHECK (Win + Losses):
+// 2A. First Priority: Triplets containing at least one OPPOSITE order type loser
    int searchLimit3 = MathMin(candCount, 20);
    for(int i = 0; i < searchLimit3 - 2; i++)
      {
@@ -9554,16 +9627,21 @@ void ModifyMethod6MultiOrderCombinationsOver5USD()
 
             if(candProfits[i] < 0.0 || candProfits[j] < 0.0 || candProfits[k] < 0.0)
               {
-               double sum3 = candProfits[i] + candProfits[j] + candProfits[k];
-               if(sum3 >= threshold)
+               bool hasBuy  = (candTypes[i] == OP_BUY  || candTypes[j] == OP_BUY  || candTypes[k] == OP_BUY);
+               bool hasSell = (candTypes[i] == OP_SELL || candTypes[j] == OP_SELL || candTypes[k] == OP_SELL);
+               if(hasBuy && hasSell) // Opposite order types present in combination
                  {
-                  int combo[3];
-                  combo[0] = i;
-                  combo[1] = j;
-                  combo[2] = k;
-                  ExecuteMethod6CombinationAction(combo, 3, sum3, candTickets, candTypes, candLots,
-                                                  candOpenPrices, candTakeProfits, candProfits, isProcessed);
-                  break;
+                  double sum3 = candProfits[i] + candProfits[j] + candProfits[k];
+                  if(sum3 >= threshold)
+                    {
+                     int combo[3];
+                     combo[0] = i;
+                     combo[1] = j;
+                     combo[2] = k;
+                     ExecuteMethod6CombinationAction(combo, 3, sum3, candTickets, candTypes, candLots,
+                                                     candOpenPrices, candTakeProfits, candProfits, isProcessed);
+                     break;
+                    }
                  }
               }
            }
@@ -9572,7 +9650,47 @@ void ModifyMethod6MultiOrderCombinationsOver5USD()
         }
      }
 
-// 3. PRIORITY QUARTET CHECK (Win + Losses): Check combinations of 4 orders with at least one loss
+// 2B. Second Priority: Triplets with SAME order type only
+   for(int i = 0; i < searchLimit3 - 2; i++)
+     {
+      if(isProcessed[i])
+         continue;
+      for(int j = i + 1; j < searchLimit3 - 1; j++)
+        {
+         if(isProcessed[j])
+            continue;
+         for(int k = j + 1; k < searchLimit3; k++)
+           {
+            if(isProcessed[k])
+               continue;
+
+            if(candProfits[i] < 0.0 || candProfits[j] < 0.0 || candProfits[k] < 0.0)
+              {
+               bool hasBuy  = (candTypes[i] == OP_BUY  || candTypes[j] == OP_BUY  || candTypes[k] == OP_BUY);
+               bool hasSell = (candTypes[i] == OP_SELL || candTypes[j] == OP_SELL || candTypes[k] == OP_SELL);
+               if(!hasBuy || !hasSell) // All same order type
+                 {
+                  double sum3 = candProfits[i] + candProfits[j] + candProfits[k];
+                  if(sum3 >= threshold)
+                    {
+                     int combo[3];
+                     combo[0] = i;
+                     combo[1] = j;
+                     combo[2] = k;
+                     ExecuteMethod6CombinationAction(combo, 3, sum3, candTickets, candTypes, candLots,
+                                                     candOpenPrices, candTakeProfits, candProfits, isProcessed);
+                     break;
+                    }
+                 }
+              }
+           }
+         if(isProcessed[i])
+            break;
+        }
+     }
+
+// 3. PRIORITY QUARTET CHECK (Win + Losses):
+// 3A. First Priority: Quartets containing at least one OPPOSITE order type loser
    int searchLimit4 = MathMin(candCount, 12);
    for(int i = 0; i < searchLimit4 - 3; i++)
      {
@@ -9593,17 +9711,69 @@ void ModifyMethod6MultiOrderCombinationsOver5USD()
 
                if(candProfits[i] < 0.0 || candProfits[j] < 0.0 || candProfits[k] < 0.0 || candProfits[m] < 0.0)
                  {
-                  double sum4 = candProfits[i] + candProfits[j] + candProfits[k] + candProfits[m];
-                  if(sum4 >= threshold)
+                  bool hasBuy  = (candTypes[i] == OP_BUY  || candTypes[j] == OP_BUY  || candTypes[k] == OP_BUY  || candTypes[m] == OP_BUY);
+                  bool hasSell = (candTypes[i] == OP_SELL || candTypes[j] == OP_SELL || candTypes[k] == OP_SELL || candTypes[m] == OP_SELL);
+                  if(hasBuy && hasSell) // Opposite order types present
                     {
-                     int combo[4];
-                     combo[0] = i;
-                     combo[1] = j;
-                     combo[2] = k;
-                     combo[3] = m;
-                     ExecuteMethod6CombinationAction(combo, 4, sum4, candTickets, candTypes, candLots,
-                                                     candOpenPrices, candTakeProfits, candProfits, isProcessed);
-                     break;
+                     double sum4 = candProfits[i] + candProfits[j] + candProfits[k] + candProfits[m];
+                     if(sum4 >= threshold)
+                       {
+                        int combo[4];
+                        combo[0] = i;
+                        combo[1] = j;
+                        combo[2] = k;
+                        combo[3] = m;
+                        ExecuteMethod6CombinationAction(combo, 4, sum4, candTickets, candTypes, candLots,
+                                                        candOpenPrices, candTakeProfits, candProfits, isProcessed);
+                        break;
+                       }
+                    }
+                 }
+              }
+            if(isProcessed[i])
+               break;
+           }
+         if(isProcessed[i])
+            break;
+        }
+     }
+
+// 3B. Second Priority: Quartets with SAME order type only
+   for(int i = 0; i < searchLimit4 - 3; i++)
+     {
+      if(isProcessed[i])
+         continue;
+      for(int j = i + 1; j < searchLimit4 - 2; j++)
+        {
+         if(isProcessed[j])
+            continue;
+         for(int k = j + 1; k < searchLimit4 - 1; k++)
+           {
+            if(isProcessed[k])
+               continue;
+            for(int m = k + 1; m < searchLimit4; m++)
+              {
+               if(isProcessed[m])
+                  continue;
+
+               if(candProfits[i] < 0.0 || candProfits[j] < 0.0 || candProfits[k] < 0.0 || candProfits[m] < 0.0)
+                 {
+                  bool hasBuy  = (candTypes[i] == OP_BUY  || candTypes[j] == OP_BUY  || candTypes[k] == OP_BUY  || candTypes[m] == OP_BUY);
+                  bool hasSell = (candTypes[i] == OP_SELL || candTypes[j] == OP_SELL || candTypes[k] == OP_SELL || candTypes[m] == OP_SELL);
+                  if(!hasBuy || !hasSell) // All same order type
+                    {
+                     double sum4 = candProfits[i] + candProfits[j] + candProfits[k] + candProfits[m];
+                     if(sum4 >= threshold)
+                       {
+                        int combo[4];
+                        combo[0] = i;
+                        combo[1] = j;
+                        combo[2] = k;
+                        combo[3] = m;
+                        ExecuteMethod6CombinationAction(combo, 4, sum4, candTickets, candTypes, candLots,
+                                                        candOpenPrices, candTakeProfits, candProfits, isProcessed);
+                        break;
+                       }
                     }
                  }
               }
@@ -9679,12 +9849,26 @@ void ModifyMethod6MultiOrderCombinationsOver5USD()
 
             if(nProfitUSD >= threshold)
               {
-               if(pLots > bestCutLots || (pLots == bestCutLots && MathAbs(pLossUSD) > MathAbs(bestPartialLoss)))
+               bool isOpp = (candTypes[j] != candTypes[i]);
+               bool bestIsOpp = (bestLossIdx >= 0 && candTypes[bestLossIdx] != candTypes[i]);
+
+               // 1st Priority: Opposite order type loser takes absolute priority over same-type loser
+               if(InpMethod6PrioritizeOppositeLosers && isOpp && !bestIsOpp)
                  {
                   bestCutLots     = pLots;
                   bestLossIdx     = j;
                   bestPartialLoss = pLossUSD;
                   bestNetProfit   = nProfitUSD;
+                 }
+               else if(!InpMethod6PrioritizeOppositeLosers || (isOpp == bestIsOpp))
+                 {
+                  if(pLots > bestCutLots || (pLots == bestCutLots && MathAbs(pLossUSD) > MathAbs(bestPartialLoss)))
+                    {
+                     bestCutLots     = pLots;
+                     bestLossIdx     = j;
+                     bestPartialLoss = pLossUSD;
+                     bestNetProfit   = nProfitUSD;
+                    }
                  }
               }
            }
