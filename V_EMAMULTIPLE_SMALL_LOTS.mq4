@@ -48,7 +48,7 @@ string glbVersion = "VMULTI-1002 - SMALL Budget $100";
 
 int AccountMultiplierLOT = 1000;//400;//200;//500; ALWAYS multiples of 1000 is better for best results
 //balance multiplier 
-double MinimumOpeningBalanceUSD =500/5;//100;// 500.0; // Minimum required account opening balance (.00)
+double MinimumOpeningBalanceUSD =90;//500/5;//100;// 500.0; // Minimum required account opening balance (.00)
 
 double DailyEquityStopUSD          = 20/5;//20;//20;//10;//50;//  $50 /10;//10%;//percentage //1000;//50;//20*2.5;//10;//20;// 10;//30.0; close all orders at $50Xmultipler
 double DailyEquityTrailStepUSD     = 5/5;//1;//5.0;  // Collect $5 step profit step-by-step after DailyEquityStopUSD hit
