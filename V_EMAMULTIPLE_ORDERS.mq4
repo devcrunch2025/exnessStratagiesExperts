@@ -362,7 +362,7 @@ bool   InpDrawHourlyPlanAIcon             = true;   // Plan A: Draw chart icon &
 bool   InpDrawHourlyPlanAIconWhenFlat     = true;   // Plan A: Also draw Hour Target HIT chart icon when triggered with 0 open orders
 int    InpHourlyPlanAIconCode             = 171;    // Plan A: Chart icon Wingdings code (171=star, 251=check, 238=shield)
 bool   InpEnableHourlyPlanBSideLossCut    = true;//false;  // Plan B: 1H Per-Side Floating Loss >30% Cut 20% LOT
-double InpHourlySideLossThresholdPct      = 30.0;//20.0;   // Plan B: Floating loss % of Balance trigger (> 30.0%, BUY and SELL evaluated separately)
+double InpHourlySideLossThresholdPct      = 50;//30.0;//20.0;   // Plan B: Floating loss % of Balance trigger (> 30.0%, BUY and SELL evaluated separately)
 double InpHourlySideLossCutPct            = 20.0;   // Plan B: Percentage of each losing order's lots to close (20% LOT)
 double InpHourlySideLossMinLot            = 0.01;   // Plan B: Minimum partial-close lot step & minimum preserved remaining order lot (0.01)
 bool   InpDrawHourlySideLossIcon          = true;   // Plan B: Draw chart icon & label when 1-Hour side loss cut executes
@@ -17228,7 +17228,7 @@ return -1;
      }
 
 // Physical Gate: Both-lines confusion block + single active Red/Green line $50 opposite-order block
-   if(IsBlockedByActiveHorizontalLines(orderType, price, comment))
+   if(IsBlockedByActiveHorizontalLines(orderType, price, comment) &&  (MathAbs(GlobalEmaAngle30) >= 3.0 ))
       return -1;
 
    if(IsBlockedByActiveSweepOppositeRule(orderType, comment))
