@@ -17007,7 +17007,7 @@ int SafeOrderSend(string symbol,int orderType,double lots,double price,int slipp
 
 
 
-if(EMADirection!=requestedDirection && MathAbs(GlobalEmaAngle30)>6)
+if(EMADirection!=requestedDirection && MathAbs(GlobalEmaAngle30)>3)
 {
 
 return -1;
