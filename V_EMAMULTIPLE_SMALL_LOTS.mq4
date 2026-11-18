@@ -125,9 +125,9 @@ void   DrawEquityProfitLadder5HitIcon(int step, double curEquity, double lowestE
 
 //chance 6 - basket//IMPORTANT TO CLOSE ONE SIDE OPEN ORDERS as soon as possible
 double basketBUYorSELLProfitModifyUSD=1;//1*10; //if all combined basket BUY OR SELL Only basket is profit >0 then modify stoploss
-bool   InpEnableBasketProfitClose = true;        // Close open Buy/Sell/Total orders when basket profit target reached
+bool   InpEnableBasketProfitClose =false;// true;        // Close open Buy/Sell/Total orders when basket profit target reached
 double InpBasketProfitTargetUSD     =5*10;//1;//5;// 2.0*10;         // Base target profit ($2.00 Golden Sweet Spot) multiplied by balancelomultipler
-bool   InpEnableBasketMicroTrailing = true;        // Enable basket micro-trailing to let profitable baskets ride past $2 into $3-$5
+bool   InpEnableBasketMicroTrailing = false;//true;        // Enable basket micro-trailing to let profitable baskets ride past $2 into $3-$5
 double InpBasketTrailActivationUSD  =5*10;// 1;//5;//2.0*10;         // Net profit in USD to activate basket trailing ($2.00 * multiplier)
 double InpBasketTrailStepUSD        = 1;//0.50;        // Pullback distance in USD from peak profit to close ($0.50 * multiplier)
 
@@ -233,7 +233,7 @@ enum ENUM_SWEEP_LINE_ACTION
 
 bool   InpManageSweepTerminalGlobals   = false;  // Disabled: Pure In-Memory EA Variables in RAM
 bool   InpEnableLsdSweepLotAdjustment  = true;   // Enable LSD Sweep Lot Adjustment in ChangeLots
-double InpLsdSweepLotSize              = 0.03;//0.05;   // LSD Sweep Lot Size (0.05)
+double InpLsdSweepLotSize              = 0.06/2;//0.03;//0.05;   // LSD Sweep Lot Size (0.05)
 bool   InpLsdSweepMatchDirectionOnly   = true;   // Apply 0.05 only when Order aligns with Sweep Signal
 bool   InpEnableSweepLineSLProtection  = false;  // LSD Sweep Line Order Protection (DISABLED: Sweep lines only create FlipBasketSupport, DO NOT modify/close orders)
 ENUM_SWEEP_LINE_ACTION InpSweepLineAction = SWEEP_LINE_CLOSE_ALL_OPPOSITE; // Sweep Line Action: Close All Opposite or Modify SL
@@ -7356,7 +7356,7 @@ double InpOverallBasketSLGapUSD             = 100.0;  // Method 5: Overall hedge
 
 // Method 6: Multi-Order Combinations (> 2 orders, Profit or Loss mix) > $20 Profit SL Modifier
 bool   InpEnableMethod6CombinationSLModify  = true;   // Method 6: Check combinations of >2 orders (profit/loss mix) > $20 profit
-double InpMethod6ProfitThresholdUSD         = 5;//10;//20.0;   // Method 6: Base profit threshold in USD ($20.00 * multiplier)
+double InpMethod6ProfitThresholdUSD         = 10/5;//5;//10;//20.0;   // Method 6: Base profit threshold in USD ($20.00 * multiplier)
 double InpMethod6SLDistanceUSD              = 20.0;  // Method 6: StopLoss gap in USD points ($150)
 int    InpMethod6MinOrderCount              = 2;      // Method 6: Minimum number of orders in combination (default 2 or 3)
 bool   InpDrawMethod6HitIcon                = true;   // Method 6: Draw chart icon when combination profit threshold is hit
@@ -7371,7 +7371,7 @@ bool   InpMethod6CreatePendingOnWinnerClose = true;   // Method 6: Create new pe
 bool   InpMethod6CloseWinnerAtMarket        = false;  // Method 6 full combo: false = modify SL to live price; true = close winner at market
 bool   InpMethod6PrioritizeOppositeLosers   = true;   // Method 6: 1st Priority = Close opposite-type losers, 2nd Priority = Close same-type losers
 double InpMethod6PartialMaxCutLots          = 0.0;    // Method 6: Max partial lots to cut from loser per trigger (0.0 = auto max safe)
-double InpMethod6LowAngleThresholdUSD       = 5;//10;//2.0;    // Method 6: Profit threshold when MathAbs(EMA Angle) < 4 deg ($2.00 * multiplier)
+double InpMethod6LowAngleThresholdUSD       = 5/5;//5;//10;//2.0;    // Method 6: Profit threshold when MathAbs(EMA Angle) < 4 deg ($2.00 * multiplier)
 double InpMethod6LowAngleEmaDegrees         = 0;//4.0;    // Method 6: Dynamic EMA angle boundary in degrees (default 4.0)
 
 // Universal Trend-Aware StopLoss Modifier (Applies across all order modify methods)
@@ -13189,13 +13189,13 @@ void ModifyOpenOrdersToCurrentPriceSL(string reason = "Daily Equity Target Hit")
 //+------------------------------------------------------------------+
 double GetDailyEquityRetraceFloorPct(double peakProfit)
   {
-   if(peakProfit >= 300.0)
+   if(peakProfit >= 300.0/5)
       return 10.0;
-   if(peakProfit >= 200.0)
+   if(peakProfit >= 200.0/5)
       return 20.0;
-   if(peakProfit >= 100.0)
+   if(peakProfit >= 100.0/5)
       return 30.0;
-   if(peakProfit >= 50.0)
+   if(peakProfit >= 50.0/5)
       return 50.0;
 
    return (DailyEquityRetraceFloorPct > 0.0) ? DailyEquityRetraceFloorPct : 50.0;
