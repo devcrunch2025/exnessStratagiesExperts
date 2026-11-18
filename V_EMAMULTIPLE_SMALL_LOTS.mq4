@@ -17228,7 +17228,7 @@ return -1;
      }
 
 // Physical Gate: Both-lines confusion block + single active Red/Green line $50 opposite-order block
-   if(IsBlockedByActiveHorizontalLines(orderType, price, comment) &&  (MathAbs(GlobalEmaAngle30) >= 3.0 ))
+   if(IsBlockedByActiveHorizontalLines(orderType, price, comment) &&  (MathAbs(GlobalEmaAngle30) <= 3.0 ))
       return -1;
 
    if(IsBlockedByActiveSweepOppositeRule(orderType, comment))
