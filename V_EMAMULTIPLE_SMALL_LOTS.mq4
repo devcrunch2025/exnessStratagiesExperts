@@ -20,6 +20,8 @@
 //https://github.com/devcrunch2025/exnessStratagiesExperts/commit/7e017c99e7de9bec2ae6e9e909eb567d0275fdb2
 
 
+
+
 //every Flip Stop 20%
 //https://github.com/devcrunch2025/exnessStratagiesExperts/commit/9ee1d4e897a5bcd34d5d5825dc2771c6eca50b78
 
