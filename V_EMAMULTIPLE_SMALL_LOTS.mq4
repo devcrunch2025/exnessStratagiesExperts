@@ -42,7 +42,7 @@ CheckBasketProfitClose  Total open basket profit
 */
 
 
-string glbVersion = "VMULTI-1001 - SMALL Budget $100";
+string glbVersion = "VMULTI-1002 - SMALL Budget $100";
 
 int AccountMultiplierLOT = 1000;//400;//200;//500; ALWAYS multiples of 1000 is better for best results
 //balance multiplier 
@@ -525,6 +525,10 @@ string InpLiveLogFileName                   = "Live_Order_Analysis.csv";    // L
 string InpLiveSummaryFileName               = "Live_Summary_Analysis.txt";  // Live Trading TXT summary filename
 
 bool   InpLogToCommonFolder                 = true;                    // Also write to Common\Files folder (accessible outside tester)
+
+void     MarkServerError(int err, string operation, int ticket = -1, string details = "");
+void     LogEAError(int errCode, string operation, int ticket = -1, string details = "");
+void     LogEAEvent(string level, string category, string message);
 
 // Function Prototypes for Liquidity Sweep Detector
 void     UpdateLiquiditySweepDetectorOnChart();
@@ -1311,7 +1315,7 @@ bool SafeOrderCloseMarket(int ticket, double lots, int slippage, color arrowColo
      }
 
    BlockTradeErrorUntilNextTick(key);
-   MarkServerError(err, "OrderCloseMarket");
+   MarkServerError(err, "OrderCloseMarket", ticket, StringFormat("Lots=%.2f", lots));
    return false;
   }
 
@@ -6676,6 +6680,7 @@ int SendFLIPBasketSupportOrder(int pendingType, double lots, double price, doubl
 
       int err = GetLastError();
       Print("FLIPBasketSupport OrderSend attempt ", (attempt + 1), " failed. Err=", err);
+      LogEAError(err, "OrderSend(FLIPSupport)", -1, StringFormat("Attempt=%d Type=%d Lots=%.2f Px=%s SL=%s TP=%s Cmt=%s", (attempt + 1), pendingType, lots, DoubleToString(price, Digits), DoubleToString(stopLoss, Digits), DoubleToString(takeProfit, Digits), comment));
 
       // Handle Error 148 (Too many open orders)
       if(err == 148)
@@ -6702,6 +6707,7 @@ int SendFLIPBasketSupportOrder(int pendingType, double lots, double price, doubl
             return ticket;
            }
          err = GetLastError();
+         LogEAError(err, "OrderSend(FLIPSupport-NoSL)", -1, StringFormat("Attempt=%d Lots=%.2f Px=%s Cmt=%s", (attempt + 1), lots, DoubleToString(price, Digits), comment));
         }
 
       // Retry on transient quote/busy errors
@@ -7640,8 +7646,23 @@ void   WriteReportLineToFile(string fileName, string lineText, bool appendMode);
 string SanitizeCsvField(string text);
 void   RecordBasketOutcome(int parentTicket, int recoveryTicket, double netProfit);
 bool   IsTicketRescuedInProfitableBasket(int ticket, double &outBasketNetProfit, int &outRecoveryTicket);
+string GetLoggerEnvMode();
+datetime GetLoggerNowDateTime();
+string GetLoggerDateStamp();
+string GetLoggerFolderRelPath();
+string GetLoggerBaseFilePrefix();
+string GetActiveErrorLogDisplayName();
+string GetActiveOrderCsvDisplayName();
+string GetActiveSummaryDisplayName();
+string GetActiveMethodAnalyticsDisplayName();
+string GetActiveErrorLogFileName();
 string GetActiveLogFileName();
 string GetActiveSummaryFileName();
+string GetActiveMethodAnalyticsFileName();
+string GetMT4ErrorDescription(int err);
+string GetDeinitReasonText(int reason);
+void   EnsureDailyLogFilesReady(bool isInitCall = false);
+void   LogLoggerDeinit(int reason);
 string ExplainLossReasonWithinTick(int ticket, double netProfit, string exitReason, double openPrice, double closePrice, double sl, double tp, string strategy, string comment);
 
 //+------------------------------------------------------------------+
@@ -8634,12 +8655,8 @@ void PrintMethodAnalyticsSummaryReport()
    Print(sep);
    fileReport = fileReport + subSep + "\r\n" + totalLine + "\r\n" + sep + "\r\n";
 
-   int hFile = FileOpen("Method_Analytics_Summary.txt", FILE_WRITE|FILE_TXT);
-   if(hFile != INVALID_HANDLE)
-     {
-      FileWriteString(hFile, fileReport);
-      FileClose(hFile);
-     }
+   EnsureDailyLogFilesReady(false);
+   WriteReportLineToFile(GetActiveMethodAnalyticsFileName(), fileReport, false);
   }
 
 
@@ -9441,6 +9458,7 @@ void ExecuteMethod6PartialLotAction(int winIdx, int lossIdx, double partialLots,
          break;
       int err = GetLastError();
       Print("Method 6 Partial Close attempt ", (attempt + 1), " failed for Ticket #", lossTkt, " | Error=", err);
+      LogEAError(err, "OrderClose(Method6-Loss)", lossTkt, StringFormat("Attempt=%d Lots=%.2f Px=%s", (attempt + 1), partialLots, DoubleToString(lossClosePrice, Digits)));
       Sleep(100);
      }
 
@@ -9471,6 +9489,7 @@ void ExecuteMethod6PartialLotAction(int winIdx, int lossIdx, double partialLots,
             break;
          int err = GetLastError();
          Print("Method 6 Winner ", (isFullWinClose ? "Full" : "Half"), " Close attempt ", (attempt + 1), " failed for Ticket #", winTkt, " | Error=", err);
+         LogEAError(err, "OrderClose(Method6-Win)", winTkt, StringFormat("Attempt=%d Lots=%.2f Px=%s", (attempt + 1), winCloseLots, DoubleToString(winClosePrice, Digits)));
          Sleep(100);
         }
 
@@ -10911,6 +10930,7 @@ void SecureOneDollarProfit()
                            int err = GetLastError();
                            Print(">>> [LADDER HALF-CLOSE RETRY] Ticket=#", ticket,
                                  " | Attempt=", (attempt + 1), " | Lots=", DoubleToString(halfCloseLots, 2), " | Error=", err);
+                           LogEAError(err, "OrderClose(LadderHalf)", ticket, StringFormat("Attempt=%d Lots=%.2f Px=%s", (attempt + 1), halfCloseLots, DoubleToString(closePx, Digits)));
                            Sleep(100);
                           }
 
@@ -12392,6 +12412,9 @@ int OnInit()
      {
       Print("INIT FAILED: Account Balance ($", DoubleToString(AccountBalance(), 2),
             ") is below minimum required opening balance ($", DoubleToString(MinimumOpeningBalanceUSD, 2), ").");
+      LogEAError(0, "OnInit", -1,
+                 StringFormat("INIT_FAILED: Account Balance ($%.2f) < MinimumOpeningBalanceUSD ($%.2f)",
+                              AccountBalance(), MinimumOpeningBalanceUSD));
       Alert("EA Init Failed: Account Balance ($" + DoubleToString(AccountBalance(), 2) +
             ") is below minimum $" + DoubleToString(MinimumOpeningBalanceUSD, 2) + " requirement!");
       return INIT_FAILED;
@@ -12743,6 +12766,7 @@ bool IsOneCandleOrderAllowed()
 void OnDeinit(const int reason)
   {
    PrintFormat(">>> [EA ONDEINIT] Shutdown/Reload (Reason=%d) | Resetting all runtime variables & cleaning chart...", reason);
+   LogLoggerDeinit(reason);
    ResetAllRuntimeVariablesOnFreshStart();
    ClearSweepGlobalVariables();
    GenerateTesterSummaryReport();
@@ -14960,12 +14984,13 @@ void CheckLatestClosedTradeProtection()
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
-void MarkServerError(int err,string operation)
+void MarkServerError(int err, string operation, int ticket = -1, string details = "")
   {
    TradeOperationFailedThisTick = true;
    ServerRecoveryPending=true;
    ServerRecoveryLastError=err;
    ServerRecoveryDetectedTime=TimeCurrent();
+   LogEAError(err, operation, ticket, details);
   }
 
 //+------------------------------------------------------------------+
@@ -17427,6 +17452,7 @@ return -1;
       else
         {
          Print(">>> [TOO MANY OPEN ORDERS: ERR=148] No pending orders could be deleted. Account capacity full with live positions.");
+         LogEAError(148, "OrderSend", -1, StringFormat("Account capacity full | Type=%s Lots=%.2f Cmt=%s", GetOrderTypeText(orderType), lots, comment));
          BlockTradeErrorUntilNextTick(key);
          return -1;
         }
@@ -17463,7 +17489,12 @@ return -1;
         }
      }
    BlockTradeErrorUntilNextTick(key);
-   MarkServerError(err,"OrderSend");
+   MarkServerError(err, "OrderSend", -1,
+                   StringFormat("Type=%s Lots=%.2f Px=%s SL=%s TP=%s Cmt=%s",
+                                GetOrderTypeText(orderType), lots,
+                                DoubleToString(sendPrice, Digits),
+                                DoubleToString(safeSL, Digits),
+                                DoubleToString(takeProfit, Digits), comment));
    return -1;
   }
 //+------------------------------------------------------------------+
@@ -18448,6 +18479,7 @@ bool SafeOrderModify(int ticket,double openPrice,double stopLoss,double takeProf
                     }
                   int closeErr = GetLastError();
                   Print("OrderClose fallback attempt ", (cAttempt + 1), " failed for Ticket #", ticket, " | Error=", closeErr);
+                  LogEAError(closeErr, "OrderClose(ModFallback)", ticket, StringFormat("Attempt=%d OrigModErr=%d Lots=%.2f", (cAttempt + 1), err, curLots));
                   Sleep(100);
                  }
               }
@@ -18480,7 +18512,11 @@ bool SafeOrderModify(int ticket,double openPrice,double stopLoss,double takeProf
         }
 
       BlockTradeErrorUntilNextTick(key);
-      MarkServerError(err, "OrderModify");
+      MarkServerError(err, "OrderModify", ticket,
+                      StringFormat("Type=%s ReqSL=%s ReqTP=%s Caller=%s",
+                                   GetOrderTypeText(orderType),
+                                   DoubleToString(requestedSL, Digits),
+                                   DoubleToString(requestedTP, Digits), callerName));
       return false;
      }
 
@@ -18552,7 +18588,7 @@ bool SafeOrderDelete(int ticket,color arrowColor)
      }
 
    BlockTradeErrorUntilNextTick(key);
-   MarkServerError(err, "OrderDelete");
+   MarkServerError(err, "OrderDelete", ticket, "Pending order delete failed");
    return false;
   }
 //+------------------------------------------------------------------+
@@ -26824,6 +26860,8 @@ void CreateDashboardPanel(string name, int x, int y, int width, int height, colo
      }
    if((color)ObjectGetInteger(0, name, OBJPROP_BGCOLOR) != background)
       ObjectSetInteger(0, name, OBJPROP_BGCOLOR, background);
+   if((int)ObjectGetInteger(0, name, OBJPROP_XSIZE) != width)
+      ObjectSetInteger(0, name, OBJPROP_XSIZE, width);
    if((int)ObjectGetInteger(0, name, OBJPROP_YSIZE) != height)
       ObjectSetInteger(0, name, OBJPROP_YSIZE, height);
   }
@@ -27378,8 +27416,8 @@ void UpdateDashboard(DailyProtectionState &state)
                  }
      }
 
-   w = MathMax(DashboardWidth, 355);
-   panelHeight = 518;
+   w = MathMax(DashboardWidth, 375);
+   panelHeight = 594;
    x = DashboardRightGap;
    y = DashboardTopGap;
    tx = x + 12;
@@ -28209,6 +28247,48 @@ void UpdateDashboard(DailyProtectionState &state)
                sLossDashClr = clrLightGray;
               }
    CreateDashboardLabel(DASH_PREFIX+"STEP_LOSS", sLossDashTxt, tx, y+494, 8, sLossDashClr);
+
+// ==========================================================
+// SECTION 6: DAILY LOGS & ERROR TRACKER (DEMO / LIVE / TESTER)
+// ==========================================================
+   EnsureDailyLogFilesReady(false);
+   string dashEnvMode = GetLoggerEnvMode();
+   color  dashEnvClr  = (dashEnvMode == "LIVE") ? clrLime : ((dashEnvMode == "DEMO") ? clrAqua : clrGold);
+   CreateDashboardPanel(DASH_PREFIX+"SEC_LOG", x, y+514, w, 18, C'28,38,50');
+   string dashLogHdr = StringFormat("--- DAILY LOGS [%s | EA_Logs\\%s] ---", dashEnvMode, dashEnvMode);
+   CreateDashboardLabel(DASH_PREFIX+"LOG_H", dashLogHdr, tx, y+516, 8, dashEnvClr);
+
+   string dashErrLogFile = "LOG FILE    : " + GetActiveErrorLogDisplayName();
+   CreateDashboardLabel(DASH_PREFIX+"LOG_FILE", dashErrLogFile, tx, y+534, 8, dashEnvClr);
+
+   string dashCsvLogFile = "ORDER CSV   : " + GetActiveOrderCsvDisplayName();
+   CreateDashboardLabel(DASH_PREFIX+"CSV_FILE", dashCsvLogFile, tx, y+550, 8, clrWhite);
+
+   string dashErrTrack = "";
+   color  dashErrClr   = clrLime;
+   if(!InpEnableOrderLogger)
+     {
+      dashErrTrack = "ERR TRACKER : LOGGER DISABLED";
+      dashErrClr   = clrSilver;
+     }
+   else if(g_dailyErrorCount == 0)
+     {
+      dashErrTrack = StringFormat("ERR TRACKER : Today: 0 Errors | %s [CLEAN]", GetLoggerDateStamp());
+      dashErrClr   = clrLime;
+     }
+   else
+     {
+      string shortOp = g_lastLoggedErrorOp;
+      if(StringLen(shortOp) > 15)
+         shortOp = StringSubstr(shortOp, 0, 15);
+      string errClock = (g_lastLoggedErrorTime > 0)
+                        ? StringFormat("%02d:%02d", TimeHour(g_lastLoggedErrorTime), TimeMinute(g_lastLoggedErrorTime))
+                        : "--:--";
+      dashErrTrack = StringFormat("ERR TRACKER : Today:%d | Last:#%d %s @%s",
+                                  g_dailyErrorCount, g_lastLoggedErrorCode, shortOp, errClock);
+      dashErrClr   = clrTomato;
+     }
+   CreateDashboardLabel(DASH_PREFIX+"LOG_ERR", dashErrTrack, tx, y+566, 8, dashErrClr);
 
    ChartRedraw(0);
 
@@ -31043,19 +31123,20 @@ int SendLsdRedLineSellOrder(double sellLot, double linePrice = 0.0)
    double takeProfit = (tpDistance > 0.0) ? NormalizeDouble(Bid - tpDistance, Digits) : 0.0;
 
    ResetLastError();
+   int finalErr = 0;
    int ticket = OrderSend(Symbol(), OP_SELL, sellLot, Bid, Slippage, stopLoss, takeProfit, "EQH-R Short", MagicNumber, 0, SellColor);
    if(ticket < 0)
      {
-      int err = GetLastError();
+      finalErr = GetLastError();
       // Error 130 (ERR_INVALID_STOPS) on ECN brokers: send with 0 SL/TP first
-      if(err == 130 || err == 4107)
+      if(finalErr == 130 || finalErr == 4107)
         {
          ResetLastError();
          ticket = OrderSend(Symbol(), OP_SELL, sellLot, Bid, Slippage, 0, 0, "EQH-R Short", MagicNumber, 0, SellColor);
-         if(ticket > 0 && (stopLoss > 0.0 || takeProfit > 0.0))
-           {
+         if(ticket < 0)
+            finalErr = GetLastError();
+         else if(stopLoss > 0.0 || takeProfit > 0.0)
             SafeOrderModify(ticket, OrderOpenPrice(), stopLoss, takeProfit, 0, SellColor);
-           }
         }
      }
 
@@ -31071,7 +31152,8 @@ int SendLsdRedLineSellOrder(double sellLot, double linePrice = 0.0)
      }
    else
      {
-      Print(">>> [NEW RED LINE] OrderSend OP_SELL 'EQH-R Short' failed. Error=", GetLastError());
+      Print(">>> [NEW RED LINE] OrderSend OP_SELL 'EQH-R Short' failed. Error=", finalErr);
+      LogEAError(finalErr, "OrderSend(EQH-R Short)", -1, StringFormat("Lots=%.2f Bid=%s SL=%s TP=%s", sellLot, DoubleToString(Bid, Digits), DoubleToString(stopLoss, Digits), DoubleToString(takeProfit, Digits)));
      }
    return ticket;
   }
@@ -31183,13 +31265,20 @@ int CreateHorizontalLineRecoveryOrder(int parentTicket, int orderType, double li
      }
 
    ResetLastError();
+   int recErr = 0;
    int recTicket = OrderSend(Symbol(), orderType, recLots, livePrice, Slippage, recSL, recTP, recComment, MagicNumber, 0, arrowColor);
-   if(recTicket < 0 && GetLastError() == 130)
+   if(recTicket < 0)
      {
-      ResetLastError();
-      recTicket = OrderSend(Symbol(), orderType, recLots, livePrice, Slippage, 0, 0, recComment, MagicNumber, 0, arrowColor);
-      if(recTicket > 0 && (recSL > 0.0 || recTP > 0.0))
-         SafeOrderModify(recTicket, livePrice, recSL, recTP, 0, arrowColor);
+      recErr = GetLastError();
+      if(recErr == 130)
+        {
+         ResetLastError();
+         recTicket = OrderSend(Symbol(), orderType, recLots, livePrice, Slippage, 0, 0, recComment, MagicNumber, 0, arrowColor);
+         if(recTicket < 0)
+            recErr = GetLastError();
+         else if(recSL > 0.0 || recTP > 0.0)
+            SafeOrderModify(recTicket, livePrice, recSL, recTP, 0, arrowColor);
+        }
      }
 
    if(recTicket > 0)
@@ -31207,7 +31296,8 @@ int CreateHorizontalLineRecoveryOrder(int parentTicket, int orderType, double li
    else
      {
       Print(">>> [HORIZONTAL LINE RECOVERY] Failed to create Recovery Order for Parent #", parentTicket,
-            " | Error=", GetLastError());
+            " | Error=", recErr);
+      LogEAError(recErr, "OrderSend(HorizRec)", parentTicket, StringFormat("Lots=%.2f Px=%s Cmt=%s", recLots, DoubleToString(livePrice, Digits), recComment));
      }
 
    return recTicket;
@@ -31739,19 +31829,20 @@ int SendLsdGreenLineBuyOrder(double buyLot, double linePrice = 0.0)
    double takeProfit = (tpDistance > 0.0) ? NormalizeDouble(Ask + tpDistance, Digits) : 0.0;
 
    ResetLastError();
+   int finalErr = 0;
    int ticket = OrderSend(Symbol(), OP_BUY, buyLot, Ask, Slippage, stopLoss, takeProfit, "EQH-G Long", MagicNumber, 0, BuyColor);
    if(ticket < 0)
      {
-      int err = GetLastError();
+      finalErr = GetLastError();
       // Error 130 (ERR_INVALID_STOPS) on ECN brokers: send with 0 SL/TP first
-      if(err == 130 || err == 4107)
+      if(finalErr == 130 || finalErr == 4107)
         {
          ResetLastError();
          ticket = OrderSend(Symbol(), OP_BUY, buyLot, Ask, Slippage, 0, 0, "EQH-G Long", MagicNumber, 0, BuyColor);
-         if(ticket > 0 && (stopLoss > 0.0 || takeProfit > 0.0))
-           {
+         if(ticket < 0)
+            finalErr = GetLastError();
+         else if(stopLoss > 0.0 || takeProfit > 0.0)
             SafeOrderModify(ticket, OrderOpenPrice(), stopLoss, takeProfit, 0, BuyColor);
-           }
         }
      }
 
@@ -31767,7 +31858,8 @@ int SendLsdGreenLineBuyOrder(double buyLot, double linePrice = 0.0)
      }
    else
      {
-      Print(">>> [NEW GREEN LINE] OrderSend OP_BUY 'EQH-G Long' failed. Error=", GetLastError());
+      Print(">>> [NEW GREEN LINE] OrderSend OP_BUY 'EQH-G Long' failed. Error=", finalErr);
+      LogEAError(finalErr, "OrderSend(EQH-G Long)", -1, StringFormat("Lots=%.2f Ask=%s SL=%s TP=%s", buyLot, DoubleToString(Ask, Digits), DoubleToString(stopLoss, Digits), DoubleToString(takeProfit, Digits)));
      }
    return ticket;
   }

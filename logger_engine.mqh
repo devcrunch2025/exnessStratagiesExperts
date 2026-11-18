@@ -46,20 +46,423 @@ double g_cumFuncNet_LossCloseLogic  = 0.0;
 double g_cumFuncNet_RunnerProtect   = 0.0;
 double g_cumFuncNet_Other           = 0.0;
 
+// Daily Environment-Separated Logger & Error Tracker State
+string   g_loggerActiveDateStamp    = "";
+string   g_loggerActiveEnvMode      = "";
+int      g_loggerLastCheckedDay     = -1;
+int      g_loggerLastKnownHistTotal = -1;
+int      g_loggerLastKnownOpenTotal = -1;
+int      g_dailyErrorCount          = 0;
+int      g_sessionErrorCount        = 0;
+int      g_lastLoggedErrorCode      = 0;
+string   g_lastLoggedErrorOp        = "";
+datetime g_lastLoggedErrorTime      = 0;
+string   g_lastDedupErrorKey        = "";
+datetime g_lastDedupErrorTime       = 0;
+int      g_suppressedErrorRepeats   = 0;
+int      g_loggerLastConnState      = -1;
+int      g_loggerLastTradeAllowed   = -1;
+
 //+------------------------------------------------------------------+
-//| GetActiveLogFileName: Dynamically selects Live vs Tester CSV     |
+//| GetLoggerEnvMode: Returns "TESTER", "LIVE", or "DEMO"            |
 //+------------------------------------------------------------------+
-string GetActiveLogFileName()
+string GetLoggerEnvMode()
   {
-   return (IsTesting() ? InpTesterLogFileName : InpLiveLogFileName);
+   if(IsTesting() || IsOptimization())
+      return "TESTER";
+   long tradeMode = AccountInfoInteger(ACCOUNT_TRADE_MODE);
+   if(tradeMode == ACCOUNT_TRADE_MODE_REAL && !IsDemo())
+      return "LIVE";
+   return "DEMO";
   }
 
 //+------------------------------------------------------------------+
-//| GetActiveSummaryFileName: Dynamically selects Live vs Tester TXT |
+//| GetLoggerNowDateTime: Current Dubai datetime (broker + offset)   |
 //+------------------------------------------------------------------+
+datetime GetLoggerNowDateTime()
+  {
+   datetime srv = TimeCurrent();
+   if(srv > 0)
+      return srv + (ServerToDubaiOffsetHours * 3600);
+   return TimeLocal();
+  }
+
+//+------------------------------------------------------------------+
+//| GetLoggerDateStamp: Returns YYYY-MM-DD for date-wise daily logs  |
+//+------------------------------------------------------------------+
+string GetLoggerDateStamp()
+  {
+   datetime dt = GetLoggerNowDateTime();
+   return StringFormat("%04d-%02d-%02d", TimeYear(dt), TimeMonth(dt), TimeDay(dt));
+  }
+
+//+------------------------------------------------------------------+
+//| GetLoggerFolderRelPath: EA_Logs\LIVE\, EA_Logs\DEMO\, TESTER\   |
+//+------------------------------------------------------------------+
+string GetLoggerFolderRelPath()
+  {
+   return "EA_Logs\\" + GetLoggerEnvMode() + "\\";
+  }
+
+//+------------------------------------------------------------------+
+//| GetLoggerBaseFilePrefix: <MODE>_<YYYY-MM-DD>_<Account>_<Magic>   |
+//+------------------------------------------------------------------+
+string GetLoggerBaseFilePrefix()
+  {
+   string mode    = GetLoggerEnvMode();
+   string dateStr = GetLoggerDateStamp();
+   int    accNum  = AccountNumber();
+   return StringFormat("%s_%s_%d_%d", mode, dateStr, accNum, MagicNumber);
+  }
+
+//+------------------------------------------------------------------+
+//| Short display filenames (without folder prefix, for Dashboard)   |
+//+------------------------------------------------------------------+
+string GetActiveErrorLogDisplayName()
+  {
+   return GetLoggerBaseFilePrefix() + ".log";
+  }
+
+string GetActiveOrderCsvDisplayName()
+  {
+   return GetLoggerBaseFilePrefix() + "_Orders.csv";
+  }
+
+string GetActiveSummaryDisplayName()
+  {
+   return GetLoggerBaseFilePrefix() + "_Summary.txt";
+  }
+
+string GetActiveMethodAnalyticsDisplayName()
+  {
+   return GetLoggerBaseFilePrefix() + "_Methods.txt";
+  }
+
+//+------------------------------------------------------------------+
+//| Full relative paths (under MQL4\Files and Common\Files)          |
+//+------------------------------------------------------------------+
+string GetActiveErrorLogFileName()
+  {
+   return GetLoggerFolderRelPath() + GetActiveErrorLogDisplayName();
+  }
+
+string GetActiveLogFileName()
+  {
+   return GetLoggerFolderRelPath() + GetActiveOrderCsvDisplayName();
+  }
+
 string GetActiveSummaryFileName()
   {
-   return (IsTesting() ? InpTesterSummaryFileName : InpLiveSummaryFileName);
+   return GetLoggerFolderRelPath() + GetActiveSummaryDisplayName();
+  }
+
+string GetActiveMethodAnalyticsFileName()
+  {
+   return GetLoggerFolderRelPath() + GetActiveMethodAnalyticsDisplayName();
+  }
+
+//+------------------------------------------------------------------+
+//| GetMT4ErrorDescription: Plain-English MT4 trade/runtime error    |
+//+------------------------------------------------------------------+
+string GetMT4ErrorDescription(int err)
+  {
+   switch(err)
+     {
+      case 0:    return "No error";
+      case 1:    return "No error, but result unknown";
+      case 2:    return "Common error";
+      case 3:    return "Invalid trade parameters";
+      case 4:    return "Trade server is busy";
+      case 5:    return "Old version of client terminal";
+      case 6:    return "No connection with trade server";
+      case 7:    return "Not enough rights";
+      case 8:    return "Too frequent requests";
+      case 9:    return "Malfunctional trade operation";
+      case 64:   return "Account disabled";
+      case 65:   return "Invalid account";
+      case 128:  return "Trade timeout";
+      case 129:  return "Invalid price";
+      case 130:  return "Invalid stops (SL/TP too close)";
+      case 131:  return "Invalid trade volume (lot size)";
+      case 132:  return "Market is closed";
+      case 133:  return "Trade is disabled";
+      case 134:  return "Not enough money (insufficient margin)";
+      case 135:  return "Price changed";
+      case 136:  return "Off quotes";
+      case 137:  return "Broker is busy";
+      case 138:  return "Requote";
+      case 139:  return "Order is locked";
+      case 140:  return "Long positions only allowed";
+      case 141:  return "Too many requests";
+      case 145:  return "Modification denied (order too close to market)";
+      case 146:  return "Trade context is busy";
+      case 147:  return "Expirations are denied by broker";
+      case 148:  return "Too many open/pending orders";
+      case 149:  return "Hedging is prohibited";
+      case 150:  return "Prohibited by FIFO rule";
+      case 4051: return "Invalid function parameter value";
+      case 4106: return "Unknown symbol";
+      case 4107: return "Invalid price parameter for trade function";
+      case 4108: return "Invalid ticket";
+      case 4109: return "Trade is not allowed (Enable AutoTrading)";
+      case 4110: return "Longs are not allowed in EA properties";
+      case 4111: return "Shorts are not allowed in EA properties";
+      default:   return "MT4 Error #" + IntegerToString(err);
+     }
+  }
+
+//+------------------------------------------------------------------+
+//| GetDeinitReasonText: Plain-English OnDeinit reason               |
+//+------------------------------------------------------------------+
+string GetDeinitReasonText(int reason)
+  {
+   switch(reason)
+     {
+      case REASON_PROGRAM:     return "EA terminated by ExpertRemove()";
+      case REASON_REMOVE:      return "EA removed from chart";
+      case REASON_RECOMPILE:   return "EA recompiled";
+      case REASON_CHARTCHANGE: return "Symbol or timeframe changed";
+      case REASON_CHARTCLOSE:  return "Chart closed";
+      case REASON_PARAMETERS:  return "Input parameters changed";
+      case REASON_ACCOUNT:     return "Account changed / reconnected";
+      case REASON_TEMPLATE:    return "New template applied";
+      case REASON_INITFAILED:  return "OnInit() failed";
+      case REASON_CLOSE:       return "Terminal closed";
+      default:                 return "Reason #" + IntegerToString(reason);
+     }
+  }
+
+//+------------------------------------------------------------------+
+//| EnsureFileHasHeader: Creates daily file w/ header without wiping |
+//| existing LIVE/DEMO logs on mid-day restart                       |
+//+------------------------------------------------------------------+
+void EnsureFileHasHeader(string fileName, string headerLine, bool forceOverwrite)
+  {
+   // 1. Local MQL4\Files (or tester\files in Strategy Tester)
+   bool needLocalHeader = forceOverwrite;
+   if(!needLocalHeader)
+     {
+      int chk = FileOpen(fileName, FILE_TXT | FILE_READ | FILE_SHARE_READ);
+      if(chk == INVALID_HANDLE)
+         needLocalHeader = true;
+      else
+        {
+         if(FileSize(chk) == 0)
+            needLocalHeader = true;
+         FileClose(chk);
+        }
+     }
+   if(needLocalHeader)
+     {
+      int h = FileOpen(fileName, FILE_TXT | FILE_WRITE | FILE_SHARE_READ);
+      if(h != INVALID_HANDLE)
+        {
+         FileWriteString(h, headerLine + "\r\n");
+         FileClose(h);
+        }
+     }
+
+   // 2. Common\Files (independently checked so LIVE/DEMO history is preserved)
+   if(InpLogToCommonFolder)
+     {
+      bool needCommonHeader = forceOverwrite;
+      if(!needCommonHeader)
+        {
+         int chkC = FileOpen(fileName, FILE_TXT | FILE_READ | FILE_SHARE_READ | FILE_COMMON);
+         if(chkC == INVALID_HANDLE)
+            needCommonHeader = true;
+         else
+           {
+            if(FileSize(chkC) == 0)
+               needCommonHeader = true;
+            FileClose(chkC);
+           }
+        }
+      if(needCommonHeader)
+        {
+         int hc = FileOpen(fileName, FILE_TXT | FILE_WRITE | FILE_SHARE_READ | FILE_COMMON);
+         if(hc != INVALID_HANDLE)
+           {
+            FileWriteString(hc, headerLine + "\r\n");
+            FileClose(hc);
+           }
+        }
+     }
+  }
+
+//+------------------------------------------------------------------+
+//| GetOrderCsvHeaderLine: Shared CSV header definition              |
+//+------------------------------------------------------------------+
+string GetOrderCsvHeaderLine()
+  {
+   return "Ticket,ParentTicket,Symbol,Type,Lots,OpenTime,OpenPrice,CloseTime,ClosePrice,DurationMin,NetProfitUSD,CumulativeAccountNetUSD,ClosingFunction,FunctionCumulativeNetUSD,Outcome,MethodName,ExitReason,LossReasonWithinTick,WasLossInBasketNetWin,StopLoss,TakeProfit,OpenEmaDist,CloseEmaDist,EmaDirClose,EmaFlipElapsedMin,OrderComment,OscillationRangeUSD,OscillationRegime";
+  }
+
+//+------------------------------------------------------------------+
+//| FormatLoggerTimestamp: "[YYYY-MM-DD HH:MM:SS GST | Srv HH:MM:SS]"|
+//+------------------------------------------------------------------+
+string FormatLoggerTimestamp()
+  {
+   datetime dubaiDt = GetLoggerNowDateTime();
+   datetime srvDt   = TimeCurrent();
+   string dubaiStr  = StringFormat("%04d-%02d-%02d %02d:%02d:%02d GST",
+                                   TimeYear(dubaiDt), TimeMonth(dubaiDt), TimeDay(dubaiDt),
+                                   TimeHour(dubaiDt), TimeMinute(dubaiDt), TimeSeconds(dubaiDt));
+   if(srvDt > 0)
+     {
+      string srvStr = StringFormat("%02d:%02d:%02d", TimeHour(srvDt), TimeMinute(srvDt), TimeSeconds(srvDt));
+      return "[" + dubaiStr + " | Srv " + srvStr + "]";
+     }
+   return "[" + dubaiStr + "]";
+  }
+
+//+------------------------------------------------------------------+
+//| EnsureDailyLogFilesReady: Creates/rolls over date-wise files     |
+//+------------------------------------------------------------------+
+void EnsureDailyLogFilesReady(bool isInitCall = false)
+  {
+   if(!InpEnableOrderLogger)
+      return;
+
+   string curDate = GetLoggerDateStamp();
+   string curMode = GetLoggerEnvMode();
+   if(!isInitCall && curDate == g_loggerActiveDateStamp && curMode == g_loggerActiveEnvMode)
+      return;
+
+   bool isRollover = (!isInitCall && g_loggerActiveDateStamp != "" && curDate != g_loggerActiveDateStamp);
+   if(isRollover)
+     {
+      string prevLogFile = "EA_Logs\\" + g_loggerActiveEnvMode + "\\" +
+                           StringFormat("%s_%s_%d_%d.log", g_loggerActiveEnvMode, g_loggerActiveDateStamp, AccountNumber(), MagicNumber);
+      WriteReportLineToFile(prevLogFile,
+                            FormatLoggerTimestamp() + " [" + g_loggerActiveEnvMode + "] [INFO] [DAILY_ROLLOVER] Day ended (" +
+                            g_loggerActiveDateStamp + " -> " + curDate + ") | Errors Today=" + IntegerToString(g_dailyErrorCount) +
+                            " | Bal=$" + DoubleToString(AccountBalance(), 2) + " Eq=$" + DoubleToString(AccountEquity(), 2),
+                            true);
+
+      g_dailyErrorCount        = 0;
+      g_lastLoggedErrorCode    = 0;
+      g_lastLoggedErrorOp      = "";
+      g_lastLoggedErrorTime    = 0;
+      g_lastDedupErrorKey      = "";
+      g_lastDedupErrorTime     = 0;
+      g_suppressedErrorRepeats = 0;
+     }
+
+   g_loggerActiveDateStamp = curDate;
+   g_loggerActiveEnvMode   = curMode;
+   g_loggerLastCheckedDay  = TimeDay(GetLoggerNowDateTime());
+
+   bool isTesterRun = (IsTesting() || IsOptimization());
+   string csvFile = GetActiveLogFileName();
+   string logFile = GetActiveErrorLogFileName();
+
+   // Ensure daily Orders CSV has its header (reset only in Strategy Tester; never wipe LIVE/DEMO)
+   EnsureFileHasHeader(csvFile, GetOrderCsvHeaderLine(), isTesterRun);
+
+   // Ensure daily Error/Event log file exists and append session/day banner
+   string bannerSep = "====================================================================================================";
+   EnsureFileHasHeader(logFile, bannerSep, isTesterRun);
+
+   string eventTag = isRollover ? "DAILY_ROLLOVER" : "SESSION_START";
+   string header1 = StringFormat("%s [%s] [INFO] [%s] Date=%s | Version=%s | Symbol=%s | Period=M%d | Magic=%d",
+                                 FormatLoggerTimestamp(), curMode, eventTag, curDate, glbVersion, Symbol(), Period(), MagicNumber);
+   string header2 = StringFormat("%s [%s] [INFO] [ACCOUNT] Acc=#%d | Broker=%s | Server=%s | Currency=%s | Lev=1:%d | Bal=$%.2f | Eq=$%.2f | FreeMgn=$%.2f",
+                                 FormatLoggerTimestamp(), curMode, AccountNumber(), AccountCompany(), AccountServer(), AccountCurrency(),
+                                 AccountLeverage(), AccountBalance(), AccountEquity(), AccountFreeMargin());
+   string header3 = StringFormat("%s [%s] [INFO] [SYMBOL_SPECS] MinLot=%.2f | LotStep=%.2f | MaxLot=%.2f | StopLvl=%d pts | Spread=%d pts | TradeAllowed=%s | Connected=%s",
+                                 FormatLoggerTimestamp(), curMode,
+                                 MarketInfo(Symbol(), MODE_MINLOT), MarketInfo(Symbol(), MODE_LOTSTEP), MarketInfo(Symbol(), MODE_MAXLOT),
+                                 (int)MarketInfo(Symbol(), MODE_STOPLEVEL), (int)MarketInfo(Symbol(), MODE_SPREAD),
+                                 (IsTradeAllowed() ? "YES" : "NO"), (IsConnected() ? "YES" : "NO"));
+   string header4 = StringFormat("%s [%s] [INFO] [FILES] ErrorLog=%s | OrdersCSV=%s | Summary=%s",
+                                 FormatLoggerTimestamp(), curMode, logFile, csvFile, GetActiveSummaryFileName());
+
+   WriteReportLineToFile(logFile, header1, true);
+   WriteReportLineToFile(logFile, header2, true);
+   WriteReportLineToFile(logFile, header3, true);
+   WriteReportLineToFile(logFile, header4, true);
+
+   Print(">>> [DAILY LOGGER] [", curMode, "] Active Date=", curDate,
+         " | ErrorLog=", logFile, " | OrdersCSV=", csvFile);
+  }
+
+//+------------------------------------------------------------------+
+//| LogEAEvent: Writes structured INFO/WARN/CRITICAL event to .log   |
+//+------------------------------------------------------------------+
+void LogEAEvent(string level, string category, string message)
+  {
+   if(!InpEnableOrderLogger)
+      return;
+
+   EnsureDailyLogFilesReady(false);
+   string mode = GetLoggerEnvMode();
+   string line = StringFormat("%s [%s] [%s] [%s] %s",
+                              FormatLoggerTimestamp(), mode, level, category, message);
+   WriteReportLineToFile(GetActiveErrorLogFileName(), line, true);
+  }
+
+//+------------------------------------------------------------------+
+//| LogEAError: Logs trade/server/runtime error with full context    |
+//+------------------------------------------------------------------+
+void LogEAError(int errCode, string operation, int ticket = -1, string details = "")
+  {
+   if(!InpEnableOrderLogger)
+      return;
+
+   EnsureDailyLogFilesReady(false);
+
+   datetime nowDt = GetLoggerNowDateTime();
+   string dedupKey = IntegerToString(errCode) + "|" + operation + "|" + IntegerToString(ticket);
+   if(errCode != 0 && dedupKey == g_lastDedupErrorKey && g_lastDedupErrorTime > 0 && (nowDt - g_lastDedupErrorTime) < 5)
+     {
+      g_suppressedErrorRepeats++;
+      return;
+     }
+
+   string repeatNote = "";
+   if(g_suppressedErrorRepeats > 0)
+     {
+      repeatNote = StringFormat(" (suppressed %d identical repeats)", g_suppressedErrorRepeats);
+      g_suppressedErrorRepeats = 0;
+     }
+
+   g_lastDedupErrorKey   = dedupKey;
+   g_lastDedupErrorTime  = nowDt;
+   g_dailyErrorCount++;
+   g_sessionErrorCount++;
+   g_lastLoggedErrorCode = errCode;
+   g_lastLoggedErrorOp   = operation;
+   g_lastLoggedErrorTime = nowDt;
+
+   string mode    = GetLoggerEnvMode();
+   string errDesc = GetMT4ErrorDescription(errCode);
+   string tktStr  = (ticket > 0) ? ("#" + IntegerToString(ticket)) : "N/A";
+   string detStr  = (details != "") ? (" | Details=" + details) : "";
+
+   string line = StringFormat("%s [%s] [ERROR] [Err=%d: %s] Op=%s | Ticket=%s | Bid=%s Ask=%s Spr=%d | Bal=$%.2f Eq=$%.2f FreeMgn=$%.2f OpenOrds=%d | Conn=%s TradeOK=%s%s%s",
+                              FormatLoggerTimestamp(), mode, errCode, errDesc, operation, tktStr,
+                              DoubleToString(Bid, Digits), DoubleToString(Ask, Digits), (int)MarketInfo(Symbol(), MODE_SPREAD),
+                              AccountBalance(), AccountEquity(), AccountFreeMargin(), OrdersTotal(),
+                              (IsConnected() ? "Y" : "N"), (IsTradeAllowed() ? "Y" : "N"),
+                              detStr, repeatNote);
+
+   WriteReportLineToFile(GetActiveErrorLogFileName(), line, true);
+   Print(">>> [", mode, " ERROR LOGGED #", g_dailyErrorCount, "] Err=", errCode, " (", errDesc, ") Op=", operation, " Ticket=", tktStr, detStr);
+  }
+
+//+------------------------------------------------------------------+
+//| LogLoggerDeinit: Logs clean EA shutdown / reload metadata        |
+//+------------------------------------------------------------------+
+void LogLoggerDeinit(int reason)
+  {
+   if(!InpEnableOrderLogger)
+      return;
+
+   string msg = StringFormat("Reason=%d (%s) | DailyErrors=%d | SessionErrors=%d | Bal=$%.2f | Eq=$%.2f | OpenOrds=%d",
+                             reason, GetDeinitReasonText(reason), g_dailyErrorCount, g_sessionErrorCount,
+                             AccountBalance(), AccountEquity(), OrdersTotal());
+   LogEAEvent("INFO", "SESSION_END", msg);
   }
 
 //+------------------------------------------------------------------+
@@ -393,37 +796,50 @@ void InitTesterOrderLogger()
    g_cumFuncNet_RunnerProtect   = 0.0;
    g_cumFuncNet_Other           = 0.0;
 
+   g_loggerActiveDateStamp    = "";
+   g_loggerActiveEnvMode      = "";
+   g_loggerLastCheckedDay     = -1;
+   g_loggerLastKnownHistTotal = -1;
+   g_loggerLastKnownOpenTotal = -1;
+   g_dailyErrorCount          = 0;
+   g_sessionErrorCount        = 0;
+   g_lastLoggedErrorCode      = 0;
+   g_lastLoggedErrorOp        = "";
+   g_lastLoggedErrorTime      = 0;
+   g_lastDedupErrorKey        = "";
+   g_lastDedupErrorTime       = 0;
+   g_suppressedErrorRepeats   = 0;
+   g_loggerLastConnState      = IsConnected() ? 1 : 0;
+   g_loggerLastTradeAllowed   = IsTradeAllowed() ? 1 : 0;
+
+   EnsureDailyLogFilesReady(true);
+
+   string mode            = GetLoggerEnvMode();
    string csvFileName     = GetActiveLogFileName();
    string summaryFileName = GetActiveSummaryFileName();
+   string errorFileName   = GetActiveErrorLogFileName();
 
-   string csvHeader = "Ticket,ParentTicket,Symbol,Type,Lots,OpenTime,OpenPrice,CloseTime,ClosePrice,DurationMin,NetProfitUSD,CumulativeAccountNetUSD,ClosingFunction,FunctionCumulativeNetUSD,Outcome,MethodName,ExitReason,LossReasonWithinTick,WasLossInBasketNetWin,StopLoss,TakeProfit,OpenEmaDist,CloseEmaDist,EmaDirClose,EmaFlipElapsedMin,OrderComment,OscillationRangeUSD,OscillationRegime";
-
-   // If testing, reset CSV and summary header
-   if(IsTesting())
+   if(IsTesting() || IsOptimization())
      {
-      WriteReportLineToFile(csvFileName, csvHeader, false);
       string initialSummary = "=== MetaTrader 4 Strategy Tester Log Started: " + TimeToString(TimeCurrent(), TIME_DATE|TIME_SECONDS) + " ===";
       WriteReportLineToFile(summaryFileName, initialSummary, false);
-      Print(">>> [ORDER LOGGER] Strategy Tester logger initialized: ", csvFileName, " and ", summaryFileName);
+      Print(">>> [ORDER LOGGER] [", mode, "] Initialized: ErrorLog=", errorFileName, " | OrdersCSV=", csvFileName, " | Summary=", summaryFileName);
      }
    else
      {
-      // In live/demo mode, ensure CSV header exists without erasing historical logs
-      int flags = FILE_TXT | FILE_READ | FILE_SHARE_READ;
-      int testHandle = FileOpen(csvFileName, flags);
-      if(testHandle == INVALID_HANDLE)
-         WriteReportLineToFile(csvFileName, csvHeader, false);
-      else
-         FileClose(testHandle);
-
-      // Mark existing history orders so only trades from THIS live session are logged
+      // Mark existing history orders so only trades from THIS session are appended to today's CSV
       int totalHist = OrdersHistoryTotal();
       for(int i = 0; i < totalHist; i++)
         {
          if(OrderSelect(i, SELECT_BY_POS, MODE_HISTORY))
             MarkOrderAsLogged(OrderTicket());
         }
-      Print(">>> [ORDER LOGGER] Live order logger initialized (", csvFileName, "). Existing history marked: ", totalHist, " orders.");
+      g_loggerLastKnownHistTotal = totalHist;
+      LogEAEvent("INFO", "INIT_COMPLETE",
+                 StringFormat("Logger ready (%s) | Existing history skipped=%d | OpenOrders=%d", mode, totalHist, OrdersTotal()));
+      if(!IsTradeAllowed())
+         LogEAError(4109, "InitCheck", -1, "AutoTrading / TradeAllowed is DISABLED at EA startup!");
+      Print(">>> [ORDER LOGGER] [", mode, "] Initialized: ErrorLog=", errorFileName, " | OrdersCSV=", csvFileName, " | Existing history marked: ", totalHist);
      }
   }
 
@@ -435,18 +851,44 @@ void ProcessOrderLoggerTick()
    if(!InpEnableOrderLogger)
       return;
 
-   // ULTRA-FAST GUARD: If order counts have not changed, return in 0.00 ms
-   static int s_lastKnownHistTotal = -1;
-   static int s_lastKnownOpenTotal = -1;
+   // 0. Ultra-fast daily date rollover check (rotates date-wise files automatically at midnight)
+   int curDay = TimeDay(GetLoggerNowDateTime());
+   if(curDay != g_loggerLastCheckedDay || g_loggerActiveDateStamp == "")
+      EnsureDailyLogFilesReady(false);
 
+   // 0b. LIVE/DEMO runtime health transitions (Connection & AutoTrading)
+   if(!IsTesting() && !IsOptimization())
+     {
+      int connNow = IsConnected() ? 1 : 0;
+      if(g_loggerLastConnState != -1 && connNow != g_loggerLastConnState)
+        {
+         if(connNow == 0)
+            LogEAError(6, "ConnectionMonitor", -1, "Lost connection to broker trade server (" + AccountServer() + ")");
+         else
+            LogEAEvent("INFO", "CONNECTION", "Connection RESTORED to broker server (" + AccountServer() + ")");
+        }
+      g_loggerLastConnState = connNow;
+
+      int tradeNow = IsTradeAllowed() ? 1 : 0;
+      if(g_loggerLastTradeAllowed != -1 && tradeNow != g_loggerLastTradeAllowed)
+        {
+         if(tradeNow == 0)
+            LogEAError(4109, "AutoTradingMonitor", -1, "AutoTrading / IsTradeAllowed turned OFF while EA is running!");
+         else
+            LogEAEvent("INFO", "AUTOTRADING", "AutoTrading / IsTradeAllowed turned ON");
+        }
+      g_loggerLastTradeAllowed = tradeNow;
+     }
+
+   // ULTRA-FAST GUARD: If order counts have not changed, return in 0.00 ms
    int curHistTotal = OrdersHistoryTotal();
    int curOpenTotal = OrdersTotal();
 
-   if(curHistTotal == s_lastKnownHistTotal && curOpenTotal == s_lastKnownOpenTotal)
+   if(curHistTotal == g_loggerLastKnownHistTotal && curOpenTotal == g_loggerLastKnownOpenTotal)
       return;
 
    // 1. If open orders changed, register any newly opened active orders
-   if(curOpenTotal != s_lastKnownOpenTotal)
+   if(curOpenTotal != g_loggerLastKnownOpenTotal)
      {
       for(int i = curOpenTotal - 1; i >= 0; i--)
         {
@@ -456,13 +898,13 @@ void ProcessOrderLoggerTick()
             continue;
          RegisterActiveOrderForLog(OrderTicket());
         }
-      s_lastKnownOpenTotal = curOpenTotal;
+      g_loggerLastKnownOpenTotal = curOpenTotal;
      }
 
    // 2. If history orders changed, log newly closed orders
-   if(curHistTotal != s_lastKnownHistTotal)
+   if(curHistTotal != g_loggerLastKnownHistTotal)
      {
-      int startIdx = (s_lastKnownHistTotal > 0) ? s_lastKnownHistTotal : 0;
+      int startIdx = (g_loggerLastKnownHistTotal > 0) ? g_loggerLastKnownHistTotal : 0;
       for(int h = startIdx; h < curHistTotal; h++)
         {
          if(!OrderSelect(h, SELECT_BY_POS, MODE_HISTORY))
@@ -480,7 +922,7 @@ void ProcessOrderLoggerTick()
          LogClosedOrderRecord(ticket);
          MarkOrderAsLogged(ticket);
         }
-      s_lastKnownHistTotal = curHistTotal;
+      g_loggerLastKnownHistTotal = curHistTotal;
      }
   }
 
@@ -622,7 +1064,14 @@ void LogClosedOrderRecord(int ticket)
                                  sl, tp, openEmaDist, closeEmaDist, closeEmaDir, flipElapsedMin,
                                  SanitizeCsvField(rawComment), rWidth, regimeStr);
 
+   EnsureDailyLogFilesReady(false);
    WriteReportLineToFile(GetActiveLogFileName(), csvLine, true);
+
+   LogEAEvent("INFO", "ORDER_CLOSED",
+              StringFormat("#%d %s %.2fL | Open=%s Close=%s | Net=%s$%.2f [%s] | Strat=%s | Reason=%s | Bal=$%.2f Eq=$%.2f",
+                           ticket, typeStr, lots, DoubleToString(openPrice, Digits), DoubleToString(closePrice, Digits),
+                           (netProfit >= 0 ? "+" : "-"), MathAbs(netProfit), outcome, strategy, reason,
+                           AccountBalance(), AccountEquity()));
 
    Print(">>> [ORDER LOGGED] #", ticket, " Method=", strategy, " ", typeStr, " Lots=", DoubleToString(lots, 2),
          " Net=$", DoubleToString(netProfit, 2), " [", outcome, "] Reason: ", reason,
@@ -737,13 +1186,21 @@ void GenerateTesterSummaryReport()
 
    string sep = "========================================================================================";
    string subSep = "----------------------------------------------------------------------------------------";
+   EnsureDailyLogFilesReady(false);
+   string envMode         = GetLoggerEnvMode();
    string summaryFileName = GetActiveSummaryFileName();
+   string reportTitle     = (envMode == "TESTER")
+                            ? "                STRATEGY TESTER ORDER & LOSS ANALYSIS REPORT"
+                            : ((envMode == "LIVE")
+                               ? "                LIVE ACCOUNT ORDER & LOSS ANALYSIS REPORT"
+                               : "                DEMO ACCOUNT ORDER & LOSS ANALYSIS REPORT");
 
    WriteReportLineToFile(summaryFileName, sep, false);
-   WriteReportLineToFile(summaryFileName, (IsTesting() ? "                STRATEGY TESTER ORDER & LOSS ANALYSIS REPORT" : "                LIVE TRADING ORDER & LOSS ANALYSIS REPORT"), true);
+   WriteReportLineToFile(summaryFileName, reportTitle, true);
    WriteReportLineToFile(summaryFileName, sep, true);
-   WriteReportLineToFile(summaryFileName, "Generated: " + TimeToString(TimeCurrent(), TIME_DATE|TIME_SECONDS) + " | Symbol: " + Symbol() + " | Period: " + IntegerToString(Period()) + " | Version: " + glbVersion, true);
-   WriteReportLineToFile(summaryFileName, "Account: #" + IntegerToString(AccountNumber()) + " | Balance: $" + DoubleToString(AccountBalance(), 2) + " | Equity: $" + DoubleToString(AccountEquity(), 2), true);
+   WriteReportLineToFile(summaryFileName, "Mode: " + envMode + " | Date: " + GetLoggerDateStamp() + " | Generated: " + TimeToString(TimeCurrent(), TIME_DATE|TIME_SECONDS) + " | Symbol: " + Symbol() + " | Period: M" + IntegerToString(Period()) + " | Version: " + glbVersion, true);
+   WriteReportLineToFile(summaryFileName, "Account: #" + IntegerToString(AccountNumber()) + " (" + AccountServer() + ") | Magic: " + IntegerToString(MagicNumber) + " | Balance: $" + DoubleToString(AccountBalance(), 2) + " | Equity: $" + DoubleToString(AccountEquity(), 2), true);
+   WriteReportLineToFile(summaryFileName, "Daily Errors: " + IntegerToString(g_dailyErrorCount) + " | Session Errors: " + IntegerToString(g_sessionErrorCount) + " | ErrorLog: " + GetActiveErrorLogFileName(), true);
    WriteReportLineToFile(summaryFileName, subSep, true);
 
    WriteReportLineToFile(summaryFileName, ">>> OVERALL PERFORMANCE METRICS:", true);
@@ -814,10 +1271,10 @@ void GenerateTesterSummaryReport()
     WriteReportLineToFile(summaryFileName, StringFormat("9. Partial Close Runners           : Net=%s$%.2f USD", (g_cumFuncNet_RunnerProtect >= 0 ? "+" : "-"), MathAbs(g_cumFuncNet_RunnerProtect)), true);
 
    Print(">>> =================== ORDER & LOSS PERFORMANCE SUMMARY ===================");
-   Print(">>> Mode: ", (IsTesting() ? "STRATEGY TESTER" : "LIVE TRADING"), " | Trades: ", totalOrders,
+   Print(">>> Mode: ", envMode, " | Trades: ", totalOrders,
          " | Effective WinRate: ", DoubleToString(winRate, 1), "% | Net Profit: $", DoubleToString(netTotal, 2),
-         " | Profit Factor: ", DoubleToString(profitFactor, 2));
+         " | Profit Factor: ", DoubleToString(profitFactor, 2), " | DailyErrors: ", g_dailyErrorCount);
    Print(">>> Recorders: T1=$", DoubleToString(stratNet[2], 2), " | T2(LSD)=$", DoubleToString(stratNet[3], 2), " | T3(WeakEMA)=$", DoubleToString(stratNet[4], 2), " | Rev100/Hedge=$", DoubleToString(stratNet[5], 2));
-   Print(">>> Detailed CSV: ", GetActiveLogFileName(), " | Summary: ", GetActiveSummaryFileName());
+   Print(">>> Error Log: ", GetActiveErrorLogFileName(), " | Detailed CSV: ", GetActiveLogFileName(), " | Summary: ", GetActiveSummaryFileName());
    Print(">>> ========================================================================");
   }
