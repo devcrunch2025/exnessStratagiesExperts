@@ -105,14 +105,25 @@ string GetLoggerFolderRelPath()
   }
 
 //+------------------------------------------------------------------+
-//| GetLoggerBaseFilePrefix: <MODE>_<YYYY-MM-DD>_<Account>_<Magic>   |
+//| GetLoggerAccountIdStr: Returns 64-bit safe Account Login string  |
+//+------------------------------------------------------------------+
+string GetLoggerAccountIdStr()
+  {
+   long login = AccountInfoInteger(ACCOUNT_LOGIN);
+   if(login <= 0)
+      login = AccountNumber();
+   return IntegerToString(login);
+  }
+
+//+------------------------------------------------------------------+
+//| GetLoggerBaseFilePrefix: <MODE>_Acc<Account>_<YYYY-MM-DD>_M<Mag> |
 //+------------------------------------------------------------------+
 string GetLoggerBaseFilePrefix()
   {
    string mode    = GetLoggerEnvMode();
+   string accStr  = GetLoggerAccountIdStr();
    string dateStr = GetLoggerDateStamp();
-   int    accNum  = AccountNumber();
-   return StringFormat("%s_%s_%d_%d", mode, dateStr, accNum, MagicNumber);
+   return StringFormat("%s_Acc%s_%s_M%d", mode, accStr, dateStr, MagicNumber);
   }
 
 //+------------------------------------------------------------------+
@@ -333,7 +344,7 @@ void EnsureDailyLogFilesReady(bool isInitCall = false)
    if(isRollover)
      {
       string prevLogFile = "EA_Logs\\" + g_loggerActiveEnvMode + "\\" +
-                           StringFormat("%s_%s_%d_%d.log", g_loggerActiveEnvMode, g_loggerActiveDateStamp, AccountNumber(), MagicNumber);
+                           StringFormat("%s_Acc%s_%s_M%d.log", g_loggerActiveEnvMode, GetLoggerAccountIdStr(), g_loggerActiveDateStamp, MagicNumber);
       WriteReportLineToFile(prevLogFile,
                             FormatLoggerTimestamp() + " [" + g_loggerActiveEnvMode + "] [INFO] [DAILY_ROLLOVER] Day ended (" +
                             g_loggerActiveDateStamp + " -> " + curDate + ") | Errors Today=" + IntegerToString(g_dailyErrorCount) +

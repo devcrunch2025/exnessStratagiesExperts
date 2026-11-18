@@ -7650,6 +7650,7 @@ string GetLoggerEnvMode();
 datetime GetLoggerNowDateTime();
 string GetLoggerDateStamp();
 string GetLoggerFolderRelPath();
+string GetLoggerAccountIdStr();
 string GetLoggerBaseFilePrefix();
 string GetActiveErrorLogDisplayName();
 string GetActiveOrderCsvDisplayName();
@@ -28255,25 +28256,25 @@ void UpdateDashboard(DailyProtectionState &state)
    string dashEnvMode = GetLoggerEnvMode();
    color  dashEnvClr  = (dashEnvMode == "LIVE") ? clrLime : ((dashEnvMode == "DEMO") ? clrAqua : clrGold);
    CreateDashboardPanel(DASH_PREFIX+"SEC_LOG", x, y+514, w, 18, C'28,38,50');
-   string dashLogHdr = StringFormat("--- DAILY LOGS [%s | EA_Logs\\%s] ---", dashEnvMode, dashEnvMode);
+   string dashLogHdr = StringFormat("--- DAILY LOGS [%s | Acc #%s | EA_Logs\\%s] ---", dashEnvMode, GetLoggerAccountIdStr(), dashEnvMode);
    CreateDashboardLabel(DASH_PREFIX+"LOG_H", dashLogHdr, tx, y+516, 8, dashEnvClr);
 
-   string dashErrLogFile = "LOG FILE    : " + GetActiveErrorLogDisplayName();
+   string dashErrLogFile = "LOG FILE  : " + GetActiveErrorLogDisplayName();
    CreateDashboardLabel(DASH_PREFIX+"LOG_FILE", dashErrLogFile, tx, y+534, 8, dashEnvClr);
 
-   string dashCsvLogFile = "ORDER CSV   : " + GetActiveOrderCsvDisplayName();
+   string dashCsvLogFile = "ORDER CSV : " + GetActiveOrderCsvDisplayName();
    CreateDashboardLabel(DASH_PREFIX+"CSV_FILE", dashCsvLogFile, tx, y+550, 8, clrWhite);
 
    string dashErrTrack = "";
    color  dashErrClr   = clrLime;
    if(!InpEnableOrderLogger)
      {
-      dashErrTrack = "ERR TRACKER : LOGGER DISABLED";
+      dashErrTrack = "ERRORS    : LOGGER DISABLED";
       dashErrClr   = clrSilver;
      }
    else if(g_dailyErrorCount == 0)
      {
-      dashErrTrack = StringFormat("ERR TRACKER : Today: 0 Errors | %s [CLEAN]", GetLoggerDateStamp());
+      dashErrTrack = StringFormat("ERRORS    : Today: 0 Errors | %s [CLEAN]", GetLoggerDateStamp());
       dashErrClr   = clrLime;
      }
    else
@@ -28284,7 +28285,7 @@ void UpdateDashboard(DailyProtectionState &state)
       string errClock = (g_lastLoggedErrorTime > 0)
                         ? StringFormat("%02d:%02d", TimeHour(g_lastLoggedErrorTime), TimeMinute(g_lastLoggedErrorTime))
                         : "--:--";
-      dashErrTrack = StringFormat("ERR TRACKER : Today:%d | Last:#%d %s @%s",
+      dashErrTrack = StringFormat("ERRORS    : Today:%d | Last:#%d %s @%s",
                                   g_dailyErrorCount, g_lastLoggedErrorCode, shortOp, errClock);
       dashErrClr   = clrTomato;
      }
