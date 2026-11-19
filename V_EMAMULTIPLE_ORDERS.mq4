@@ -50,7 +50,8 @@ int AccountMultiplierLOT = 1000;//400;//200;//500; ALWAYS multiples of 1000 is b
 double DailyEquityStopUSD          = 20;//20;//10;//50;//  $50 /10;//10%;//percentage //1000;//50;//20*2.5;//10;//20;// 10;//30.0; close all orders at $50Xmultipler
 double DailyEquityTrailStepUSD     = 5.0;  // Collect $5 step profit step-by-step after DailyEquityStopUSD hit
 double DailyEquityRetraceFloorPct  = 50.0; // Baseline retrace floor % (Dynamic Tiered: Peak>$50->50%, >$100->30%, >$200->20%, >$300->10%)
-double DailyEquityMaxLossUSD       = 1000;//200.0; // Adverse Day Protection ($200): Close all orders & pause trading till next day Dubai 16:00 if day equity drops $200
+double DailyEquityMaxLossUSD       = 1000;//200.0; // Adverse Day Protection (): Close all orders & pause trading till next day Dubai 16:00 if day equity drops 
+bool   ResumeDayTradingOnEmaDirectionChange = true; // Auto-resume Day Equity trading when EMAdirection changed
 
 double TargetProfitPerFlipUSD =1000;//50;//;//percentage////1000;//20;//10;//10*2;//10;//5;//20;// 10.0; close all orders at $20Xmultipler
 
@@ -531,6 +532,9 @@ void     LogEAEvent(string level, string category, string message);
 
 // Function Prototypes for Liquidity Sweep Detector
 void     ResumeDailyEquityTradingManual();
+void     PerformDayTradingResume(string reason);
+void     ResumeDailyEquityTradingOnEmaChange(int prevDir, int newDir);
+void     CheckAndResumeDayTradingOnEmaDirectionChange();
 void     CreateDashboardButton(string name, string text, int x, int y, int width, int height, color bgColor, color textColor, color borderColor);
 void     UpdateLiquiditySweepDetectorOnChart();
 void     DeleteLiquiditySweepObjects();
@@ -11914,6 +11918,13 @@ void TrackEmaFlip()
 
       TradingHaltedUntilNextFlip = false;
       LadderHaltStartTime = 0; // Clear timer on flip
+      if(ResumeDayTradingOnEmaDirectionChange)
+        {
+         if(g_dailyEquityTradingBlocked || DayProfitLadderTradingStopped)
+           {
+            ResumeDailyEquityTradingOnEmaChange(prevDir, currentDirection);
+           }
+        }
       ActiveEquityBaseline = AccountBalance() * SecurebaselinePercentage; // Updated to 10% less than current equity on flip
       HighestCycleProfitUSD = 0.0;
       HighestLadderLevelThisCycle = 0;
@@ -13040,7 +13051,12 @@ bool IsHorizontalLineOrder(int ticket, string comment = "")
 //| Unpauses trading when Day Equity stop or adverse loss is paused, |
 //| re-baselining equity and refreshing all dashboard components.    |
 //+------------------------------------------------------------------+
-void ResumeDailyEquityTradingManual()
+//+------------------------------------------------------------------+
+//| PerformDayTradingResume                                          |
+//| Unpauses trading when Day Equity stop or adverse loss is paused, |
+//| re-baselining equity and refreshing all dashboard components.    |
+//+------------------------------------------------------------------+
+void PerformDayTradingResume(string reason)
   {
    double curBal = AccountBalance();
    double curEq  = (AccountEquity() > 0.0) ? AccountEquity() : curBal;
@@ -13067,12 +13083,12 @@ void ResumeDailyEquityTradingManual()
 
    double newTarget = curEq + (DailyEquityStopUSD * balancelomultipler);
 
-   PrintFormat(">>> [MANUAL RESUME TRADING CLICKED] Trading unpaused! New Base Equity=$%.2f | New Target=$%.2f (+$%.2f) | Multiplier=%d",
-               curEq, newTarget, DailyEquityStopUSD * balancelomultipler, balancelomultipler);
+   PrintFormat(">>> [RESUME DAY TRADING: %s] Trading unpaused! New Base Equity=$%.2f | New Target=$%.2f (+$%.2f) | Multiplier=%d",
+               reason, curEq, newTarget, DailyEquityStopUSD * balancelomultipler, balancelomultipler);
 
-   LogEAEvent("INFO", "MANUAL_RESUME",
-              StringFormat("User clicked RESUME TRADING button. Trading unpaused! Base=$%.2f NewTarget=$%.2f Mult=%d",
-                           curEq, newTarget, balancelomultipler));
+   LogEAEvent("INFO", "RESUME_DAY_TRADING",
+              StringFormat("[%s] Trading unpaused! Base=$%.2f NewTarget=$%.2f Mult=%d",
+                           reason, curEq, newTarget, balancelomultipler));
 
    // Force instant update of dashboards
    DailyProtectionState dummyState;
@@ -13080,6 +13096,59 @@ void ResumeDailyEquityTradingManual()
    UpdateLeftLiveOrdersDashboard(true);
    UpdateTopCenterDubaiTimeDisplay(true);
    ChartRedraw(0);
+  }
+
+//+------------------------------------------------------------------+
+//| ResumeDailyEquityTradingManual                                   |
+//+------------------------------------------------------------------+
+void ResumeDailyEquityTradingManual()
+  {
+   PerformDayTradingResume("MANUAL BUTTON CLICK");
+  }
+
+//+------------------------------------------------------------------+
+//| ResumeDailyEquityTradingOnEmaChange                              |
+//+------------------------------------------------------------------+
+void ResumeDailyEquityTradingOnEmaChange(int prevDir, int newDir)
+  {
+   string strPrev = (prevDir == 1) ? "BULLISH(+1)" : ((prevDir == -1) ? "BEARISH(-1)" : IntegerToString(prevDir));
+   string strNew  = (newDir == 1)  ? "BULLISH(+1)" : ((newDir == -1)  ? "BEARISH(-1)" : IntegerToString(newDir));
+   string reason  = StringFormat("EMA DIRECTION CHANGED (%s -> %s)", strPrev, strNew);
+   PerformDayTradingResume(reason);
+  }
+
+//+------------------------------------------------------------------+
+//| CheckAndResumeDayTradingOnEmaDirectionChange                     |
+//| Called on each tick to detect if EMAdirection changed while      |
+//| Day Equity trading was paused, and automatically resumes it.     |
+//+------------------------------------------------------------------+
+void CheckAndResumeDayTradingOnEmaDirectionChange()
+  {
+   if(!ResumeDayTradingOnEmaDirectionChange)
+      return;
+
+   bool isDayPaused = (g_dailyEquityTradingBlocked || DayProfitLadderTradingStopped || TradingHaltedUntilNextFlip);
+   if(!isDayPaused)
+      return;
+
+   double ema = iMA(Symbol(), Period(), InpEMA200Period, InpEMAPriceShift, MODE_EMA, PRICE_CLOSE, 0);
+   if(ema <= 0.0)
+      return;
+
+   int liveEmaDir = 0;
+   if(Close[0] > ema)
+      liveEmaDir = 1;
+   else if(Close[0] < ema)
+      liveEmaDir = -1;
+
+   if(liveEmaDir == 0)
+      return;
+
+   int refDir = (LastTrackedEmaDirection != 0) ? LastTrackedEmaDirection : EMADirection;
+   if(refDir != 0 && liveEmaDir != refDir)
+     {
+      ResumeDailyEquityTradingOnEmaChange(refDir, liveEmaDir);
+     }
   }
 
 void CheckForNewDay()
@@ -13512,6 +13581,7 @@ bool IsDailyEquityStopReachedAlldays()
 void OnTick()
   {
 CheckForNewDay();
+CheckAndResumeDayTradingOnEmaDirectionChange();
 IsDailyEquityStopReached(); // Check target every tick; sets g_dailyEquityTradingBlocked and closes all orders if hit
 if(g_dailyEquityTradingBlocked)
   {
