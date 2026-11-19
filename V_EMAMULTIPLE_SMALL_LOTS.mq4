@@ -54,7 +54,7 @@ double DailyEquityStopUSD          = 20/5;//20;//20;//10;//50;//  $50 /10;//10%;
 double DailyEquityTrailStepUSD     = 5/5;//1;//5.0;  // Collect $5 step profit step-by-step after DailyEquityStopUSD hit
 double DailyEquityRetraceFloorPct  = 50.0; // Baseline retrace floor % (Dynamic Tiered: Peak>$50->50%, >$100->30%, >$200->20%, >$300->10%)
 double DailyEquityMaxLossUSD       = 1000;//200.0; // Adverse Day Protection (): Close all orders & pause trading till next day Dubai 16:00 if day equity drops 
-bool   ResumeDayTradingOnEmaDirectionChange = true; // Auto-resume Day Equity trading when EMAdirection changed
+bool   ResumeDayTradingOnEmaDirectionChange =false;// true; // Auto-resume Day Equity trading when EMAdirection changed
 int    InpTradingResumeIconCode             = 241;  // Chart icon Wingdings code for Trading Resume (241=Play, 251=Check, 159=Circle)
 
 double TargetProfitPerFlipUSD =1000;//50;//;//percentage////1000;//20;//10;//10*2;//10;//5;//20;// 10.0; close all orders at $20Xmultipler
