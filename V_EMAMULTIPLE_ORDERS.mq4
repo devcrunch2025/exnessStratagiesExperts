@@ -52,6 +52,7 @@ double DailyEquityTrailStepUSD     = 5.0;  // Collect $5 step profit step-by-ste
 double DailyEquityRetraceFloorPct  = 50.0; // Baseline retrace floor % (Dynamic Tiered: Peak>$50->50%, >$100->30%, >$200->20%, >$300->10%)
 double DailyEquityMaxLossUSD       = 1000;//200.0; // Adverse Day Protection (): Close all orders & pause trading till next day Dubai 16:00 if day equity drops 
 bool   ResumeDayTradingOnEmaDirectionChange = true; // Auto-resume Day Equity trading when EMAdirection changed
+int    InpTradingResumeIconCode             = 241;  // Chart icon Wingdings code for Trading Resume (241=Play, 251=Check, 159=Circle)
 
 double TargetProfitPerFlipUSD =1000;//50;//;//percentage////1000;//20;//10;//10*2;//10;//5;//20;// 10.0; close all orders at $20Xmultipler
 
@@ -140,6 +141,8 @@ bool     g_dailyEquityAdverseLossHitToday    = false; // Adverse Day Protection 
 double   g_dailyEquityPeakEquity             = 0.0;   // Peak equity reached after target hit
 double   g_dailyEquityNextStepTarget    = 0.0;   // Next $5 step profit equity milestone
 int      g_dailyEquityStepCount         = 0;     // Number of $5 steps hit today
+datetime g_lastTradingResumeTime             = 0;     // Timestamp of last trading resume
+string   g_lastTradingResumeReason           = "";    // Reason of last trading resume
 
 bool EnableBounceBackDetection = false;
 
@@ -535,6 +538,7 @@ void     ResumeDailyEquityTradingManual();
 void     PerformDayTradingResume(string reason);
 void     ResumeDailyEquityTradingOnEmaChange(int prevDir, int newDir);
 void     CheckAndResumeDayTradingOnEmaDirectionChange();
+void     CreateTradingResumeChartIcon(string reason, double curEq);
 void     CreateDashboardButton(string name, string text, int x, int y, int width, int height, color bgColor, color textColor, color borderColor);
 void     UpdateLiquiditySweepDetectorOnChart();
 void     DeleteLiquiditySweepObjects();
@@ -13052,6 +13056,61 @@ bool IsHorizontalLineOrder(int ticket, string comment = "")
 //| re-baselining equity and refreshing all dashboard components.    |
 //+------------------------------------------------------------------+
 //+------------------------------------------------------------------+
+//| CreateTradingResumeChartIcon                                     |
+//| Displays an icon and label on the chart to indicate that trading |
+//| has resumed (either via EMA direction change or manual click).   |
+//+------------------------------------------------------------------+
+void CreateTradingResumeChartIcon(string reason, double curEq)
+  {
+   datetime barTime = Time[0];
+   double markerPrice = Bid;
+   double atr = iATR(Symbol(), Period(), 14, 0);
+   if(atr <= 0.0)
+      atr = 50.0 * Point;
+
+   static int resumeIconSeq = 0;
+   resumeIconSeq++;
+   string baseName = PREFIX + "RESUME_" + IntegerToString(TimeCurrent()) + "_" + IntegerToString(resumeIconSeq);
+   string txtName  = baseName + "_TXT";
+
+   color iconColor = clrLime;
+   int   iconCode  = (InpTradingResumeIconCode > 0) ? InpTradingResumeIconCode : 241;
+
+   // 1. Solid Marker Icon on candle
+   ObjectCreate(0, baseName, OBJ_ARROW, 0, barTime, markerPrice);
+   ObjectSetInteger(0, baseName, OBJPROP_ARROWCODE, iconCode);
+   ObjectSetInteger(0, baseName, OBJPROP_COLOR, iconColor);
+   ObjectSetInteger(0, baseName, OBJPROP_WIDTH, 4);
+   ObjectSetInteger(0, baseName, OBJPROP_BACK, false);
+   ObjectSetInteger(0, baseName, OBJPROP_SELECTABLE, false);
+   ObjectSetInteger(0, baseName, OBJPROP_HIDDEN, false);
+
+   string tooltip = StringFormat("Trading RESUMED [%s] | Base Equity: $%.2f | Time: %s",
+                                 reason, curEq, TimeToString(TimeCurrent(), TIME_DATE|TIME_MINUTES|TIME_SECONDS));
+   ObjectSetString(0, baseName, OBJPROP_TOOLTIP, tooltip);
+
+   // 2. Bold Text Label above the icon
+   double labelPrice = markerPrice + (atr * 0.40);
+   string shortReason = (StringFind(reason, "EMA", 0) >= 0) ? "EMA FLIP" : "MANUAL";
+   string labelText   = StringFormat("RESUMED (%s)", shortReason);
+
+   ObjectCreate(0, txtName, OBJ_TEXT, 0, barTime, labelPrice);
+   ObjectSetString(0, txtName, OBJPROP_TEXT, labelText);
+   ObjectSetString(0, txtName, OBJPROP_FONT, "Arial Black");
+   ObjectSetInteger(0, txtName, OBJPROP_FONTSIZE, 9);
+   ObjectSetInteger(0, txtName, OBJPROP_COLOR, iconColor);
+   ObjectSetInteger(0, txtName, OBJPROP_BACK, false);
+   ObjectSetInteger(0, txtName, OBJPROP_SELECTABLE, false);
+   ObjectSetInteger(0, txtName, OBJPROP_HIDDEN, false);
+   ObjectSetString(0, txtName, OBJPROP_TOOLTIP, tooltip);
+
+   ChartRedraw(0);
+
+   PrintFormat(">>> [TRADING RESUME CHART ICON] Placed '%s' on bar %s (Eq=$%.2f)",
+               labelText, TimeToString(barTime, TIME_DATE|TIME_MINUTES), curEq);
+  }
+
+//+------------------------------------------------------------------+
 //| PerformDayTradingResume                                          |
 //| Unpauses trading when Day Equity stop or adverse loss is paused, |
 //| re-baselining equity and refreshing all dashboard components.    |
@@ -13089,6 +13148,12 @@ void PerformDayTradingResume(string reason)
    LogEAEvent("INFO", "RESUME_DAY_TRADING",
               StringFormat("[%s] Trading unpaused! Base=$%.2f NewTarget=$%.2f Mult=%d",
                            reason, curEq, newTarget, balancelomultipler));
+
+   g_lastTradingResumeTime   = TimeCurrent();
+   g_lastTradingResumeReason = reason;
+
+   // Display ICON on chart to understand trading is resumed
+   CreateTradingResumeChartIcon(reason, curEq);
 
    // Force instant update of dashboards
    DailyProtectionState dummyState;
@@ -28537,17 +28602,17 @@ void UpdateDashboard(DailyProtectionState &state)
 
    if(isDayPaused)
      {
-      btnText = "▶ RESUME TRADING (DAY PAUSED - CLICK)";
-      btnBg   = C'22,145,55';   // Vibrant Emerald Green
+      btnText = "⏸ PAUSED (CLICK TO RESUME)";
+      btnBg   = C'160,95,20';   // Warm Amber warning
       btnTxt  = clrWhite;
-      btnBrd  = clrLime;
+      btnBrd  = clrGold;
      }
    else
      {
-      btnText = "● TRADING ACTIVE (DAY EQUITY OK)";
-      btnBg   = C'24,32,42';    // Dark Charcoal / Slate
-      btnTxt  = C'130,155,180';
-      btnBrd  = C'40,55,75';
+      btnText = "🟢 TRADING RESUMED (ACTIVE)";
+      btnBg   = C'18,85,40';    // Vibrant Emerald Green
+      btnTxt  = clrWhite;
+      btnBrd  = clrLime;
      }
 
    CreateDashboardButton(btnName, btnText, x + 20, y + 588, w - 20, 32, btnBg, btnTxt, btnBrd);
@@ -29014,19 +29079,22 @@ void UpdateTopCenterDubaiTimeDisplay(bool force = false)
 
    if(isDayPaused)
      {
-      topBtnText    = "▶ RESUME TRADING";
-      topBtnBg      = C'22,145,55';   // Vibrant Emerald Green
+      topBtnText    = "⏸ RESUME TRADING";
+      topBtnBg      = C'160,95,20';   // Warm Amber warning background
       topBtnTxt     = clrWhite;
-      topBtnBrd     = clrLime;
+      topBtnBrd     = clrGold;
       topBtnTooltip = "Daily Trading is PAUSED. Click to Resume Trading immediately.";
      }
    else
      {
-      topBtnText    = "● TRADING ACTIVE";
-      topBtnBg      = C'24,32,42';    // Dark Charcoal / Slate
-      topBtnTxt     = C'130,155,180'; // Soft Blue-Gray
-      topBtnBrd     = C'40,55,75';    // Subtle Slate Border
-      topBtnTooltip = "Trading is ACTIVE (Day Equity OK).";
+      topBtnText    = "🟢 TRADING RESUMED";
+      topBtnBg      = C'18,85,40';    // Vibrant Emerald Green
+      topBtnTxt     = clrWhite;
+      topBtnBrd     = clrLime;
+      if(g_lastTradingResumeTime > 0)
+         topBtnTooltip = StringFormat("Trading is RESUMED (%s at %s) | Base Equity: $%.2f", g_lastTradingResumeReason, TimeToString(g_lastTradingResumeTime, TIME_MINUTES|TIME_SECONDS), g_dayOpeningBalance);
+      else
+         topBtnTooltip = "Trading is RESUMED & ACTIVE (Day Equity OK).";
      }
 
    CreateTopCenterButton(topBtnName, topBtnText, btnX, btnY, btnWidth, btnHeight, topBtnBg, topBtnTxt, topBtnBrd, topBtnTooltip);
