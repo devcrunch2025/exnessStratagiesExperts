@@ -44,7 +44,7 @@ CheckBasketProfitClose  Total open basket profit
 */
 
 
-string glbVersion = "VMULTI-1002 - SMALL Budget $100";
+string glbVersion = "VMULTI-1003 - SMALL Budget $100";
 
 int AccountMultiplierLOT = 1000;//400;//200;//500; ALWAYS multiples of 1000 is better for best results
 //balance multiplier 
@@ -533,6 +533,8 @@ void     LogEAError(int errCode, string operation, int ticket = -1, string detai
 void     LogEAEvent(string level, string category, string message);
 
 // Function Prototypes for Liquidity Sweep Detector
+void     ResumeDailyEquityTradingManual();
+void     CreateDashboardButton(string name, string text, int x, int y, int width, int height, color bgColor, color textColor, color borderColor);
 void     UpdateLiquiditySweepDetectorOnChart();
 void     DeleteLiquiditySweepObjects();
 void     ManageSweepGlobalVariables(string signalType);
@@ -12833,6 +12835,24 @@ void OnDeinit(const int reason)
 //+------------------------------------------------------------------+
 void OnChartEvent(const int id, const long &lparam, const double &dparam, const string &sparam)
   {
+   if(id == CHARTEVENT_OBJECT_CLICK)
+     {
+      if(sparam == (DASH_PREFIX + "BTN_RESUME_DAY"))
+        {
+         ObjectSetInteger(0, sparam, OBJPROP_STATE, false);
+         if(g_dailyEquityTradingBlocked || DayProfitLadderTradingStopped || TradingHaltedUntilNextFlip)
+           {
+            ResumeDailyEquityTradingManual();
+           }
+         else
+           {
+            Print(">>> [RESUME TRADING BUTTON] Trading is already ACTIVE (Day Equity is not paused).");
+           }
+         ChartRedraw(0);
+         return;
+        }
+     }
+
    if(id == CHARTEVENT_CHART_CHANGE)
      {
       if(ShowTopCenterDubaiTime)
@@ -12970,6 +12990,53 @@ bool IsHorizontalLineOrder(int ticket, string comment = "")
 
    return false;
   }
+
+//+------------------------------------------------------------------+
+//| ResumeDailyEquityTradingManual                                   |
+//| Unpauses trading when Day Equity stop or adverse loss is paused, |
+//| re-baselining equity and refreshing all dashboard components.    |
+//+------------------------------------------------------------------+
+void ResumeDailyEquityTradingManual()
+  {
+   double curBal = AccountBalance();
+   double curEq  = (AccountEquity() > 0.0) ? AccountEquity() : curBal;
+
+   // Unpause all daily trading pause & halt flags
+   g_dailyEquityTradingBlocked      = false;
+   g_dailyEquityTargetHitToday      = false;
+   g_dailyEquityAdverseLossHitToday = false;
+   DayProfitLadderTradingStopped    = false;
+   TradingHaltedUntilNextFlip       = false;
+
+   // Set fresh baseline to current equity so daily target/risk can track forward cleanly
+   g_dayOpeningBalance              = curEq;
+   g_dubaiDayOpeningEquity          = curEq;
+   g_dailyEquityPeakEquity          = curEq;
+   g_dailyEquityNextStepTarget      = 0.0;
+   g_dailyEquityStepCount           = 0;
+
+   // Re-evaluate multiplier based on available equity
+   int lotMultiplierDivDay = (AccountMultiplierLOT > 0) ? AccountMultiplierLOT : 1001;
+   balancelomultipler = (int)MathRound(curEq / (double)lotMultiplierDivDay);
+   if(balancelomultipler <= 0)
+      balancelomultipler = 1;
+
+   double newTarget = curEq + (DailyEquityStopUSD * balancelomultipler);
+
+   PrintFormat(">>> [MANUAL RESUME TRADING CLICKED] Trading unpaused! New Base Equity=$%.2f | New Target=$%.2f (+$%.2f) | Multiplier=%d",
+               curEq, newTarget, DailyEquityStopUSD * balancelomultipler, balancelomultipler);
+
+   LogEAEvent("INFO", "MANUAL_RESUME",
+              StringFormat("User clicked RESUME TRADING button. Trading unpaused! Base=$%.2f NewTarget=$%.2f Mult=%d",
+                           curEq, newTarget, balancelomultipler));
+
+   // Force instant update of dashboards
+   DailyProtectionState dummyState;
+   UpdateDashboardsThrottled(dummyState, true);
+   UpdateLeftLiveOrdersDashboard(true);
+   ChartRedraw(0);
+  }
+
 void CheckForNewDay()
 {
    datetime serverTime = TimeCurrent();
@@ -13419,6 +13486,8 @@ if(g_dailyEquityTradingBlocked)
       CloseAndDeleteAllEAOrdersOnTradingStop();
      }
 
+   DailyProtectionState pauseDashState;
+   UpdateDashboardsThrottled(pauseDashState);
    UpdateDubaiTradingPauseDashboard(); // Keep dashboard updated while paused
    UpdateLeftLiveOrdersDashboard();    // Refresh live dashboard while paused
    if(ShowTopCenterDubaiTime)
@@ -27028,6 +27097,51 @@ void CreateDashboardLabel(string name, string text, int x, int y, int fontSize, 
   }
 
 //+------------------------------------------------------------------+
+//| CreateDashboardButton: Creates or updates an interactive button  |
+//+------------------------------------------------------------------+
+void CreateDashboardButton(string name, string text, int x, int y, int width, int height, color bgColor, color textColor, color borderColor)
+  {
+   if(ObjectFind(0, name) < 0)
+     {
+      ObjectCreate(0, name, OBJ_BUTTON, 0, 0, 0);
+      ObjectSetInteger(0, name, OBJPROP_CORNER, CORNER_RIGHT_UPPER);
+      ObjectSetInteger(0, name, OBJPROP_XDISTANCE, x);
+      ObjectSetInteger(0, name, OBJPROP_YDISTANCE, y);
+      ObjectSetInteger(0, name, OBJPROP_XSIZE, width);
+      ObjectSetInteger(0, name, OBJPROP_YSIZE, height);
+      ObjectSetString(0, name, OBJPROP_TEXT, text);
+      ObjectSetString(0, name, OBJPROP_FONT, "Arial Bold");
+      ObjectSetInteger(0, name, OBJPROP_FONTSIZE, 9);
+      ObjectSetInteger(0, name, OBJPROP_COLOR, textColor);
+      ObjectSetInteger(0, name, OBJPROP_BGCOLOR, bgColor);
+      ObjectSetInteger(0, name, OBJPROP_BORDER_COLOR, borderColor);
+      ObjectSetInteger(0, name, OBJPROP_STATE, false);
+      ObjectSetInteger(0, name, OBJPROP_SELECTABLE, false);
+      ObjectSetInteger(0, name, OBJPROP_HIDDEN, true);
+      ObjectSetInteger(0, name, OBJPROP_ZORDER, 100);
+      return;
+     }
+
+   if((int)ObjectGetInteger(0, name, OBJPROP_XDISTANCE) != x)
+      ObjectSetInteger(0, name, OBJPROP_XDISTANCE, x);
+   if((int)ObjectGetInteger(0, name, OBJPROP_YDISTANCE) != y)
+      ObjectSetInteger(0, name, OBJPROP_YDISTANCE, y);
+   if((int)ObjectGetInteger(0, name, OBJPROP_XSIZE) != width)
+      ObjectSetInteger(0, name, OBJPROP_XSIZE, width);
+   if((int)ObjectGetInteger(0, name, OBJPROP_YSIZE) != height)
+      ObjectSetInteger(0, name, OBJPROP_YSIZE, height);
+   if(ObjectGetString(0, name, OBJPROP_TEXT) != text)
+      ObjectSetString(0, name, OBJPROP_TEXT, text);
+   if((color)ObjectGetInteger(0, name, OBJPROP_COLOR) != textColor)
+      ObjectSetInteger(0, name, OBJPROP_COLOR, textColor);
+   if((color)ObjectGetInteger(0, name, OBJPROP_BGCOLOR) != bgColor)
+      ObjectSetInteger(0, name, OBJPROP_BGCOLOR, bgColor);
+   if((color)ObjectGetInteger(0, name, OBJPROP_BORDER_COLOR) != borderColor)
+      ObjectSetInteger(0, name, OBJPROP_BORDER_COLOR, borderColor);
+   ObjectSetInteger(0, name, OBJPROP_STATE, false);
+  }
+
+//+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
 double GetTotalLots(int orderType)
@@ -27420,7 +27534,7 @@ void UpdateDashboard(DailyProtectionState &state)
      }
 
    w = MathMax(DashboardWidth, 375);
-   panelHeight = 594;
+   panelHeight = 630;
    x = DashboardRightGap;
    y = DashboardTopGap;
    tx = x + 12;
@@ -28292,6 +28406,34 @@ void UpdateDashboard(DailyProtectionState &state)
       dashErrClr   = clrTomato;
      }
    CreateDashboardLabel(DASH_PREFIX+"LOG_ERR", dashErrTrack, tx, y+566, 8, dashErrClr);
+
+// ==========================================================
+// RESUME TRADING BUTTON (Manual unpause on chart click)
+// ==========================================================
+   string btnName = DASH_PREFIX + "BTN_RESUME_DAY";
+   bool   isDayPaused = (g_dailyEquityTradingBlocked || DayProfitLadderTradingStopped || TradingHaltedUntilNextFlip);
+
+   string btnText;
+   color  btnBg;
+   color  btnTxt;
+   color  btnBrd;
+
+   if(isDayPaused)
+     {
+      btnText = "▶ RESUME TRADING (DAY PAUSED - CLICK)";
+      btnBg   = C'22,145,55';   // Vibrant Emerald Green
+      btnTxt  = clrWhite;
+      btnBrd  = clrLime;
+     }
+   else
+     {
+      btnText = "● TRADING ACTIVE (DAY EQUITY OK)";
+      btnBg   = C'24,32,42';    // Dark Charcoal / Slate
+      btnTxt  = C'130,155,180';
+      btnBrd  = C'40,55,75';
+     }
+
+   CreateDashboardButton(btnName, btnText, x + 20, y + 588, w - 20, 32, btnBg, btnTxt, btnBrd);
 
    ChartRedraw(0);
 
