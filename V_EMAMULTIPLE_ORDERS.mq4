@@ -892,6 +892,7 @@ datetime DayProfitLadderCleanupStartTime = 0;
 int      LADDER_CLEANUP_TIMEOUT_SECONDS = 60;
 string PREFIX = "SSL_CROSS_";
 string DASH_PREFIX = "SSL_DASHBOARD_";
+#define BTN_TOP_RESUME_DAY "SSL_TOP_DUBAI_BTN_RESUME"
 datetime LastProcessedBar = 0;
 datetime LastProcessedClosedOrderTime = 0;
 datetime DailyProtectionStartTime = 0;
@@ -2278,6 +2279,51 @@ int      g_eqDdSellLastHitOrders     = 0;
 double   g_eqDdSellLastHitLots       = 0.0;
 
 void UpdateLeftLiveOrdersDashboard(bool force = false);
+void CreateTopCenterButton(string name, string text, int x, int y, int width, int height, color bgColor, color textColor, color borderColor, string tooltip = "")
+  {
+   if(ObjectFind(0, name) < 0)
+     {
+      ObjectCreate(0, name, OBJ_BUTTON, 0, 0, 0);
+      ObjectSetInteger(0, name, OBJPROP_CORNER, CORNER_LEFT_UPPER);
+      ObjectSetInteger(0, name, OBJPROP_XDISTANCE, x);
+      ObjectSetInteger(0, name, OBJPROP_YDISTANCE, y);
+      ObjectSetInteger(0, name, OBJPROP_XSIZE, width);
+      ObjectSetInteger(0, name, OBJPROP_YSIZE, height);
+      ObjectSetString(0, name, OBJPROP_TEXT, text);
+      ObjectSetString(0, name, OBJPROP_FONT, "Arial Bold");
+      ObjectSetInteger(0, name, OBJPROP_FONTSIZE, 9);
+      ObjectSetInteger(0, name, OBJPROP_COLOR, textColor);
+      ObjectSetInteger(0, name, OBJPROP_BGCOLOR, bgColor);
+      ObjectSetInteger(0, name, OBJPROP_BORDER_COLOR, borderColor);
+      ObjectSetInteger(0, name, OBJPROP_STATE, false);
+      ObjectSetInteger(0, name, OBJPROP_SELECTABLE, false);
+      ObjectSetInteger(0, name, OBJPROP_HIDDEN, true);
+      ObjectSetInteger(0, name, OBJPROP_ZORDER, 1002);
+      if(tooltip != "")
+         ObjectSetString(0, name, OBJPROP_TOOLTIP, tooltip);
+      return;
+     }
+
+   if((int)ObjectGetInteger(0, name, OBJPROP_XDISTANCE) != x)
+      ObjectSetInteger(0, name, OBJPROP_XDISTANCE, x);
+   if((int)ObjectGetInteger(0, name, OBJPROP_YDISTANCE) != y)
+      ObjectSetInteger(0, name, OBJPROP_YDISTANCE, y);
+   if((int)ObjectGetInteger(0, name, OBJPROP_XSIZE) != width)
+      ObjectSetInteger(0, name, OBJPROP_XSIZE, width);
+   if((int)ObjectGetInteger(0, name, OBJPROP_YSIZE) != height)
+      ObjectSetInteger(0, name, OBJPROP_YSIZE, height);
+   if(ObjectGetString(0, name, OBJPROP_TEXT) != text)
+      ObjectSetString(0, name, OBJPROP_TEXT, text);
+   if((color)ObjectGetInteger(0, name, OBJPROP_COLOR) != textColor)
+      ObjectSetInteger(0, name, OBJPROP_COLOR, textColor);
+   if((color)ObjectGetInteger(0, name, OBJPROP_BGCOLOR) != bgColor)
+      ObjectSetInteger(0, name, OBJPROP_BGCOLOR, bgColor);
+   if((color)ObjectGetInteger(0, name, OBJPROP_BORDER_COLOR) != borderColor)
+      ObjectSetInteger(0, name, OBJPROP_BORDER_COLOR, borderColor);
+   if(tooltip != "" && ObjectGetString(0, name, OBJPROP_TOOLTIP) != tooltip)
+      ObjectSetString(0, name, OBJPROP_TOOLTIP, tooltip);
+  }
+
 void UpdateTopCenterDubaiTimeDisplay(bool force = false);
 void DeleteDashboardObjects();
 void DeleteLeftLiveOrdersDashboardObjects();
@@ -12835,7 +12881,7 @@ void OnChartEvent(const int id, const long &lparam, const double &dparam, const 
   {
    if(id == CHARTEVENT_OBJECT_CLICK)
      {
-      if(sparam == (DASH_PREFIX + "BTN_RESUME_DAY"))
+      if(sparam == (DASH_PREFIX + "BTN_RESUME_DAY") || sparam == BTN_TOP_RESUME_DAY)
         {
          ObjectSetInteger(0, sparam, OBJPROP_STATE, false);
          if(g_dailyEquityTradingBlocked || DayProfitLadderTradingStopped || TradingHaltedUntilNextFlip)
@@ -13032,6 +13078,7 @@ void ResumeDailyEquityTradingManual()
    DailyProtectionState dummyState;
    UpdateDashboardsThrottled(dummyState, true);
    UpdateLeftLiveOrdersDashboard(true);
+   UpdateTopCenterDubaiTimeDisplay(true);
    ChartRedraw(0);
   }
 
@@ -28757,15 +28804,19 @@ void UpdateTopCenterDubaiTimeDisplay(bool force = false)
       rightStart = chartWidth - (DashboardRightGap + 10 + rW);
      }
 
-   int dubaiWidth  = 200;
+   int dubaiWidth  = 195;
    int dubaiHeight = 38;
-   int gapWidth    = 380;
+   int btnWidth    = 165;
+   int btnHeight   = 38;
+   int gapWidth    = 360;
    int gapHeight   = 38;
    int gapSpacing  = 6;
-   int totalWidth  = dubaiWidth + gapSpacing + gapWidth;
+   int totalWidth  = dubaiWidth + gapSpacing + btnWidth + gapSpacing + gapWidth;
 
    int dubaiX = 10;
    int dubaiY = MathMin(LeftDashboardY, DashboardTopGap);
+   int btnX   = 10;
+   int btnY   = dubaiY;
    int gapX   = 10;
    int gapY   = dubaiY;
 
@@ -28773,18 +28824,26 @@ void UpdateTopCenterDubaiTimeDisplay(bool force = false)
      {
       int startX = (leftEnd + rightStart - totalWidth) / 2;
       dubaiX = MathMax(10, startX);
-      gapX   = dubaiX + dubaiWidth + gapSpacing;
+      btnX   = dubaiX + dubaiWidth + gapSpacing;
+      gapX   = btnX + btnWidth + gapSpacing;
+      btnY   = dubaiY;
       gapY   = dubaiY;
      }
-   else if(rightStart > (leftEnd + dubaiWidth + 20))
+   else if(rightStart > (leftEnd + dubaiWidth + gapSpacing + btnWidth + 20))
      {
-      dubaiX = MathMax(10, (leftEnd + rightStart - dubaiWidth) / 2);
+      int row1Width = dubaiWidth + gapSpacing + btnWidth;
+      int startX = (leftEnd + rightStart - row1Width) / 2;
+      dubaiX = MathMax(10, startX);
+      btnX   = dubaiX + dubaiWidth + gapSpacing;
+      btnY   = dubaiY;
       gapX   = MathMax(10, (leftEnd + rightStart - gapWidth) / 2);
       gapY   = dubaiY + dubaiHeight + 4;
      }
    else
      {
       dubaiX = 10;
+      btnX   = dubaiX + dubaiWidth + gapSpacing;
+      btnY   = dubaiY;
       gapX   = 10;
       gapY   = dubaiY + dubaiHeight + 4;
      }
@@ -28873,6 +28932,35 @@ void UpdateTopCenterDubaiTimeDisplay(bool force = false)
       ObjectSetString(0, TOP_CENTER_DUBAI_PREFIX + "CLOCK", OBJPROP_TOOLTIP, dubaiTooltip);
       g_lastTopDubaiTooltip = dubaiTooltip;
      }
+   // --- BUTTON: RESUME TRADING (TOP CENTER - SAME ROW AFTER DUBAI TIME) ---
+   string topBtnName = BTN_TOP_RESUME_DAY;
+   bool   isDayPaused = (g_dailyEquityTradingBlocked || DayProfitLadderTradingStopped || TradingHaltedUntilNextFlip);
+
+   string topBtnText;
+   color  topBtnBg;
+   color  topBtnTxt;
+   color  topBtnBrd;
+   string topBtnTooltip;
+
+   if(isDayPaused)
+     {
+      topBtnText    = "▶ RESUME TRADING";
+      topBtnBg      = C'22,145,55';   // Vibrant Emerald Green
+      topBtnTxt     = clrWhite;
+      topBtnBrd     = clrLime;
+      topBtnTooltip = "Daily Trading is PAUSED. Click to Resume Trading immediately.";
+     }
+   else
+     {
+      topBtnText    = "● TRADING ACTIVE";
+      topBtnBg      = C'24,32,42';    // Dark Charcoal / Slate
+      topBtnTxt     = C'130,155,180'; // Soft Blue-Gray
+      topBtnBrd     = C'40,55,75';    // Subtle Slate Border
+      topBtnTooltip = "Trading is ACTIVE (Day Equity OK).";
+     }
+
+   CreateTopCenterButton(topBtnName, topBtnText, btnX, btnY, btnWidth, btnHeight, topBtnBg, topBtnTxt, topBtnBrd, topBtnTooltip);
+
 
    string buyGapStr    = "";
    string sellGapStr   = "";
