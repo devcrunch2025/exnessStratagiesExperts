@@ -43,7 +43,6 @@ CheckBasketProfitClose  Total open basket profit
 
 */
 
-
 string glbVersion = "VMULTI-1005- balancelomultipler calculated strictly in OnInit and Dubai day change";
 
 int AccountMultiplierLOT = 100;//1000;//400;//200;//500; ALWAYS multiples of 1000 is better for best results
