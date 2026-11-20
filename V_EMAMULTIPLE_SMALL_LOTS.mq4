@@ -43,7 +43,7 @@ CheckBasketProfitClose  Total open basket profit
 
 */
 
-string glbVersion = "VMULTI-1005- balancelomultipler calculated strictly in OnInit and Dubai day change";
+string glbVersion = "VMULTI-1006- Add Pause Trading button & toggle";
 
 int AccountMultiplierLOT = 100;//1000;//400;//200;//500; ALWAYS multiples of 1000 is better for best results
 //balance multiplier 
@@ -55,6 +55,7 @@ double DailyEquityRetraceFloorPct  = 50.0; // Baseline retrace floor % (Dynamic 
 double DailyEquityMaxLossUSD       = 1000;//200.0; // Adverse Day Protection (): Close all orders & pause trading till next day Dubai 16:00 if day equity drops 
 bool   ResumeDayTradingOnEmaDirectionChange =false;// true; // Auto-resume Day Equity trading when EMAdirection changed
 int    InpTradingResumeIconCode             = 241;  // Chart icon Wingdings code for Trading Resume (241=Play, 251=Check, 159=Circle)
+bool   InpCloseOrdersOnManualPause          = false; // When clicking Pause Trading: false = delete pending only & keep open market orders; true = close all market orders
 
 double TargetProfitPerFlipUSD =1000;//50;//;//percentage////1000;//20;//10;//10*2;//10;//5;//20;// 10.0; close all orders at $20Xmultipler
 
@@ -138,6 +139,7 @@ double InpBasketTrailStepUSD        = 1;//0.50;        // Pullback distance in U
 int      g_dayNumber = -1;
 double   g_dayOpeningBalance = 0.0;
 bool     g_dailyEquityTradingBlocked         = false;
+bool     g_manualTradingPaused               = false; // Manual Pause Trading state triggered via chart button
 bool     g_dailyEquityTargetHitToday         = false; // Target equity reached today; trailing $5 steps active
 bool     g_dailyEquityAdverseLossHitToday    = false; // Adverse Day Protection hit today ($200 loss); trading paused till Dubai 16:00
 double   g_dailyEquityPeakEquity             = 0.0;   // Peak equity reached after target hit
@@ -537,10 +539,12 @@ void     LogEAEvent(string level, string category, string message);
 
 // Function Prototypes for Liquidity Sweep Detector
 void     ResumeDailyEquityTradingManual();
+void     PauseDailyEquityTradingManual();
 void     PerformDayTradingResume(string reason);
 void     ResumeDailyEquityTradingOnEmaChange(int prevDir, int newDir);
 void     CheckAndResumeDayTradingOnEmaDirectionChange();
 void     CreateTradingResumeChartIcon(string reason, double curEq);
+void     DeleteTradingResumeChartIcon();
 void     CreateDashboardButton(string name, string text, int x, int y, int width, int height, color bgColor, color textColor, color borderColor);
 void     UpdateLiquiditySweepDetectorOnChart();
 void     DeleteLiquiditySweepObjects();
@@ -903,6 +907,7 @@ int      LADDER_CLEANUP_TIMEOUT_SECONDS = 60;
 string PREFIX = "SSL_CROSS_";
 string DASH_PREFIX = "SSL_DASHBOARD_";
 #define BTN_TOP_RESUME_DAY "SSL_TOP_DUBAI_BTN_RESUME"
+#define BTN_TOP_PAUSE_DAY  "SSL_TOP_DUBAI_BTN_PAUSE"
 datetime LastProcessedBar = 0;
 datetime LastProcessedClosedOrderTime = 0;
 datetime DailyProtectionStartTime = 0;
@@ -12914,16 +12919,25 @@ void OnChartEvent(const int id, const long &lparam, const double &dparam, const 
   {
    if(id == CHARTEVENT_OBJECT_CLICK)
      {
-      if(sparam == (DASH_PREFIX + "BTN_RESUME_DAY") || sparam == BTN_TOP_RESUME_DAY)
+      if(sparam == (DASH_PREFIX + "BTN_RESUME_DAY") || sparam == BTN_TOP_RESUME_DAY || sparam == BTN_TOP_PAUSE_DAY)
         {
          ObjectSetInteger(0, sparam, OBJPROP_STATE, false);
-         if(g_dailyEquityTradingBlocked || DayProfitLadderTradingStopped || TradingHaltedUntilNextFlip || g_dailyEquityAdverseLossHitToday || !EnableTrading)
+         bool isCurrentlyPausedOrStopped = (g_dailyEquityTradingBlocked || DayProfitLadderTradingStopped || 
+                                           TradingHaltedUntilNextFlip || g_dailyEquityAdverseLossHitToday || 
+                                           !EnableTrading || g_manualTradingPaused);
+         if(sparam == BTN_TOP_PAUSE_DAY)
            {
-            ResumeDailyEquityTradingManual();
+            if(!isCurrentlyPausedOrStopped)
+               PauseDailyEquityTradingManual();
+            else
+               ResumeDailyEquityTradingManual();
            }
          else
            {
-            Print(">>> [RESUME TRADING BUTTON] Trading is already ACTIVE (Day Equity is not paused).");
+            if(isCurrentlyPausedOrStopped)
+               ResumeDailyEquityTradingManual();
+            else
+               PauseDailyEquityTradingManual();
            }
          ChartRedraw(0);
          return;
@@ -13129,6 +13143,22 @@ void CreateTradingResumeChartIcon(string reason, double curEq)
   }
 
 //+------------------------------------------------------------------+
+//| DeleteTradingResumeChartIcon                                     |
+//| Removes all trading resume icons and labels from the chart.      |
+//+------------------------------------------------------------------+
+void DeleteTradingResumeChartIcon()
+  {
+   int total = ObjectsTotal(0, -1, -1);
+   for(int i = total - 1; i >= 0; i--)
+     {
+      string name = ObjectName(0, i, -1, -1);
+      if(StringFind(name, PREFIX + "RESUME_", 0) == 0)
+         ObjectDelete(0, name);
+     }
+  }
+
+
+//+------------------------------------------------------------------+
 //| PerformDayTradingResume                                          |
 //| Unpauses trading when Day Equity stop or adverse loss is paused, |
 //| re-baselining equity and refreshing all dashboard components.    |
@@ -13139,11 +13169,13 @@ void PerformDayTradingResume(string reason)
    double curEq  = (AccountEquity() > 0.0) ? AccountEquity() : curBal;
 
    // Unpause all daily trading pause & halt flags
+   g_manualTradingPaused            = false;
    g_dailyEquityTradingBlocked      = false;
    g_dailyEquityTargetHitToday      = false;
    g_dailyEquityAdverseLossHitToday = false;
    DayProfitLadderTradingStopped    = false;
    TradingHaltedUntilNextFlip       = false;
+   EnableTrading                    = true;
 
    // Set fresh baseline to current equity so daily target/risk can track forward cleanly
    g_dayOpeningBalance              = curEq;
@@ -13192,6 +13224,80 @@ void ResumeDailyEquityTradingManual()
   }
 
 //+------------------------------------------------------------------+
+//| PauseDailyEquityTradingManual                                    |
+//| Pauses day trading on user manual click:                         |
+//| - Sets g_dailyEquityTradingBlocked = true & g_manualTradingPaused|
+//| - Deletes pending orders so no new positions trigger             |
+//| - Optionally closes open orders if InpCloseOrdersOnManualPause   |
+//| - Refreshes chart dashboards and buttons                         |
+//+------------------------------------------------------------------+
+void PauseDailyEquityTradingManual()
+  {
+   g_manualTradingPaused       = true;
+   g_dailyEquityTradingBlocked = true;
+
+   // 1. Delete all pending orders so no pending triggers while paused
+   int deletedPending = 0;
+   for(int i = OrdersTotal() - 1; i >= 0; i--)
+     {
+      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
+         continue;
+      if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber)
+         continue;
+      int pType = OrderType();
+      if(pType == OP_BUYSTOP || pType == OP_SELLSTOP || pType == OP_BUYLIMIT || pType == OP_SELLLIMIT)
+        {
+         if(OrderDelete(OrderTicket()))
+            deletedPending++;
+        }
+     }
+
+   // 2. If InpCloseOrdersOnManualPause is true, close open market orders
+   int closedOrders = 0;
+   if(InpCloseOrdersOnManualPause)
+     {
+      for(int pass = 0; pass < 3; pass++)
+        {
+         for(int m = OrdersTotal() - 1; m >= 0; m--)
+           {
+            if(!OrderSelect(m, SELECT_BY_POS, MODE_TRADES))
+               continue;
+            if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber)
+               continue;
+            int mType = OrderType();
+            if(mType == OP_BUY)
+              {
+               RefreshRates();
+               if(OrderClose(OrderTicket(), OrderLots(), Bid, Slippage, clrOrange))
+                  closedOrders++;
+              }
+            else if(mType == OP_SELL)
+              {
+               RefreshRates();
+               if(OrderClose(OrderTicket(), OrderLots(), Ask, Slippage, clrOrange))
+                  closedOrders++;
+              }
+           }
+        }
+     }
+
+   PrintFormat(">>> [MANUAL PAUSE TRADING CLICKED] Trading PAUSED by user! Equity=$%.2f | Balance=$%.2f | Pending Deleted: %d | Closed: %d",
+               AccountEquity(), AccountBalance(), deletedPending, closedOrders);
+
+   LogEAEvent("INFO", "MANUAL_PAUSE",
+              StringFormat("User clicked PAUSE TRADING button. Trading paused! Equity=$%.2f Bal=$%.2f DeletedPend=%d Closed=%d",
+                           AccountEquity(), AccountBalance(), deletedPending, closedOrders));
+
+   DeleteTradingResumeChartIcon();
+
+   DailyProtectionState dummyState;
+   UpdateDashboardsThrottled(dummyState, true);
+   UpdateLeftLiveOrdersDashboard(true);
+   UpdateTopCenterDubaiTimeDisplay(true);
+   ChartRedraw(0);
+  }
+
+//+------------------------------------------------------------------+
 //| ResumeDailyEquityTradingOnEmaChange                              |
 //+------------------------------------------------------------------+
 void ResumeDailyEquityTradingOnEmaChange(int prevDir, int newDir)
@@ -13210,6 +13316,10 @@ void ResumeDailyEquityTradingOnEmaChange(int prevDir, int newDir)
 void CheckAndResumeDayTradingOnEmaDirectionChange()
   {
    if(!ResumeDayTradingOnEmaDirectionChange)
+      return;
+
+   // Do not auto-resume if user explicitly clicked PAUSE TRADING manually
+   if(g_manualTradingPaused)
       return;
 
    bool isDayPaused = (g_dailyEquityTradingBlocked || DayProfitLadderTradingStopped || TradingHaltedUntilNextFlip);
@@ -13309,6 +13419,7 @@ void CheckForNewDay()
          balancelomultipler = 1;
 
       // Reset daily protection & pause flags (Pause Duration till next day Dubai 16:00)
+      g_manualTradingPaused            = false;
       g_dailyEquityTradingBlocked      = false;
       g_dailyEquityTargetHitToday      = false;
       g_dailyEquityAdverseLossHitToday = false;
@@ -13671,20 +13782,23 @@ CheckAndResumeDayTradingOnEmaDirectionChange();
 IsDailyEquityStopReached(); // Check target every tick; sets g_dailyEquityTradingBlocked and closes all orders if hit
 if(g_dailyEquityTradingBlocked)
   {
-   // Safety check: ensure all EA orders are truly closed and pending deleted
-   int activeEAOrders = 0;
-   for(int act_i = OrdersTotal() - 1; act_i >= 0; act_i--)
+   // Safety check: ensure all EA orders are truly closed and pending deleted (unless manual pause keeping open market orders)
+   if(!g_manualTradingPaused || InpCloseOrdersOnManualPause)
      {
-      if(OrderSelect(act_i, SELECT_BY_POS, MODE_TRADES))
+      int activeEAOrders = 0;
+      for(int act_i = OrdersTotal() - 1; act_i >= 0; act_i--)
         {
-         if(OrderSymbol() == Symbol() && OrderMagicNumber() == MagicNumber)
-            activeEAOrders++;
+         if(OrderSelect(act_i, SELECT_BY_POS, MODE_TRADES))
+           {
+            if(OrderSymbol() == Symbol() && OrderMagicNumber() == MagicNumber)
+               activeEAOrders++;
+           }
         }
-     }
-   if(activeEAOrders > 0)
-     {
-      PrintFormat(">>> [DAILY STOP SAFETY CHECK] %d order(s) still open/pending after stop! Forcing close/delete...", activeEAOrders);
-      CloseAndDeleteAllEAOrdersOnTradingStop();
+      if(activeEAOrders > 0)
+        {
+         PrintFormat(">>> [DAILY STOP SAFETY CHECK] %d order(s) still open/pending after stop! Forcing close/delete...", activeEAOrders);
+         CloseAndDeleteAllEAOrdersOnTradingStop();
+        }
      }
 
    DailyProtectionState pauseDashState;
@@ -28636,7 +28750,7 @@ void UpdateDashboard(DailyProtectionState &state)
      }
    else
      {
-      btnText = "TRADING RUNNING (ACTIVE)";
+      btnText = "TRADING RUNNING (CLICK TO PAUSE)";
       btnBg   = C'22,145,55';   // Vibrant Green
       btnTxt  = clrWhite;
       btnBrd  = clrLime;
@@ -28968,17 +29082,21 @@ void UpdateTopCenterDubaiTimeDisplay(bool force = false)
 
    int dubaiWidth  = 195;
    int dubaiHeight = 38;
-   int btnWidth    = 165;
+   int btnWidth    = 150;
    int btnHeight   = 38;
+   int actBtnWidth = 140;
+   int actBtnHeight= 38;
    int gapWidth    = 360;
    int gapHeight   = 38;
    int gapSpacing  = 6;
-   int totalWidth  = dubaiWidth + gapSpacing + btnWidth + (ShowTopCenterRequiredGap ? (gapSpacing + gapWidth) : 0);
+   int totalButtonsWidth = btnWidth + gapSpacing + actBtnWidth;
+   int totalWidth  = dubaiWidth + gapSpacing + totalButtonsWidth + (ShowTopCenterRequiredGap ? (gapSpacing + gapWidth) : 0);
 
    int dubaiX = 10;
    int dubaiY = MathMin(LeftDashboardY, DashboardTopGap);
    int btnX   = 10;
    int btnY   = dubaiY;
+   int actBtnX= 10;
    int gapX   = 10;
    int gapY   = dubaiY;
 
@@ -28987,47 +29105,52 @@ void UpdateTopCenterDubaiTimeDisplay(bool force = false)
       if(rightStart > (leftEnd + totalWidth + 20))
         {
          int startX = (leftEnd + rightStart - totalWidth) / 2;
-         dubaiX = MathMax(10, startX);
-         btnX   = dubaiX + dubaiWidth + gapSpacing;
-         gapX   = btnX + btnWidth + gapSpacing;
-         btnY   = dubaiY;
-         gapY   = dubaiY;
+         dubaiX  = MathMax(10, startX);
+         btnX    = dubaiX + dubaiWidth + gapSpacing;
+         actBtnX = btnX + btnWidth + gapSpacing;
+         gapX    = actBtnX + actBtnWidth + gapSpacing;
+         btnY    = dubaiY;
+         gapY    = dubaiY;
         }
-      else if(rightStart > (leftEnd + dubaiWidth + gapSpacing + btnWidth + 20))
+      else if(rightStart > (leftEnd + dubaiWidth + gapSpacing + totalButtonsWidth + 20))
         {
-         int row1Width = dubaiWidth + gapSpacing + btnWidth;
+         int row1Width = dubaiWidth + gapSpacing + totalButtonsWidth;
          int startX = (leftEnd + rightStart - row1Width) / 2;
-         dubaiX = MathMax(10, startX);
-         btnX   = dubaiX + dubaiWidth + gapSpacing;
-         btnY   = dubaiY;
-         gapX   = MathMax(10, (leftEnd + rightStart - gapWidth) / 2);
-         gapY   = dubaiY + dubaiHeight + 4;
+         dubaiX  = MathMax(10, startX);
+         btnX    = dubaiX + dubaiWidth + gapSpacing;
+         actBtnX = btnX + btnWidth + gapSpacing;
+         btnY    = dubaiY;
+         gapX    = MathMax(10, (leftEnd + rightStart - gapWidth) / 2);
+         gapY    = dubaiY + dubaiHeight + 4;
         }
       else
         {
-         dubaiX = 10;
-         btnX   = dubaiX + dubaiWidth + gapSpacing;
-         btnY   = dubaiY;
-         gapX   = 10;
-         gapY   = dubaiY + dubaiHeight + 4;
+         dubaiX  = 10;
+         btnX    = dubaiX + dubaiWidth + gapSpacing;
+         actBtnX = btnX + btnWidth + gapSpacing;
+         btnY    = dubaiY;
+         gapX    = 10;
+         gapY    = dubaiY + dubaiHeight + 4;
         }
      }
    else
      {
-      // Required Gap is hidden: Dubai Time + Resume Button centered cleanly between dashboards
-      int rowWidth = dubaiWidth + gapSpacing + btnWidth;
+      // Required Gap is hidden: Dubai Time + Status Button + Pause/Resume Button centered cleanly between dashboards
+      int rowWidth = dubaiWidth + gapSpacing + totalButtonsWidth;
       if(rightStart > (leftEnd + rowWidth + 20))
         {
          int startX = (leftEnd + rightStart - rowWidth) / 2;
-         dubaiX = MathMax(10, startX);
-         btnX   = dubaiX + dubaiWidth + gapSpacing;
-         btnY   = dubaiY;
+         dubaiX  = MathMax(10, startX);
+         btnX    = dubaiX + dubaiWidth + gapSpacing;
+         actBtnX = btnX + btnWidth + gapSpacing;
+         btnY    = dubaiY;
         }
       else
         {
-         dubaiX = 10;
-         btnX   = dubaiX + dubaiWidth + gapSpacing;
-         btnY   = dubaiY;
+         dubaiX  = 10;
+         btnX    = dubaiX + dubaiWidth + gapSpacing;
+         actBtnX = btnX + btnWidth + gapSpacing;
+         btnY    = dubaiY;
         }
       DeleteTopCenterGapObjects();
      }
@@ -29119,10 +29242,10 @@ void UpdateTopCenterDubaiTimeDisplay(bool force = false)
       ObjectSetString(0, TOP_CENTER_DUBAI_PREFIX + "CLOCK", OBJPROP_TOOLTIP, dubaiTooltip);
       g_lastTopDubaiTooltip = dubaiTooltip;
      }
-   // --- BUTTON: RESUME TRADING (TOP CENTER - SAME ROW AFTER DUBAI TIME) ---
+   // --- BUTTON 1: STATUS BUTTON (TOP CENTER - SAME ROW AFTER DUBAI TIME) ---
    string topBtnName = BTN_TOP_RESUME_DAY;
    bool   isStopped   = (DayProfitLadderTradingStopped || g_dailyEquityAdverseLossHitToday || !EnableTrading);
-   bool   isPaused    = (g_dailyEquityTradingBlocked || TradingHaltedUntilNextFlip || (TradeMonitoringLog != ""));
+   bool   isPaused    = (g_dailyEquityTradingBlocked || TradingHaltedUntilNextFlip || (TradeMonitoringLog != "") || g_manualTradingPaused);
 
    string topBtnText;
    color  topBtnBg;
@@ -29156,12 +29279,41 @@ void UpdateTopCenterDubaiTimeDisplay(bool force = false)
       topBtnTxt     = clrWhite;
       topBtnBrd     = clrLime;
       if(g_lastTradingResumeTime > 0)
-         topBtnTooltip = StringFormat("Trading is RUNNING (%s at %s) | Base Equity: $%.2f", g_lastTradingResumeReason, TimeToString(g_lastTradingResumeTime, TIME_MINUTES|TIME_SECONDS), g_dayOpeningBalance);
+         topBtnTooltip = StringFormat("Trading is RUNNING (%s at %s) | Base Equity: $%.2f | Click to PAUSE", g_lastTradingResumeReason, TimeToString(g_lastTradingResumeTime, TIME_MINUTES|TIME_SECONDS), g_dayOpeningBalance);
       else
-         topBtnTooltip = "Trading is RUNNING / Active (Day Equity OK).";
+         topBtnTooltip = "Trading is RUNNING / Active. Click to PAUSE Trading.";
      }
 
    CreateTopCenterButton(topBtnName, topBtnText, btnX, btnY, btnWidth, btnHeight, topBtnBg, topBtnTxt, topBtnBrd, topBtnTooltip);
+
+   // --- BUTTON 2: ACTION BUTTON (PAUSE TRADING / RESUME TRADING) ---
+   string actBtnName = BTN_TOP_PAUSE_DAY;
+   string actBtnText;
+   color  actBtnBg;
+   color  actBtnTxt;
+   color  actBtnBrd;
+   string actBtnTooltip;
+
+   if(isStopped || isPaused)
+     {
+      // When stopped or paused -> Button offers RESUME
+      actBtnText    = "RESUME TRADING";
+      actBtnBg      = C'22,145,55';   // Vibrant Green
+      actBtnTxt     = clrWhite;
+      actBtnBrd     = clrLime;
+      actBtnTooltip = "Click to RESUME Trading (Unpause & re-baseline target).";
+     }
+   else
+     {
+      // When running -> Button offers PAUSE TRADING
+      actBtnText    = "PAUSE TRADING";
+      actBtnBg      = C'195,90,15';   // Amber / Orange
+      actBtnTxt     = clrWhite;
+      actBtnBrd     = clrGold;
+      actBtnTooltip = "Click to PAUSE Day Equity Trading (Halts new trades & deletes pending orders).";
+     }
+
+   CreateTopCenterButton(actBtnName, actBtnText, actBtnX, btnY, actBtnWidth, actBtnHeight, actBtnBg, actBtnTxt, actBtnBrd, actBtnTooltip);
 
 
    if(ShowTopCenterRequiredGap)
