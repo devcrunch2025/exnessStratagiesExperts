@@ -43,7 +43,7 @@ CheckBasketProfitClose  Total open basket profit
 
 */
 
-string glbVersion = "V-SMALL-1008-FINAL- $500 Single button pause and resume toggle";
+string glbVersion = "V-SMALL-1009- Fix DAY EQ TGT display and remove confusing 4x1 text";
 
 int AccountMultiplierLOT = 500;//100;//1000;//400;//200;//500; ALWAYS multiples of 1000 is better for best results
 //balance multiplier 
@@ -30345,8 +30345,9 @@ void UpdateLeftLiveOrdersDashboard(bool force = false)
          deqRightClr  = clrSilver;
         }
 
-      deqLeftTxt  = StringFormat("DAY EQ TGT : [%s] Base:$%.0f  Tgt:$%.0f  ($%.0fx%d)",
-                                        deqStatusTxt, deqOpenBase, deqTarget, DailyEquityStopUSD, (int)deqMult);
+      string multTag = (deqMult > 1) ? StringFormat(" [%dX]", (int)deqMult) : "";
+      deqLeftTxt  = StringFormat("DAY EQ TGT : [%s] Base:$%.0f  Tgt:$%.0f (+$%.0f%s)",
+                                 deqStatusTxt, deqOpenBase, deqTarget, DailyEquityStopUSD * deqMult, multTag);
    }
 
    double pGapLeftMid    = (Bid > 0.0 && Ask > 0.0) ? ((Bid + Ask) * 0.5)
