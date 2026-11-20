@@ -44,7 +44,7 @@ CheckBasketProfitClose  Total open basket profit
 */
 
 
-string glbVersion = "VMULTI-1003 - SMALL Budget $100";
+string glbVersion = "VMULTI-1004- tested Aug1s to Nov 20th $100 to $900 - SMALL Budget $100";
 
 int AccountMultiplierLOT = 1000;//400;//200;//500; ALWAYS multiples of 1000 is better for best results
 //balance multiplier 
