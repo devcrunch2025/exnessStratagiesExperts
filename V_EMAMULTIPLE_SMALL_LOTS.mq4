@@ -12915,7 +12915,7 @@ void OnChartEvent(const int id, const long &lparam, const double &dparam, const 
       if(sparam == (DASH_PREFIX + "BTN_RESUME_DAY") || sparam == BTN_TOP_RESUME_DAY)
         {
          ObjectSetInteger(0, sparam, OBJPROP_STATE, false);
-         if(g_dailyEquityTradingBlocked || DayProfitLadderTradingStopped || TradingHaltedUntilNextFlip)
+         if(g_dailyEquityTradingBlocked || DayProfitLadderTradingStopped || TradingHaltedUntilNextFlip || g_dailyEquityAdverseLossHitToday || !EnableTrading)
            {
             ResumeDailyEquityTradingManual();
            }
@@ -28607,24 +28607,32 @@ void UpdateDashboard(DailyProtectionState &state)
 // RESUME TRADING BUTTON (Manual unpause on chart click)
 // ==========================================================
    string btnName = DASH_PREFIX + "BTN_RESUME_DAY";
-   bool   isDayPaused = (g_dailyEquityTradingBlocked || DayProfitLadderTradingStopped || TradingHaltedUntilNextFlip);
+   bool   isStopped   = (DayProfitLadderTradingStopped || g_dailyEquityAdverseLossHitToday || !EnableTrading);
+   bool   isPaused    = (g_dailyEquityTradingBlocked || TradingHaltedUntilNextFlip || (TradeMonitoringLog != ""));
 
    string btnText;
    color  btnBg;
    color  btnTxt;
    color  btnBrd;
 
-   if(isDayPaused)
+   if(isStopped)
      {
-      btnText = "⏸ PAUSED (CLICK TO RESUME)";
-      btnBg   = C'160,95,20';   // Warm Amber warning
+      btnText = "TRADING STOPPED (CLICK TO RESUME)";
+      btnBg   = C'190,30,30';   // Red
       btnTxt  = clrWhite;
+      btnBrd  = clrWhite;
+     }
+   else if(isPaused)
+     {
+      btnText = "TRADING PAUSED (CLICK TO RESUME)";
+      btnBg   = C'220,180,20';  // Yellow / Gold
+      btnTxt  = clrBlack;       // Crisp black text on yellow
       btnBrd  = clrGold;
      }
    else
      {
-      btnText = "🟢 TRADING RESUMED (ACTIVE)";
-      btnBg   = C'18,85,40';    // Vibrant Emerald Green
+      btnText = "TRADING RUNNING (ACTIVE)";
+      btnBg   = C'22,145,55';   // Vibrant Green
       btnTxt  = clrWhite;
       btnBrd  = clrLime;
      }
@@ -29108,7 +29116,8 @@ void UpdateTopCenterDubaiTimeDisplay(bool force = false)
      }
    // --- BUTTON: RESUME TRADING (TOP CENTER - SAME ROW AFTER DUBAI TIME) ---
    string topBtnName = BTN_TOP_RESUME_DAY;
-   bool   isDayPaused = (g_dailyEquityTradingBlocked || DayProfitLadderTradingStopped || TradingHaltedUntilNextFlip);
+   bool   isStopped   = (DayProfitLadderTradingStopped || g_dailyEquityAdverseLossHitToday || !EnableTrading);
+   bool   isPaused    = (g_dailyEquityTradingBlocked || TradingHaltedUntilNextFlip || (TradeMonitoringLog != ""));
 
    string topBtnText;
    color  topBtnBg;
@@ -29116,24 +29125,35 @@ void UpdateTopCenterDubaiTimeDisplay(bool force = false)
    color  topBtnBrd;
    string topBtnTooltip;
 
-   if(isDayPaused)
+   if(isStopped)
      {
-      topBtnText    = "⏸ RESUME TRADING";
-      topBtnBg      = C'160,95,20';   // Warm Amber warning background
+      // RED: Trading Stopped
+      topBtnText    = "TRADING STOPPED";
+      topBtnBg      = C'190,30,30';   // Red
       topBtnTxt     = clrWhite;
+      topBtnBrd     = clrWhite;
+      topBtnTooltip = "Trading is STOPPED. Click to Resume Trading.";
+     }
+   else if(isPaused)
+     {
+      // YELLOW: Trading Paused / Waiting
+      topBtnText    = "TRADING PAUSED";
+      topBtnBg      = C'220,180,20';  // Yellow / Gold
+      topBtnTxt     = clrBlack;       // Crisp black text on yellow
       topBtnBrd     = clrGold;
-      topBtnTooltip = "Daily Trading is PAUSED. Click to Resume Trading immediately.";
+      topBtnTooltip = "Trading is PAUSED. Click to Resume Trading.";
      }
    else
      {
-      topBtnText    = "🟢 TRADING RESUMED";
-      topBtnBg      = C'18,85,40';    // Vibrant Emerald Green
+      // GREEN: Trading Running / Active
+      topBtnText    = "TRADING RUNNING";
+      topBtnBg      = C'22,145,55';   // Vibrant Green
       topBtnTxt     = clrWhite;
       topBtnBrd     = clrLime;
       if(g_lastTradingResumeTime > 0)
-         topBtnTooltip = StringFormat("Trading is RESUMED (%s at %s) | Base Equity: $%.2f", g_lastTradingResumeReason, TimeToString(g_lastTradingResumeTime, TIME_MINUTES|TIME_SECONDS), g_dayOpeningBalance);
+         topBtnTooltip = StringFormat("Trading is RUNNING (%s at %s) | Base Equity: $%.2f", g_lastTradingResumeReason, TimeToString(g_lastTradingResumeTime, TIME_MINUTES|TIME_SECONDS), g_dayOpeningBalance);
       else
-         topBtnTooltip = "Trading is RESUMED & ACTIVE (Day Equity OK).";
+         topBtnTooltip = "Trading is RUNNING / Active (Day Equity OK).";
      }
 
    CreateTopCenterButton(topBtnName, topBtnText, btnX, btnY, btnWidth, btnHeight, topBtnBg, topBtnTxt, topBtnBrd, topBtnTooltip);
