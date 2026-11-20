@@ -42,7 +42,7 @@ CheckBasketProfitClose  Total open basket profit
 */
 
 
-string glbVersion = "VMULTI-1245- Resume Trading Chart Button";
+string glbVersion = "VMULTI-1246- balancelomultipler calculated strictly in OnInit and Dubai day change";
 
 int AccountMultiplierLOT = 1000;//400;//200;//500; ALWAYS multiples of 1000 is better for best results
 //balance multiplier 
@@ -3621,12 +3621,14 @@ void SyncDubaiDayOpeningState(datetime nowServer = 0)
          double newDayOpenBal          = (g_dayOpeningBalance > 0.0) ? g_dayOpeningBalance : ((AccountBalance() > 0.0) ? AccountBalance() : seedEquity);
          g_dubaiDayOpeningEquity       = newDayOpenBal;
          g_dayOpeningBalance           = newDayOpenBal;
-         // Update balance multiplier based on equity available at Dubai market opening time
+         // Update balance multiplier based on equity available at Dubai market opening time - COMMENTED OUT (User rule: calculate only in OnInit and CheckForNewDay)
+         /*
          double eqAvailable            = (AccountEquity() > 0.0) ? AccountEquity() : newDayOpenBal;
          int lotMultiplierDivDay       = (AccountMultiplierLOT > 0) ? AccountMultiplierLOT : 1001;
          balancelomultipler            = (int)MathRound(eqAvailable / (double)lotMultiplierDivDay);
          if(balancelomultipler <= 0)
             balancelomultipler = 1;
+         */
          g_dubaiNightLastCloseTag      = "";
          g_dubaiNightLastCloseOrders   = 0;
          g_dubaiNightLastCloseLots     = 0.0;
@@ -12511,6 +12513,7 @@ int OnInit()
 
 
 
+   // 1ST TIME: OnInit method (Calculate balance multiplier on startup)
    double initEquity = (AccountEquity() > 0.0) ? AccountEquity() : AccountBalance();
    int lotMultiplierDiv = (AccountMultiplierLOT > 0) ? AccountMultiplierLOT : 1001;
    balancelomultipler = (int)MathRound(initEquity / (double)lotMultiplierDiv);
@@ -13148,11 +13151,13 @@ void PerformDayTradingResume(string reason)
    g_dailyEquityNextStepTarget      = 0.0;
    g_dailyEquityStepCount           = 0;
 
-   // Re-evaluate multiplier based on available equity
+   // Re-evaluate multiplier based on available equity - COMMENTED OUT (User rule: calculate only in OnInit and CheckForNewDay)
+   /*
    int lotMultiplierDivDay = (AccountMultiplierLOT > 0) ? AccountMultiplierLOT : 1001;
    balancelomultipler = (int)MathRound(curEq / (double)lotMultiplierDivDay);
    if(balancelomultipler <= 0)
       balancelomultipler = 1;
+   */
 
    double newTarget = curEq + (DailyEquityStopUSD * balancelomultipler);
 
@@ -13294,6 +13299,7 @@ void CheckForNewDay()
          // g_dayOpeningBalance and g_dubaiDayOpeningEquity remain unchanged!
       }
 
+      // 2ND TIME: When day changed Dubai time (Dubai 16:00 trading day key)
       // USER RULE: On day change Dubai market opening time, change/update balance multiplier based on equity available
       double eqAvailable = (AccountEquity() > 0.0) ? AccountEquity() : curBal;
       int lotMultiplierDivDay = (AccountMultiplierLOT > 0) ? AccountMultiplierLOT : 1001;
