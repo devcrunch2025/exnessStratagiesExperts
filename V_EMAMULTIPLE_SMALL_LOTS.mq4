@@ -43,7 +43,7 @@ CheckBasketProfitClose  Total open basket profit
 
 */
 
-string glbVersion = "VMULTI-1006- Add Pause Trading button & toggle";
+string glbVersion = "VMULTI-1007- Single button pause and resume toggle";
 
 int AccountMultiplierLOT = 100;//1000;//400;//200;//500; ALWAYS multiples of 1000 is better for best results
 //balance multiplier 
@@ -12925,19 +12925,13 @@ void OnChartEvent(const int id, const long &lparam, const double &dparam, const 
          bool isCurrentlyPausedOrStopped = (g_dailyEquityTradingBlocked || DayProfitLadderTradingStopped || 
                                            TradingHaltedUntilNextFlip || g_dailyEquityAdverseLossHitToday || 
                                            !EnableTrading || g_manualTradingPaused);
-         if(sparam == BTN_TOP_PAUSE_DAY)
+         if(isCurrentlyPausedOrStopped)
            {
-            if(!isCurrentlyPausedOrStopped)
-               PauseDailyEquityTradingManual();
-            else
-               ResumeDailyEquityTradingManual();
+            ResumeDailyEquityTradingManual();
            }
          else
            {
-            if(isCurrentlyPausedOrStopped)
-               ResumeDailyEquityTradingManual();
-            else
-               PauseDailyEquityTradingManual();
+            PauseDailyEquityTradingManual();
            }
          ChartRedraw(0);
          return;
@@ -29082,21 +29076,17 @@ void UpdateTopCenterDubaiTimeDisplay(bool force = false)
 
    int dubaiWidth  = 195;
    int dubaiHeight = 38;
-   int btnWidth    = 150;
+   int btnWidth    = 170;
    int btnHeight   = 38;
-   int actBtnWidth = 140;
-   int actBtnHeight= 38;
    int gapWidth    = 360;
    int gapHeight   = 38;
    int gapSpacing  = 6;
-   int totalButtonsWidth = btnWidth + gapSpacing + actBtnWidth;
-   int totalWidth  = dubaiWidth + gapSpacing + totalButtonsWidth + (ShowTopCenterRequiredGap ? (gapSpacing + gapWidth) : 0);
+   int totalWidth  = dubaiWidth + gapSpacing + btnWidth + (ShowTopCenterRequiredGap ? (gapSpacing + gapWidth) : 0);
 
    int dubaiX = 10;
    int dubaiY = MathMin(LeftDashboardY, DashboardTopGap);
    int btnX   = 10;
    int btnY   = dubaiY;
-   int actBtnX= 10;
    int gapX   = 10;
    int gapY   = dubaiY;
 
@@ -29105,52 +29095,47 @@ void UpdateTopCenterDubaiTimeDisplay(bool force = false)
       if(rightStart > (leftEnd + totalWidth + 20))
         {
          int startX = (leftEnd + rightStart - totalWidth) / 2;
-         dubaiX  = MathMax(10, startX);
-         btnX    = dubaiX + dubaiWidth + gapSpacing;
-         actBtnX = btnX + btnWidth + gapSpacing;
-         gapX    = actBtnX + actBtnWidth + gapSpacing;
-         btnY    = dubaiY;
-         gapY    = dubaiY;
+         dubaiX = MathMax(10, startX);
+         btnX   = dubaiX + dubaiWidth + gapSpacing;
+         gapX   = btnX + btnWidth + gapSpacing;
+         btnY   = dubaiY;
+         gapY   = dubaiY;
         }
-      else if(rightStart > (leftEnd + dubaiWidth + gapSpacing + totalButtonsWidth + 20))
+      else if(rightStart > (leftEnd + dubaiWidth + gapSpacing + btnWidth + 20))
         {
-         int row1Width = dubaiWidth + gapSpacing + totalButtonsWidth;
+         int row1Width = dubaiWidth + gapSpacing + btnWidth;
          int startX = (leftEnd + rightStart - row1Width) / 2;
-         dubaiX  = MathMax(10, startX);
-         btnX    = dubaiX + dubaiWidth + gapSpacing;
-         actBtnX = btnX + btnWidth + gapSpacing;
-         btnY    = dubaiY;
-         gapX    = MathMax(10, (leftEnd + rightStart - gapWidth) / 2);
-         gapY    = dubaiY + dubaiHeight + 4;
+         dubaiX = MathMax(10, startX);
+         btnX   = dubaiX + dubaiWidth + gapSpacing;
+         btnY   = dubaiY;
+         gapX   = MathMax(10, (leftEnd + rightStart - gapWidth) / 2);
+         gapY   = dubaiY + dubaiHeight + 4;
         }
       else
         {
-         dubaiX  = 10;
-         btnX    = dubaiX + dubaiWidth + gapSpacing;
-         actBtnX = btnX + btnWidth + gapSpacing;
-         btnY    = dubaiY;
-         gapX    = 10;
-         gapY    = dubaiY + dubaiHeight + 4;
+         dubaiX = 10;
+         btnX   = dubaiX + dubaiWidth + gapSpacing;
+         btnY   = dubaiY;
+         gapX   = 10;
+         gapY   = dubaiY + dubaiHeight + 4;
         }
      }
    else
      {
-      // Required Gap is hidden: Dubai Time + Status Button + Pause/Resume Button centered cleanly between dashboards
-      int rowWidth = dubaiWidth + gapSpacing + totalButtonsWidth;
+      // Required Gap is hidden: Dubai Time + Single Status/Toggle Button centered cleanly between dashboards
+      int rowWidth = dubaiWidth + gapSpacing + btnWidth;
       if(rightStart > (leftEnd + rowWidth + 20))
         {
          int startX = (leftEnd + rightStart - rowWidth) / 2;
-         dubaiX  = MathMax(10, startX);
-         btnX    = dubaiX + dubaiWidth + gapSpacing;
-         actBtnX = btnX + btnWidth + gapSpacing;
-         btnY    = dubaiY;
+         dubaiX = MathMax(10, startX);
+         btnX   = dubaiX + dubaiWidth + gapSpacing;
+         btnY   = dubaiY;
         }
       else
         {
-         dubaiX  = 10;
-         btnX    = dubaiX + dubaiWidth + gapSpacing;
-         actBtnX = btnX + btnWidth + gapSpacing;
-         btnY    = dubaiY;
+         dubaiX = 10;
+         btnX   = dubaiX + dubaiWidth + gapSpacing;
+         btnY   = dubaiY;
         }
       DeleteTopCenterGapObjects();
      }
@@ -29286,34 +29271,8 @@ void UpdateTopCenterDubaiTimeDisplay(bool force = false)
 
    CreateTopCenterButton(topBtnName, topBtnText, btnX, btnY, btnWidth, btnHeight, topBtnBg, topBtnTxt, topBtnBrd, topBtnTooltip);
 
-   // --- BUTTON 2: ACTION BUTTON (PAUSE TRADING / RESUME TRADING) ---
-   string actBtnName = BTN_TOP_PAUSE_DAY;
-   string actBtnText;
-   color  actBtnBg;
-   color  actBtnTxt;
-   color  actBtnBrd;
-   string actBtnTooltip;
-
-   if(isStopped || isPaused)
-     {
-      // When stopped or paused -> Button offers RESUME
-      actBtnText    = "RESUME TRADING";
-      actBtnBg      = C'22,145,55';   // Vibrant Green
-      actBtnTxt     = clrWhite;
-      actBtnBrd     = clrLime;
-      actBtnTooltip = "Click to RESUME Trading (Unpause & re-baseline target).";
-     }
-   else
-     {
-      // When running -> Button offers PAUSE TRADING
-      actBtnText    = "PAUSE TRADING";
-      actBtnBg      = C'195,90,15';   // Amber / Orange
-      actBtnTxt     = clrWhite;
-      actBtnBrd     = clrGold;
-      actBtnTooltip = "Click to PAUSE Day Equity Trading (Halts new trades & deletes pending orders).";
-     }
-
-   CreateTopCenterButton(actBtnName, actBtnText, actBtnX, btnY, actBtnWidth, actBtnHeight, actBtnBg, actBtnTxt, actBtnBrd, actBtnTooltip);
+   // Clean up obsolete second button from chart if it exists
+   ObjectDelete(0, BTN_TOP_PAUSE_DAY);
 
 
    if(ShowTopCenterRequiredGap)
