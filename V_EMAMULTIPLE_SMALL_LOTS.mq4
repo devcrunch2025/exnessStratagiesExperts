@@ -43,7 +43,7 @@ CheckBasketProfitClose  Total open basket profit
 
 */
 
-string glbVersion = "VMULTI-1008- $500 Single button pause and resume toggle";
+string glbVersion = "V-SMALL-1008-FINAL- $500 Single button pause and resume toggle";
 
 int AccountMultiplierLOT = 500;//100;//1000;//400;//200;//500; ALWAYS multiples of 1000 is better for best results
 //balance multiplier 
