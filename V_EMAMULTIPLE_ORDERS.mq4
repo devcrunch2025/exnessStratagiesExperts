@@ -42,7 +42,7 @@ CheckBasketProfitClose  Total open basket profit
 */
 
 
-string glbVersion = "VMULTI-1246- balancelomultipler calculated strictly in OnInit and Dubai day change";
+string glbVersion = "VMULTI-1251- Multiplier strictly 2x, 3-color status button Green/Red/Yellow, hide top gap";
 
 int AccountMultiplierLOT = 1000;//400;//200;//500; ALWAYS multiples of 1000 is better for best results
 //balance multiplier 
@@ -12476,6 +12476,7 @@ void ResetAllRuntimeVariablesOnFreshStart()
    DeleteDashboardObjects();
    DeleteLeftLiveOrdersDashboardObjects();
    DeleteTopCenterDubaiTimeObjects();
+   DeleteTopCenterGapObjects();
    RemoveDubaiTradingPauseDashboard();
    DeleteOurObjects();
    ClearEMALineObjects();
@@ -12785,6 +12786,7 @@ int OnInit()
    DeleteDashboardObjects();
    DeleteLeftLiveOrdersDashboardObjects();
    DeleteTopCenterDubaiTimeObjects();
+   DeleteTopCenterGapObjects();
    DeleteLiquiditySweepObjects();
    g_lastHandledSweepBlockBarTime = 0;
    g_lastHandledSweepBlockType    = "None";
@@ -13143,6 +13145,12 @@ void PerformDayTradingResume(string reason)
    g_dailyEquityAdverseLossHitToday = false;
    DayProfitLadderTradingStopped    = false;
    TradingHaltedUntilNextFlip       = false;
+   EnableTrading                    = true;
+   ContinueTradingAfterSL           = true;
+   LosingSLCount                    = 0;
+   ProtectedEquityWaitActive        = false;
+   ServerRecoveryPending            = false;
+   TradeMonitoringLog               = "";
 
    // Set fresh baseline to current equity so daily target/risk can track forward cleanly
    g_dayOpeningBalance              = curEq;
@@ -13307,10 +13315,14 @@ void CheckForNewDay()
       if(balancelomultipler <= 0)
          balancelomultipler = 1;
 
+      bool wasPausedAtDayChange = (g_dailyEquityTradingBlocked || DayProfitLadderTradingStopped || TradingHaltedUntilNextFlip);
+
       // Reset daily protection & pause flags (Pause Duration till next day Dubai 16:00)
       g_dailyEquityTradingBlocked      = false;
       g_dailyEquityTargetHitToday      = false;
       g_dailyEquityAdverseLossHitToday = false;
+      DayProfitLadderTradingStopped    = false;
+      TradingHaltedUntilNextFlip       = false;
       g_dailyEquityPeakEquity          = 0.0;
       g_dailyEquityNextStepTarget      = 0.0;
       g_dailyEquityStepCount           = 0;
@@ -13318,6 +13330,14 @@ void CheckForNewDay()
       // Synchronize Dubai 16:00 opening state and EqDD daily state
       SyncDubaiDayOpeningState(serverTime);
       CheckEqDdDailyReset();
+
+      if(wasPausedAtDayChange)
+        {
+         g_lastTradingResumeTime   = serverTime;
+         g_lastTradingResumeReason = "NEW DUBAI DAY (16:00)";
+         CreateTradingResumeChartIcon("NEW DUBAI DAY", eqAvailable);
+        }
+      UpdateTopCenterDubaiTimeDisplay(true);
 
       PrintFormat(">>> [NEW TRADING DAY DETECTED (Dubai 16:00)] DayKey=%d | DubaiTime=%s | Day Opening Base = $%.2f (Target = $%.2f, Mult = %d [AvailEq=$%.2f]) | Pause Duration Reset -> Trading Active",
                   today, TimeToString(dubaiTime, TIME_DATE|TIME_MINUTES|TIME_SECONDS), g_dayOpeningBalance,
@@ -27581,7 +27601,7 @@ void UpdateDashboard(DailyProtectionState &state)
    if(dayOfWeekDash == 0 || dayOfWeekDash == 6)
       dashboardSuggestedLot = MathMin(dashboardSuggestedLot, 0.02);
 
-   int dashboardLotMultiplier=(int)(AccountEquity()/AccountMultiplierLOT);
+   int dashboardLotMultiplier = (balancelomultipler > 0) ? balancelomultipler : 1;
    if(dashboardLotMultiplier<1)
       dashboardLotMultiplier=1;
    double dashboardFinalLot=NormalizeLots(MathMin(0.10,dashboardSuggestedLot*dashboardLotMultiplier));
@@ -28612,9 +28632,9 @@ void UpdateDashboard(DailyProtectionState &state)
 // ==========================================================
 // RESUME TRADING BUTTON (Manual unpause on chart click)
 // ==========================================================
-   string btnName = DASH_PREFIX + "BTN_RESUME_DAY";
-   bool   isStopped   = (DayProfitLadderTradingStopped || g_dailyEquityAdverseLossHitToday || !EnableTrading);
-   bool   isPaused    = (g_dailyEquityTradingBlocked || TradingHaltedUntilNextFlip || (TradeMonitoringLog != ""));
+   string btnName   = DASH_PREFIX + "BTN_RESUME_DAY";
+   bool   isStopped = (DayProfitLadderTradingStopped || g_dailyEquityAdverseLossHitToday || !EnableTrading || (!ContinueTradingAfterSL && LosingSLCount >= MaxConsecutiveLosingSL && MaxConsecutiveLosingSL > 0));
+   bool   isPaused  = (g_dailyEquityTradingBlocked || TradingHaltedUntilNextFlip || ServerRecoveryPending || ProtectedEquityWaitActive || (TradeMonitoringLog != ""));
 
    string btnText;
    color  btnBg;
@@ -28623,22 +28643,22 @@ void UpdateDashboard(DailyProtectionState &state)
 
    if(isStopped)
      {
-      btnText = "TRADING STOPPED (CLICK TO RESUME)";
-      btnBg   = C'190,30,30';   // Red
+      btnText = "TRADING STOPPED";
+      btnBg   = C'200,30,30';   // RED: Trading Stopped
       btnTxt  = clrWhite;
       btnBrd  = clrWhite;
      }
    else if(isPaused)
      {
-      btnText = "TRADING PAUSED (CLICK TO RESUME)";
-      btnBg   = C'220,180,20';  // Yellow / Gold
+      btnText = "TRADING PAUSED";
+      btnBg   = C'220,180,20';  // YELLOW: Trading Paused / Other status
       btnTxt  = clrBlack;       // Crisp black text on yellow
       btnBrd  = clrGold;
      }
    else
      {
-      btnText = "TRADING RUNNING (ACTIVE)";
-      btnBg   = C'22,145,55';   // Vibrant Green
+      btnText = "TRADING RUNNING";
+      btnBg   = C'22,145,55';   // GREEN: Trading Running / Active
       btnTxt  = clrWhite;
       btnBrd  = clrLime;
      }
@@ -28922,6 +28942,7 @@ void UpdateTopCenterDubaiTimeDisplay(bool force = false)
    if(!ShowTopCenterDubaiTime)
      {
       DeleteTopCenterDubaiTimeObjects();
+   DeleteTopCenterGapObjects();
       return;
      }
 
@@ -29122,8 +29143,8 @@ void UpdateTopCenterDubaiTimeDisplay(bool force = false)
      }
    // --- BUTTON: RESUME TRADING (TOP CENTER - SAME ROW AFTER DUBAI TIME) ---
    string topBtnName = BTN_TOP_RESUME_DAY;
-   bool   isStopped   = (DayProfitLadderTradingStopped || g_dailyEquityAdverseLossHitToday || !EnableTrading);
-   bool   isPaused    = (g_dailyEquityTradingBlocked || TradingHaltedUntilNextFlip || (TradeMonitoringLog != ""));
+   bool   isStopped   = (DayProfitLadderTradingStopped || g_dailyEquityAdverseLossHitToday || !EnableTrading || (!ContinueTradingAfterSL && LosingSLCount >= MaxConsecutiveLosingSL && MaxConsecutiveLosingSL > 0));
+   bool   isPaused    = (g_dailyEquityTradingBlocked || TradingHaltedUntilNextFlip || ServerRecoveryPending || ProtectedEquityWaitActive || (TradeMonitoringLog != ""));
 
    string topBtnText;
    color  topBtnBg;
@@ -29135,16 +29156,16 @@ void UpdateTopCenterDubaiTimeDisplay(bool force = false)
      {
       // RED: Trading Stopped
       topBtnText    = "TRADING STOPPED";
-      topBtnBg      = C'190,30,30';   // Red
+      topBtnBg      = C'200,30,30';   // Red
       topBtnTxt     = clrWhite;
       topBtnBrd     = clrWhite;
       topBtnTooltip = "Trading is STOPPED. Click to Resume Trading.";
      }
    else if(isPaused)
      {
-      // YELLOW: Trading Paused / Waiting
+      // YELLOW: Any other status / Paused
       topBtnText    = "TRADING PAUSED";
-      topBtnBg      = C'220,180,20';  // Yellow / Gold
+      topBtnBg      = C'220,180,20';  // Yellow
       topBtnTxt     = clrBlack;       // Crisp black text on yellow
       topBtnBrd     = clrGold;
       topBtnTooltip = "Trading is PAUSED. Click to Resume Trading.";
