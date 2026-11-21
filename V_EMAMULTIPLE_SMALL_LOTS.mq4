@@ -30669,12 +30669,18 @@ void UpdateLeftLiveOrdersDashboard(bool force = false)
         {
          deqStatusTxt = "PAUSED";
          deqBarClr    = C'50,15,15';
-         deqTxtClr    = clrTomato;
+         deqTxtClr    = clrWhite;
          if(g_dailyEquityAdverseLossHitToday)
             deqRightTxt  = StringFormat("P/L:%s$%.2f  PAUSED AT -$%.0f LOSS (TILL 16:00)", deqSign, deqProfit, DailyEquityMaxLossUSD * deqMult);
          else
             deqRightTxt  = StringFormat("P/L:%s$%.2f  PAUSED AT %.0f%% RETRACE (TILL 16:00)", deqSign, deqProfit, deqFloorPct);
          deqRightClr  = clrTomato;
+
+         double pauseBaseUSD = (g_dailyEquityIsResumedLeg && g_dailyEquityResumeEquity > 0.0) ? g_dailyEquityResumeEquity : deqOpenBase;
+         double pauseTgtUSD  = (g_dailyEquityIsResumedLeg && g_dailyEquityResumeEquity > 0.0) ? (g_dailyEquityResumeEquity + (DailyEquityStopUSD * deqMult)) : deqTarget;
+         string pauseMultTag = (deqMult > 1) ? StringFormat(" [%dX]", (int)deqMult) : "";
+         deqLeftTxt  = StringFormat("DAY: [%s] B:$%.0f  T:$%.0f (+$%.0f%s)",
+                                    deqStatusTxt, pauseBaseUSD, pauseTgtUSD, DailyEquityStopUSD * deqMult, pauseMultTag);
         }
       else if(g_dailyEquityIsResumedLeg && InpResumeDayTradingTargetMode == RESUME_MODE_TRAIL_STEP)
         {
@@ -30769,6 +30775,15 @@ void UpdateLeftLiveOrdersDashboard(bool force = false)
          string multTag = (deqMult > 1) ? StringFormat(" [%dX]", (int)deqMult) : "";
          deqLeftTxt  = StringFormat("DAY: [%s] B:$%.0f  T:$%.0f (+$%.0f%s)",
                                     deqStatusTxt, deqOpenBase, deqTarget, DailyEquityStopUSD * deqMult, multTag);
+        }
+
+      if(deqLeftTxt == "")
+        {
+         double fbBaseUSD = (g_dailyEquityIsResumedLeg && g_dailyEquityResumeEquity > 0.0) ? g_dailyEquityResumeEquity : deqOpenBase;
+         double fbTgtUSD  = (g_dailyEquityIsResumedLeg && g_dailyEquityResumeEquity > 0.0) ? (g_dailyEquityResumeEquity + (DailyEquityStopUSD * deqMult)) : deqTarget;
+         string fbMultTag = (deqMult > 1) ? StringFormat(" [%dX]", (int)deqMult) : "";
+         deqLeftTxt       = StringFormat("DAY: [%s] B:$%.0f  T:$%.0f (+$%.0f%s)",
+                                         deqStatusTxt, fbBaseUSD, fbTgtUSD, DailyEquityStopUSD * deqMult, fbMultTag);
         }
    }
 
