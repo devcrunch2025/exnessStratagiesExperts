@@ -42,7 +42,7 @@ CheckBasketProfitClose  Total open basket profit
 */
 
 
-string glbVersion = "VMULTI-1259- Update ResumeDayTradingMinEmaAngle default to 3.0";
+string glbVersion = "VMULTI-1260- Resume Day Trading from Trail Step mode";
 
 int AccountMultiplierLOT = 1000;//400;//200;//500; ALWAYS multiples of 1000 is better for best results
 //balance multiplier 
@@ -55,6 +55,12 @@ bool   ResumeDayTradingOnEmaDirectionChange = true; // Auto-resume Day Equity tr
 bool   ResumeDayTradingOnStrongAngleSSL     = true; // Option 5 (Choice A): Auto-resume when EMA Angle >= 3.0 and SSL matches EMA direction
 double ResumeDayTradingMinEmaAngle          = 3.0;  // Minimum MathAbs(GlobalEmaAngle30) for strong trend (Default: 3.0 deg)
 int    ResumeDayTradingMinCooldownMin      = 10;   // Minimum cooldown buffer minutes after Retrace Floor Stop (e.g. 10m)
+enum ENUM_RESUME_DAY_MODE
+  {
+   RESUME_MODE_TRAIL_STEP   = 0, // Continue from DailyEquityTrailStepUSD (Step-by-step profit mode) [Recommended]
+   RESUME_MODE_FULL_TARGET  = 1  // Restart full DailyEquityStopUSD (Basic target mode)
+  };
+ENUM_RESUME_DAY_MODE InpResumeDayTradingTargetMode = RESUME_MODE_TRAIL_STEP; // Resume Target Mode [0=Trail Step Mode, 1=Full Target]
 int    InpTradingResumeIconCode             = 241;  // Chart icon Wingdings code for Trading Resume (241=Play, 251=Check, 159=Circle)
 bool   InpCloseOrdersOnManualPause          = false; // When clicking Pause Trading: false = delete pending only & keep open market orders; true = close all market orders
 
@@ -151,6 +157,10 @@ string   g_lastTradingResumeReason           = "";    // Reason of last trading 
 datetime g_dailyEquityPauseTime              = 0;     // Timestamp when Day Equity trading was paused
 int      g_dailyEquityPauseSSLDirection      = 0;     // SSL direction at moment of pause (+1=Buy, -1=Sell)
 bool     g_dailyEquityPauseSslFlipped        = false; // Whether SSL changed direction during pause (confirms pullback occurred)
+bool     g_dailyEquityIsResumedLeg           = false; // True if trading unpaused after a retrace floor exit
+bool     g_dailyEquityResumedStepHit         = false; // True once Step 1 has been achieved in the resumed leg
+double   g_dailyEquityResumeEquity           = 0.0;   // Equity baseline captured at the moment trading resumed
+double   g_dailyEquityResumeSafetyFloor      = 0.0;   // Safety floor prior to Step 1 hit (ResumeEquity - StepUSD)
 
 bool EnableBounceBackDetection = false;
 
@@ -12245,6 +12255,10 @@ void ResetAllRuntimeVariablesOnFreshStart()
    g_dailyEquityPeakEquity          = 0.0;
    g_dailyEquityNextStepTarget = 0.0;
    g_dailyEquityStepCount      = 0;
+   g_dailyEquityIsResumedLeg        = false;
+   g_dailyEquityResumedStepHit      = false;
+   g_dailyEquityResumeEquity        = 0.0;
+   g_dailyEquityResumeSafetyFloor   = 0.0;
 
    // 3. Dubai Night Close & Rollover
    g_dubaiNightCloseDayKey       = -1;
@@ -13148,7 +13162,13 @@ void CreateTradingResumeChartIcon(string reason, double curEq)
 
    // 2. Bold Text Label above the icon
    double labelPrice = markerPrice + (atr * 0.40);
-   string shortReason = (StringFind(reason, "EMA", 0) >= 0) ? "EMA FLIP" : "MANUAL";
+   string shortReason = "RESUME";
+   if(StringFind(reason, "STRONG TREND", 0) >= 0)
+      shortReason = "STRONG TREND";
+   else if(StringFind(reason, "EMA DIRECTION", 0) >= 0)
+      shortReason = "EMA FLIP";
+   else if(StringFind(reason, "MANUAL", 0) >= 0)
+      shortReason = "MANUAL";
    string labelText   = StringFormat("RESUMED (%s)", shortReason);
 
    ObjectCreate(0, txtName, OBJ_TEXT, 0, barTime, labelPrice);
@@ -13196,7 +13216,6 @@ void PerformDayTradingResume(string reason)
    // Unpause all daily trading pause & halt flags
    g_manualTradingPaused            = false;
    g_dailyEquityTradingBlocked      = false;
-   g_dailyEquityTargetHitToday      = false;
    g_dailyEquityAdverseLossHitToday = false;
    DayProfitLadderTradingStopped    = false;
    TradingHaltedUntilNextFlip       = false;
@@ -13210,29 +13229,56 @@ void PerformDayTradingResume(string reason)
    g_dailyEquityPauseSSLDirection   = 0;
    g_dailyEquityPauseSslFlipped     = false;
 
-   // Set fresh baseline to current equity so daily target/risk can track forward cleanly
-   g_dayOpeningBalance              = curEq;
-   g_dubaiDayOpeningEquity          = curEq;
-   g_dailyEquityPeakEquity          = curEq;
-   g_dailyEquityNextStepTarget      = 0.0;
-   g_dailyEquityStepCount           = 0;
+   double stepUSD = DailyEquityTrailStepUSD * balancelomultipler;
 
-   // Re-evaluate multiplier based on available equity - COMMENTED OUT (User rule: calculate only in OnInit and CheckForNewDay)
-   /*
-   int lotMultiplierDivDay = (AccountMultiplierLOT > 0) ? AccountMultiplierLOT : 1001;
-   balancelomultipler = (int)MathRound(curEq / (double)lotMultiplierDivDay);
-   if(balancelomultipler <= 0)
-      balancelomultipler = 1;
-   */
+   if(InpResumeDayTradingTargetMode == RESUME_MODE_TRAIL_STEP)
+     {
+      // STEP-BY-STEP TRAILING RESUME MODE (User preferred)
+      // Directly continue in Phase 2 trailing mode from 1 step!
+      g_dailyEquityTargetHitToday      = true;  // Keep Step Trailing Phase 2 active!
+      g_dailyEquityIsResumedLeg        = true;
+      g_dailyEquityResumedStepHit      = false;
+      g_dailyEquityResumeEquity        = curEq;
+      g_dailyEquityResumeSafetyFloor   = curEq - stepUSD; // 1-step safety buffer so initial spread/pullback won't stop out
+      g_dailyEquityPeakEquity          = curEq;
+      g_dailyEquityNextStepTarget      = curEq + stepUSD; // Only 1 step away!
+      g_dailyEquityStepCount           = 0;
 
-   double newTarget = curEq + (DailyEquityStopUSD * balancelomultipler);
+      // Keep baseline for adverse loss protection
+      g_dayOpeningBalance              = curEq;
+      g_dubaiDayOpeningEquity          = curEq;
 
-   PrintFormat(">>> [RESUME DAY TRADING: %s] Trading unpaused! New Base Equity=$%.2f | New Target=$%.2f (+$%.2f) | Multiplier=%d",
-               reason, curEq, newTarget, DailyEquityStopUSD * balancelomultipler, balancelomultipler);
+      PrintFormat(">>> [RESUME DAY TRADING (TRAIL STEP): %s] Trading unpaused! Base Equity=$%.2f | Next Step Target=$%.2f (+$%.2f) | Safety Floor=$%.2f | Multiplier=%d",
+                  reason, curEq, g_dailyEquityNextStepTarget, stepUSD, g_dailyEquityResumeSafetyFloor, balancelomultipler);
 
-   LogEAEvent("INFO", "RESUME_DAY_TRADING",
-              StringFormat("[%s] Trading unpaused! Base=$%.2f NewTarget=$%.2f Mult=%d",
-                           reason, curEq, newTarget, balancelomultipler));
+      LogEAEvent("INFO", "RESUME_DAY_TRADING",
+                 StringFormat("[%s] Resume Trail Step! Base=$%.2f NextStep=$%.2f (+Step=$%.2f) Floor=$%.2f Mult=%d",
+                              reason, curEq, g_dailyEquityNextStepTarget, stepUSD, g_dailyEquityResumeSafetyFloor, balancelomultipler));
+     }
+   else
+     {
+      // FULL BASIC TARGET RESUME MODE
+      // Reset back to Phase 1 (full basic target from scratch)
+      g_dailyEquityTargetHitToday      = false;
+      g_dailyEquityIsResumedLeg        = false;
+      g_dailyEquityResumedStepHit      = false;
+      g_dailyEquityResumeEquity        = 0.0;
+      g_dailyEquityResumeSafetyFloor   = 0.0;
+      g_dayOpeningBalance              = curEq;
+      g_dubaiDayOpeningEquity          = curEq;
+      g_dailyEquityPeakEquity          = curEq;
+      g_dailyEquityNextStepTarget      = 0.0;
+      g_dailyEquityStepCount           = 0;
+
+      double newTarget = curEq + (DailyEquityStopUSD * balancelomultipler);
+
+      PrintFormat(">>> [RESUME DAY TRADING (FULL TARGET): %s] Trading unpaused! New Base Equity=$%.2f | New Target=$%.2f (+$%.2f) | Multiplier=%d",
+                  reason, curEq, newTarget, DailyEquityStopUSD * balancelomultipler, balancelomultipler);
+
+      LogEAEvent("INFO", "RESUME_DAY_TRADING",
+                 StringFormat("[%s] Resume Full Target! Base=$%.2f NewTarget=$%.2f Mult=%d",
+                              reason, curEq, newTarget, balancelomultipler));
+     }
 
    g_lastTradingResumeTime   = TimeCurrent();
    g_lastTradingResumeReason = reason;
@@ -13571,6 +13617,10 @@ void CheckForNewDay()
       g_dailyEquityPauseTime           = 0;
       g_dailyEquityPauseSSLDirection   = 0;
       g_dailyEquityPauseSslFlipped     = false;
+      g_dailyEquityIsResumedLeg        = false;
+      g_dailyEquityResumedStepHit      = false;
+      g_dailyEquityResumeEquity        = 0.0;
+      g_dailyEquityResumeSafetyFloor   = 0.0;
 
       // Synchronize Dubai 16:00 opening state and EqDD daily state
       SyncDubaiDayOpeningState(serverTime);
@@ -13605,11 +13655,15 @@ void CheckForNewDayOld()
       g_dayOpeningBalance = AccountBalance();
 
       // Reset daily protection
-      g_dailyEquityTradingBlocked = false;
-      g_dailyEquityTargetHitToday = false;
-      g_dailyEquityPeakEquity = 0.0;
-      g_dailyEquityNextStepTarget = 0.0;
-      g_dailyEquityStepCount = 0;
+      g_dailyEquityTradingBlocked    = false;
+      g_dailyEquityTargetHitToday    = false;
+      g_dailyEquityPeakEquity        = 0.0;
+      g_dailyEquityNextStepTarget    = 0.0;
+      g_dailyEquityStepCount         = 0;
+      g_dailyEquityIsResumedLeg      = false;
+      g_dailyEquityResumedStepHit    = false;
+      g_dailyEquityResumeEquity      = 0.0;
+      g_dailyEquityResumeSafetyFloor = 0.0;
 
       Print("NEW DAY detected. Opening Balance = ",
             DoubleToString(g_dayOpeningBalance, 2));
@@ -13837,9 +13891,64 @@ bool IsDailyEquityStopReached()
    double floorEquity = g_dayOpeningBalance + floorProfit;
 
    // ==============================================================
-   // PHASE 1: INITIAL TARGET HIT ($50 * multiplier reached)
+   // RESUMED LEG: STEP-BY-STEP TRAILING PROFIT MODE
    // ==============================================================
-   if(!g_dailyEquityTargetHitToday)
+   if(g_dailyEquityIsResumedLeg && InpResumeDayTradingTargetMode == RESUME_MODE_TRAIL_STEP)
+   {
+      double profitInResumedLeg = (g_dailyEquityPeakEquity > g_dailyEquityResumeEquity) ? (g_dailyEquityPeakEquity - g_dailyEquityResumeEquity) : 0.0;
+      double resumedFloorEquity = 0.0;
+      double resumedFloorPct    = 0.0;
+
+      if(!g_dailyEquityResumedStepHit)
+      {
+         // Before Step 1 hit: protect with safety buffer (curEq - stepUSD)
+         resumedFloorEquity = g_dailyEquityResumeSafetyFloor;
+         resumedFloorPct    = 0.0;
+      }
+      else
+      {
+         // Step 1 hit: Breakeven of resume equity is fully locked!
+         // Ratchet floor up based on tiered % of profit gained in this resumed leg
+         resumedFloorPct       = GetDailyEquityRetraceFloorPct(profitInResumedLeg);
+         double legFloorProfit = profitInResumedLeg * (resumedFloorPct / 100.0);
+         resumedFloorEquity    = g_dailyEquityResumeEquity + legFloorProfit;
+         if(resumedFloorEquity < g_dailyEquityResumeEquity)
+            resumedFloorEquity = g_dailyEquityResumeEquity;
+      }
+
+      // Collect +stepUSD profit step-by-step
+      if(curEquity >= g_dailyEquityNextStepTarget && g_dailyEquityNextStepTarget > 0.0)
+      {
+         g_dailyEquityResumedStepHit = true;
+         g_dailyEquityStepCount++;
+         Print(StringFormat("[DAILY EQUITY RESUMED STEP #%d HIT] Equity=$%.2f | Peak=$%.2f (+$%.2f) | Dynamic Floor=$%.2f | Modifying SL to Current Price | Next Step Target=$%.2f",
+               g_dailyEquityStepCount, curEquity, g_dailyEquityPeakEquity, profitInResumedLeg, resumedFloorEquity, (curEquity + stepUSD)));
+
+         g_dailyEquityNextStepTarget = curEquity + stepUSD;
+
+         ModifyOpenOrdersToCurrentPriceSL(StringFormat("Resumed Step #%d", g_dailyEquityStepCount));
+      }
+
+      // Stop trading and pause for the day when coming back to floor of maximum collected profit
+      if(curEquity <= resumedFloorEquity)
+      {
+         g_dailyEquityTradingBlocked    = true;
+         g_dailyEquityPauseTime         = TimeCurrent();
+         g_dailyEquityPauseSSLDirection = GetCurrentSSLDirection();
+         g_dailyEquityPauseSslFlipped   = false;
+
+         PrintFormat(">>> [DAILY EQUITY RETRACE STOP (RESUMED LEG)] Maximum peak profit collected was $%.2f (%d steps). Equity dropped to floor ($%.2f <= $%.2f). Closing all orders and pausing until next day Dubai 16:00.",
+                     profitInResumedLeg, g_dailyEquityStepCount, curEquity, resumedFloorEquity);
+
+         CloseAndDeleteAllEAOrdersOnTradingStop();
+
+         return true;
+      }
+   }
+   // ==============================================================
+   // STANDARD PHASE 1: INITIAL TARGET HIT ($50 * multiplier reached)
+   // ==============================================================
+   else if(!g_dailyEquityTargetHitToday)
    {
       if(curEquity >= targetEquity)
       {
@@ -30558,6 +30667,51 @@ void UpdateLeftLiveOrdersDashboard(bool force = false)
             deqRightTxt  = StringFormat("P/L:%s$%.2f  PAUSED AT %.0f%% RETRACE (TILL 16:00)", deqSign, deqProfit, deqFloorPct);
          deqRightClr  = clrTomato;
         }
+      else if(g_dailyEquityIsResumedLeg && InpResumeDayTradingTargetMode == RESUME_MODE_TRAIL_STEP)
+        {
+         double resStepUSD = DailyEquityTrailStepUSD * deqMult;
+         double resProfit  = deqCurrent - g_dailyEquityResumeEquity;
+         string resSign    = (resProfit >= 0.0) ? "+" : "";
+         deqStatusTxt = (g_dailyEquityStepCount > 0) ? StringFormat("+Step#%d", g_dailyEquityStepCount) : StringFormat("TRAIL+$%.0f", resStepUSD);
+
+         double resFloorEq = 0.0;
+         if(!g_dailyEquityResumedStepHit)
+           {
+            resFloorEq  = g_dailyEquityResumeSafetyFloor;
+            deqRightTxt = StringFormat("P/L:%s$%.2f  Tgt:$%.0f  SafetyFloor:$%.0f", resSign, resProfit, g_dailyEquityNextStepTarget, resFloorEq);
+           }
+         else
+           {
+            double legPeakProfit = (g_dailyEquityPeakEquity > g_dailyEquityResumeEquity) ? (g_dailyEquityPeakEquity - g_dailyEquityResumeEquity) : 0.0;
+            double legFloorPct   = GetDailyEquityRetraceFloorPct(legPeakProfit);
+            resFloorEq           = g_dailyEquityResumeEquity + (legPeakProfit * (legFloorPct / 100.0));
+            if(resFloorEq < g_dailyEquityResumeEquity) resFloorEq = g_dailyEquityResumeEquity;
+            deqRightTxt = StringFormat("P/L:%s$%.2f (Peak:$%.2f) Floor:$%.0f", resSign, resProfit, legPeakProfit, resFloorEq);
+           }
+
+         if(resProfit > 0.0)
+           {
+            deqBarClr   = C'20,40,12';
+            deqTxtClr   = clrGold;
+            deqRightClr = clrGold;
+           }
+         else if(resProfit < -0.01)
+           {
+            deqBarClr   = C'34,16,18';
+            deqTxtClr   = clrWhite;
+            deqRightClr = clrTomato;
+           }
+         else
+           {
+            deqBarClr   = C'18,22,34';
+            deqTxtClr   = clrWhite;
+            deqRightClr = clrWhite;
+           }
+
+         string resMultTag = (deqMult > 1) ? StringFormat(" [%dX]", (int)deqMult) : "";
+         deqLeftTxt  = StringFormat("DAY EQ TGT : [%s] Base:$%.0f  Tgt:$%.0f (+Step$%.0f%s)",
+                                    deqStatusTxt, g_dailyEquityResumeEquity, g_dailyEquityNextStepTarget, resStepUSD, resMultTag);
+        }
       else if(g_dailyEquityTargetHitToday)
         {
          deqStatusTxt = (g_dailyEquityStepCount > 0) ? StringFormat("+$5x%d", g_dailyEquityStepCount) : "TRAIL+$5";
@@ -30600,9 +30754,12 @@ void UpdateLeftLiveOrdersDashboard(bool force = false)
          deqRightClr  = clrWhite;
         }
 
-      string multTag = (deqMult > 1) ? StringFormat(" [%dX]", (int)deqMult) : "";
-      deqLeftTxt  = StringFormat("DAY EQ TGT : [%s] Base:$%.0f  Tgt:$%.0f (+$%.0f%s)",
-                                 deqStatusTxt, deqOpenBase, deqTarget, DailyEquityStopUSD * deqMult, multTag);
+      if(!g_dailyEquityIsResumedLeg || InpResumeDayTradingTargetMode != RESUME_MODE_TRAIL_STEP)
+        {
+         string multTag = (deqMult > 1) ? StringFormat(" [%dX]", (int)deqMult) : "";
+         deqLeftTxt  = StringFormat("DAY EQ TGT : [%s] Base:$%.0f  Tgt:$%.0f (+$%.0f%s)",
+                                    deqStatusTxt, deqOpenBase, deqTarget, DailyEquityStopUSD * deqMult, multTag);
+        }
    }
 
    double pGapLeftMid    = (Bid > 0.0 && Ask > 0.0) ? ((Bid + Ask) * 0.5)
