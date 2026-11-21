@@ -43,7 +43,7 @@ CheckBasketProfitClose  Total open basket profit
 
 */
 
-string glbVersion = "V-SMALL-1013- Move NO MANUAL ORDERS warning to right side";
+string glbVersion = "V-SMALL-1014- Update ResumeDayTradingMinEmaAngle default to 3.0";
 
 int AccountMultiplierLOT = 500;//100;//1000;//400;//200;//500; ALWAYS multiples of 1000 is better for best results
 //balance multiplier 
@@ -54,8 +54,8 @@ double DailyEquityTrailStepUSD     = 2;//5/5;//1;//5.0;  // Collect $5 step prof
 double DailyEquityRetraceFloorPct  = 50.0; // Baseline retrace floor % (Dynamic Tiered: Peak>$50->50%, >$100->30%, >$200->20%, >$300->10%)
 double DailyEquityMaxLossUSD       = 1000;//200.0; // Adverse Day Protection (): Close all orders & pause trading till next day Dubai 16:00 if day equity drops 
 bool   ResumeDayTradingOnEmaDirectionChange =false;// true; // Auto-resume Day Equity trading when EMAdirection changed
-bool   ResumeDayTradingOnStrongAngleSSL     = true; // Option 5 (Choice A): Auto-resume when EMA Angle >= 4.0 and SSL matches EMA direction
-double ResumeDayTradingMinEmaAngle          = 4.0;  // Minimum MathAbs(GlobalEmaAngle30) for strong trend (e.g. 4.0 deg)
+bool   ResumeDayTradingOnStrongAngleSSL     = true; // Option 5 (Choice A): Auto-resume when EMA Angle >= 3.0 and SSL matches EMA direction
+double ResumeDayTradingMinEmaAngle          = 3.0;  // Minimum MathAbs(GlobalEmaAngle30) for strong trend (Default: 3.0 deg)
 int    ResumeDayTradingMinCooldownMin      = 10;   // Minimum cooldown buffer minutes after Retrace Floor Stop (e.g. 10m)
 int    InpTradingResumeIconCode             = 241;  // Chart icon Wingdings code for Trading Resume (241=Play, 251=Check, 159=Circle)
 bool   InpCloseOrdersOnManualPause          = false; // When clicking Pause Trading: false = delete pending only & keep open market orders; true = close all market orders
@@ -13380,7 +13380,7 @@ void CheckAndResumeDayTradingOnEmaDirectionChange()
 //| CheckAndResumeDayTradingOnStrongAngleAndSSL                      |
 //| OPTION 5 (Choice A): Auto-resume day trading when:               |
 //| 1. Day equity trading is paused (Retrace floor exit hit)         |
-//| 2. MathAbs(GlobalEmaAngle30) >= ResumeDayTradingMinEmaAngle (4.0)|
+//| 2. MathAbs(GlobalEmaAngle30) >= ResumeDayTradingMinEmaAngle (3.0)|
 //| 3. SSL Signal == EMA Direction (Confirmed trend & momentum)      |
 //| 4. Fresh alignment: SSL flipped away during pullback & flipped   |
 //|    back, OR direction reversed, OR minimum cooldown elapsed      |
