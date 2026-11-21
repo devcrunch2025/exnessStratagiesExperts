@@ -42,7 +42,7 @@ CheckBasketProfitClose  Total open basket profit
 */
 
 
-string glbVersion = "VMULTI-1254- Fix DAY EQ TGT display and remove confusing 4x1 text";
+string glbVersion = "VMULTI-1255- Option 5 Choice A auto-resume on strong EMA angle and aligned SSL";
 
 int AccountMultiplierLOT = 1000;//400;//200;//500; ALWAYS multiples of 1000 is better for best results
 //balance multiplier 
@@ -52,6 +52,9 @@ double DailyEquityTrailStepUSD     = 5.0;  // Collect $5 step profit step-by-ste
 double DailyEquityRetraceFloorPct  = 50.0; // Baseline retrace floor % (Dynamic Tiered: Peak>$50->50%, >$100->30%, >$200->20%, >$300->10%)
 double DailyEquityMaxLossUSD       = 1000;//200.0; // Adverse Day Protection (): Close all orders & pause trading till next day Dubai 16:00 if day equity drops 
 bool   ResumeDayTradingOnEmaDirectionChange = true; // Auto-resume Day Equity trading when EMAdirection changed
+bool   ResumeDayTradingOnStrongAngleSSL     = true; // Option 5 (Choice A): Auto-resume when EMA Angle >= 4.0 and SSL matches EMA direction
+double ResumeDayTradingMinEmaAngle          = 4.0;  // Minimum MathAbs(GlobalEmaAngle30) for strong trend (e.g. 4.0 deg)
+int    ResumeDayTradingMinCooldownMin      = 10;   // Minimum cooldown buffer minutes after Retrace Floor Stop (e.g. 10m)
 int    InpTradingResumeIconCode             = 241;  // Chart icon Wingdings code for Trading Resume (241=Play, 251=Check, 159=Circle)
 bool   InpCloseOrdersOnManualPause          = false; // When clicking Pause Trading: false = delete pending only & keep open market orders; true = close all market orders
 
@@ -145,6 +148,9 @@ double   g_dailyEquityNextStepTarget    = 0.0;   // Next $5 step profit equity m
 int      g_dailyEquityStepCount         = 0;     // Number of $5 steps hit today
 datetime g_lastTradingResumeTime             = 0;     // Timestamp of last trading resume
 string   g_lastTradingResumeReason           = "";    // Reason of last trading resume
+datetime g_dailyEquityPauseTime              = 0;     // Timestamp when Day Equity trading was paused
+int      g_dailyEquityPauseSSLDirection      = 0;     // SSL direction at moment of pause (+1=Buy, -1=Sell)
+bool     g_dailyEquityPauseSslFlipped        = false; // Whether SSL changed direction during pause (confirms pullback occurred)
 
 bool EnableBounceBackDetection = false;
 
@@ -541,6 +547,10 @@ void     PauseDailyEquityTradingManual();
 void     PerformDayTradingResume(string reason);
 void     ResumeDailyEquityTradingOnEmaChange(int prevDir, int newDir);
 void     CheckAndResumeDayTradingOnEmaDirectionChange();
+void     CheckAndResumeDayTradingOnStrongAngleAndSSL();
+int      GetCurrentSSLDirection();
+bool     IsBuySignal(int shift);
+bool     IsSellSignal(int shift);
 void     CreateTradingResumeChartIcon(string reason, double curEq);
 void     DeleteTradingResumeChartIcon();
 void     CreateDashboardButton(string name, string text, int x, int y, int width, int height, color bgColor, color textColor, color borderColor);
@@ -13171,12 +13181,14 @@ void PerformDayTradingResume(string reason)
    DayProfitLadderTradingStopped    = false;
    TradingHaltedUntilNextFlip       = false;
    EnableTrading                    = true;
-   EnableTrading                    = true;
    ContinueTradingAfterSL           = true;
    LosingSLCount                    = 0;
    ProtectedEquityWaitActive        = false;
    ServerRecoveryPending            = false;
    TradeMonitoringLog               = "";
+   g_dailyEquityPauseTime           = 0;
+   g_dailyEquityPauseSSLDirection   = 0;
+   g_dailyEquityPauseSslFlipped     = false;
 
    // Set fresh baseline to current equity so daily target/risk can track forward cleanly
    g_dayOpeningBalance              = curEq;
@@ -13234,8 +13246,11 @@ void ResumeDailyEquityTradingManual()
 //+------------------------------------------------------------------+
 void PauseDailyEquityTradingManual()
   {
-   g_manualTradingPaused       = true;
-   g_dailyEquityTradingBlocked = true;
+   g_manualTradingPaused          = true;
+   g_dailyEquityTradingBlocked    = true;
+   g_dailyEquityPauseTime         = TimeCurrent();
+   g_dailyEquityPauseSSLDirection = GetCurrentSSLDirection();
+   g_dailyEquityPauseSslFlipped   = false;
 
    // 1. Delete all pending orders so no pending triggers while paused
    int deletedPending = 0;
@@ -13347,6 +13362,108 @@ void CheckAndResumeDayTradingOnEmaDirectionChange()
      }
   }
 
+//+------------------------------------------------------------------+
+//| CheckAndResumeDayTradingOnStrongAngleAndSSL                      |
+//| OPTION 5 (Choice A): Auto-resume day trading when:               |
+//| 1. Day equity trading is paused (Retrace floor exit hit)         |
+//| 2. MathAbs(GlobalEmaAngle30) >= ResumeDayTradingMinEmaAngle (4.0)|
+//| 3. SSL Signal == EMA Direction (Confirmed trend & momentum)      |
+//| 4. Fresh alignment: SSL flipped away during pullback & flipped   |
+//|    back, OR direction reversed, OR minimum cooldown elapsed      |
+//+------------------------------------------------------------------+
+void CheckAndResumeDayTradingOnStrongAngleAndSSL()
+  {
+   if(!ResumeDayTradingOnStrongAngleSSL)
+      return;
+
+   // Do not auto-resume if user explicitly clicked PAUSE TRADING manually
+   if(g_manualTradingPaused)
+      return;
+
+   bool isDayPaused = (g_dailyEquityTradingBlocked || DayProfitLadderTradingStopped || TradingHaltedUntilNextFlip);
+   if(!isDayPaused)
+      return;
+
+   // Track if SSL flipped away during pause (confirms pullback took place)
+   int curSslDir = GetCurrentSSLDirection();
+   if(g_dailyEquityPauseSSLDirection != 0 && curSslDir != 0 && curSslDir != g_dailyEquityPauseSSLDirection)
+     {
+      g_dailyEquityPauseSslFlipped = true;
+     }
+
+   // 1. Minimum cooldown buffer (e.g. 10 mins) to prevent immediate same-tick re-entry into the pullback
+   if(g_dailyEquityPauseTime > 0 && (TimeCurrent() - g_dailyEquityPauseTime) < (ResumeDayTradingMinCooldownMin * 60))
+      return;
+
+   // 2. Check 200 EMA Direction
+   double ema = iMA(Symbol(), Period(), InpEMA200Period, InpEMAPriceShift, MODE_EMA, PRICE_CLOSE, 0);
+   if(ema <= 0.0)
+      return;
+
+   int liveEmaDir = 0;
+   if(Close[0] > ema)
+      liveEmaDir = 1;
+   else if(Close[0] < ema)
+      liveEmaDir = -1;
+
+   if(liveEmaDir == 0)
+      return;
+
+   // 3. Check SSL Direction (must match EMA direction)
+   if(curSslDir == 0 || curSslDir != liveEmaDir)
+      return;
+
+   // 4. Check EMA Angle (must be >= threshold and slope in same direction)
+   double curEmaAng = GetEmaAngleDegrees(30);
+   double absAngle  = MathAbs(curEmaAng);
+   if(absAngle < ResumeDayTradingMinEmaAngle)
+      return;
+
+   // Ensure angle direction confirms EMA direction (positive for BUY, negative for SELL)
+   if(liveEmaDir == 1 && curEmaAng < ResumeDayTradingMinEmaAngle)
+      return;
+   if(liveEmaDir == -1 && curEmaAng > -ResumeDayTradingMinEmaAngle)
+      return;
+
+   // 5. Choice A Freshness Check:
+   // - If pause happened in same direction, require that SSL flipped during pullback OR a fresh cross occurred
+   // - Or if direction completely changed (e.g. paused on BUY, now SELL == -1 with angle <= -4)
+   bool isFreshSignal = false;
+   if(g_dailyEquityPauseSSLDirection == 0)
+     {
+      isFreshSignal = true;
+     }
+   else if(liveEmaDir != g_dailyEquityPauseSSLDirection)
+     {
+      // Complete trend reversal! (e.g. paused on BUY, now strong BEARISH wave with Angle <= -4 and SSL == -1)
+      isFreshSignal = true;
+     }
+   else if(g_dailyEquityPauseSslFlipped)
+     {
+      // Continuation wave after pullback! (SSL dipped during pullback and freshly flipped back to align)
+      isFreshSignal = true;
+     }
+   else if(IsBuySignal(0) || IsSellSignal(0) || IsBuySignal(1) || IsSellSignal(1))
+     {
+      // Fresh SSL cross confirmed on current or previous bar
+      isFreshSignal = true;
+     }
+   else if(g_dailyEquityPauseTime > 0 && (TimeCurrent() - g_dailyEquityPauseTime) >= (MathMax(ResumeDayTradingMinCooldownMin, 15) * 60))
+     {
+      // Cooldown buffer (at least 15m) fully elapsed and strong momentum maintained
+      isFreshSignal = true;
+     }
+
+   if(!isFreshSignal)
+      return;
+
+   string dirStr = (liveEmaDir == 1) ? "BULLISH(+1)" : "BEARISH(-1)";
+   string reason = StringFormat("STRONG TREND RESUME (EMA Angle=%+.1f deg >= %.1f | SSL=%s)",
+                                curEmaAng, ResumeDayTradingMinEmaAngle, dirStr);
+
+   PerformDayTradingResume(reason);
+  }
+
 void CheckForNewDay()
 {
    datetime serverTime = TimeCurrent();
@@ -13431,6 +13548,9 @@ void CheckForNewDay()
       g_dailyEquityPeakEquity          = 0.0;
       g_dailyEquityNextStepTarget      = 0.0;
       g_dailyEquityStepCount           = 0;
+      g_dailyEquityPauseTime           = 0;
+      g_dailyEquityPauseSSLDirection   = 0;
+      g_dailyEquityPauseSslFlipped     = false;
 
       // Synchronize Dubai 16:00 opening state and EqDD daily state
       SyncDubaiDayOpeningState(serverTime);
@@ -13665,6 +13785,9 @@ bool IsDailyEquityStopReached()
       {
          g_dailyEquityTradingBlocked      = true;
          g_dailyEquityAdverseLossHitToday = true;
+         g_dailyEquityPauseTime           = TimeCurrent();
+         g_dailyEquityPauseSSLDirection   = GetCurrentSSLDirection();
+         g_dailyEquityPauseSslFlipped     = false;
 
          PrintFormat(">>> [ADVERSE DAY EQUITY PROTECTION HIT (-$%.2f)] Dubai=%s (DayKey=%d) | OpenBal=$%.2f | CurEquity=$%.2f | DayLoss=-$%.2f >= $%.2f | Closing ALL orders and pausing trading until next day Dubai 16:00.",
                      maxLossUSD, TimeToString(dubaiTime, TIME_DATE|TIME_MINUTES|TIME_SECONDS),
@@ -13749,7 +13872,10 @@ bool IsDailyEquityStopReached()
       // Stop trading and pause for the day when coming back to tiered floor of maximum collected profit
       if(curEquity <= floorEquity)
       {
-         g_dailyEquityTradingBlocked = true;
+         g_dailyEquityTradingBlocked    = true;
+         g_dailyEquityPauseTime         = TimeCurrent();
+         g_dailyEquityPauseSSLDirection = GetCurrentSSLDirection();
+         g_dailyEquityPauseSslFlipped   = false;
 
          Print(StringFormat("[DAILY EQUITY RETRACE STOP] Maximum peak profit collected was $%.2f (Daily target + %d x $5 steps). Equity dropped to %.0f%% floor ($%.2f <= $%.2f). Closing all orders and pausing until next day Dubai 16:00.",
                totalPeakProfit, g_dailyEquityStepCount, currentFloorPct, curEquity, floorEquity));
@@ -13774,7 +13900,10 @@ bool IsDailyEquityStopReachedAlldays()
 // Stop trading if equity hits or exceeds the target
    if(AccountEquity() >= targetEquity)
      {
-      g_dailyEquityTradingBlocked = true;
+      g_dailyEquityTradingBlocked    = true;
+      g_dailyEquityPauseTime         = TimeCurrent();
+      g_dailyEquityPauseSSLDirection = GetCurrentSSLDirection();
+      g_dailyEquityPauseSslFlipped   = false;
 
       Print("[DAILY EQUITY PROFIT TARGET HIT] Closing all orders and pausing until new day.");
 
@@ -13792,6 +13921,7 @@ void OnTick()
   {
 CheckForNewDay();
 CheckAndResumeDayTradingOnEmaDirectionChange();
+CheckAndResumeDayTradingOnStrongAngleAndSSL();
 IsDailyEquityStopReached(); // Check target every tick; sets g_dailyEquityTradingBlocked and closes all orders if hit
 if(g_dailyEquityTradingBlocked)
   {
