@@ -43,7 +43,7 @@ CheckBasketProfitClose  Total open basket profit
 
 */
 
-string glbVersion = "V-SMALL-1011- Add RED NO MANUAL ORDERS - LOSS warning on top center";
+string glbVersion = "V-SMALL-1012- Double font size and color scheme for DAY EQ TGT row";
 
 int AccountMultiplierLOT = 500;//100;//1000;//400;//200;//500; ALWAYS multiples of 1000 is better for best results
 //balance multiplier 
@@ -877,10 +877,12 @@ bool ShowTopCenterNoManualWarning    = true;   // Display RED warning message on
 string InpTopCenterNoManualText      = "NO MANUAL ORDERS - LOSS "; // Warning text displayed in RED on top center
 bool InpShowLeftDashHourlyEngineRows = false;  // Left Dash: Show 1H Engine rows (1H A/B/C/D, 1H A-D, Dubai Time) [Default: false = HIDDEN]
 bool InpShowLeftDashNightCloseRow    = false;  // Left Dash: Show Night Close row [Default: false = HIDDEN]
-bool InpShowLeftDashPriceGapRow      = false;  // Left Dash: Show Price Gap Close row [Default: false = HIDDEN]
-bool InpShowLeftDashStepLossRow      = false;  // Left Dash: Show Step Loss row [Default: false = HIDDEN]
-bool InpShowLeftDashDayEqTargetRow   = true;   // Left Dash: Show Day Equity Target row (DAY EQ TGT)
-bool InpHideBidAskRightDashboard     = true;   // Right Dash: Hide BID / ASK / Spread row [Default: true = HIDDEN]
+bool   InpShowLeftDashPriceGapRow      = false;        // Left Dash: Show Price Gap Close row [Default: false = HIDDEN]
+bool   InpShowLeftDashStepLossRow      = false;        // Left Dash: Show Step Loss row [Default: false = HIDDEN]
+bool   InpShowLeftDashDayEqTargetRow   = true;         // Left Dash: Show Day Equity Target row (DAY EQ TGT)
+int    InpLeftDashDayEqTargetFontSize  = 16;           // Left Dash: Font size of DAY EQ TGT row (Default 16 = double of 8)
+string InpLeftDashDayEqTargetFont      = "Arial Bold"; // Left Dash: Font family of DAY EQ TGT row (Arial Bold / Consolas)
+bool   InpHideBidAskRightDashboard     = true;         // Right Dash: Hide BID / ASK / Spread row [Default: true = HIDDEN]
 
 double OriginalLots = 0.01;
 double OriginalLadder1ProfitUSD = 0.05;
@@ -28953,7 +28955,7 @@ void CreateLeftLivePanel(string name,int x,int y,int width,int height,color back
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
-void CreateLeftLiveLabel(string name,string text,int x,int y,int fontSize,color textColor)
+void CreateLeftLiveLabel(string name,string text,int x,int y,int fontSize,color textColor,string font="Consolas")
   {
    if(ObjectFind(0,name)<0)
      {
@@ -28962,7 +28964,7 @@ void CreateLeftLiveLabel(string name,string text,int x,int y,int fontSize,color 
       ObjectSetInteger(0,name,OBJPROP_XDISTANCE,x);
       ObjectSetInteger(0,name,OBJPROP_YDISTANCE,y);
       ObjectSetString(0,name,OBJPROP_TEXT,text);
-      ObjectSetString(0,name,OBJPROP_FONT,"Consolas");
+      ObjectSetString(0,name,OBJPROP_FONT,font);
       ObjectSetInteger(0,name,OBJPROP_FONTSIZE,fontSize);
       ObjectSetInteger(0,name,OBJPROP_COLOR,textColor);
       ObjectSetInteger(0,name,OBJPROP_SELECTABLE,false);
@@ -28973,8 +28975,14 @@ void CreateLeftLiveLabel(string name,string text,int x,int y,int fontSize,color 
       ObjectSetString(0,name,OBJPROP_TEXT,text);
    if((color)ObjectGetInteger(0,name,OBJPROP_COLOR) != textColor)
       ObjectSetInteger(0,name,OBJPROP_COLOR,textColor);
+   if((int)ObjectGetInteger(0,name,OBJPROP_XDISTANCE) != x)
+      ObjectSetInteger(0,name,OBJPROP_XDISTANCE,x);
    if((int)ObjectGetInteger(0,name,OBJPROP_YDISTANCE) != y)
       ObjectSetInteger(0,name,OBJPROP_YDISTANCE,y);
+   if((int)ObjectGetInteger(0,name,OBJPROP_FONTSIZE) != fontSize)
+      ObjectSetInteger(0,name,OBJPROP_FONTSIZE,fontSize);
+   if(ObjectGetString(0,name,OBJPROP_FONT) != font)
+      ObjectSetString(0,name,OBJPROP_FONT,font);
   }
 //+------------------------------------------------------------------+
 //| Check if price expanded away after EMA flip (>= 60 mins), and    |
@@ -29198,7 +29206,8 @@ void UpdateTopCenterDubaiTimeDisplay(bool force = false)
      }
    else if(ShowLeftLiveOrdersDashboard)
      {
-      leftEnd = LeftDashboardX + MathMax(LeftDashboardWidth + 230, 560);
+      int minLDWidth = (InpShowLeftDashDayEqTargetRow && InpLeftDashDayEqTargetFontSize >= 14) ? 740 : 560;
+      leftEnd = LeftDashboardX + MathMax(LeftDashboardWidth + 230, minLDWidth);
      }
 
    // 2. Determine left boundary of Right Dashboard
@@ -29601,7 +29610,11 @@ void UpdateLeftLiveOrdersDashboard(bool force = false)
          dashOrderCount++;
         }
      }
-   int x=LeftDashboardX, y=LeftDashboardY, tx=x+12, width=MathMax(LeftDashboardWidth+230, 560);
+   int deqFontSize  = (InpLeftDashDayEqTargetFontSize > 0) ? InpLeftDashDayEqTargetFontSize : 16;
+   int deqBarHeight = (InpShowLeftDashDayEqTargetRow && deqFontSize >= 14) ? 36 : 22;
+   int deqBarExtraY = InpShowLeftDashDayEqTargetRow ? (deqBarHeight - 22) : 0;
+   int minDashWidth = (InpShowLeftDashDayEqTargetRow && deqFontSize >= 14) ? 740 : 560;
+   int x=LeftDashboardX, y=LeftDashboardY, tx=x+12, width=MathMax(LeftDashboardWidth+230, minDashWidth);
 
    int intermediateBarsCount = 0;
    if(InpShowLeftDashHourlyEngineRows) intermediateBarsCount += 3;
@@ -29611,7 +29624,7 @@ void UpdateLeftLiveOrdersDashboard(bool force = false)
    if(InpShowLeftDashStepLossRow)      intermediateBarsCount += 1;
 
    int curY            = y + 38;
-   int summaryBarY     = curY + (intermediateBarsCount * 22);
+   int summaryBarY     = curY + (intermediateBarsCount * 22) + deqBarExtraY;
    int tableHeaderY    = summaryBarY + 42 + 8;
    int orderRowsStartY = tableHeaderY + 20;
    int panelHeight     = (orderRowsStartY - y) + (rows * 20) + 24;
@@ -30501,13 +30514,21 @@ void UpdateLeftLiveOrdersDashboard(bool force = false)
          deqRightTxt  = StringFormat("P/L:%s$%.2f (%.0f%%)  Rem:$%.2f", deqSign, deqProfit, MathMax(0.0,MathMin(deqPct,100.0)), deqRemaining);
          deqRightClr  = clrLime;
         }
+      else if(deqProfit < -0.01)
+        {
+         deqStatusTxt = "WAIT";
+         deqBarClr    = C'34,16,18';
+         deqTxtClr    = clrWhite;
+         deqRightTxt  = StringFormat("P/L:%s$%.2f (0%%)  Rem:$%.2f", deqSign, deqProfit, deqRemaining);
+         deqRightClr  = clrTomato;
+        }
       else
         {
          deqStatusTxt = "WAIT";
          deqBarClr    = C'18,22,34';
-         deqTxtClr    = clrSilver;
-         deqRightTxt  = StringFormat("P/L:%s$%.2f (%.0f%%)  Rem:$%.2f", deqSign, deqProfit, MathMax(0.0,MathMin(deqPct,100.0)), deqRemaining);
-         deqRightClr  = clrSilver;
+         deqTxtClr    = clrWhite;
+         deqRightTxt  = StringFormat("P/L:%s$%.2f (0%%)  Rem:$%.2f", deqSign, deqProfit, deqRemaining);
+         deqRightClr  = clrWhite;
         }
 
       string multTag = (deqMult > 1) ? StringFormat(" [%dX]", (int)deqMult) : "";
@@ -30665,10 +30686,14 @@ void UpdateLeftLiveOrdersDashboard(bool force = false)
 
    if(InpShowLeftDashDayEqTargetRow)
      {
-      CreateLeftLivePanel(LEFT_LIVE_PREFIX+"DEQTGT_BAR", x, curY, width, 22, deqBarClr);
-      CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"DEQTGT_L",   deqLeftTxt,  tx,          curY+5, 8, deqTxtClr);
-      CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"DEQTGT_R",   deqRightTxt, x+width-248, curY+5, 8, deqRightClr);
-      curY += 22;
+      int deqTextY       = curY + ((deqBarHeight - deqFontSize) / 2) - 1;
+      int deqRightOffset = (deqFontSize >= 14) ? 290 : 248;
+      int deqRightX      = x + width - deqRightOffset;
+
+      CreateLeftLivePanel(LEFT_LIVE_PREFIX+"DEQTGT_BAR", x, curY, width, deqBarHeight, deqBarClr);
+      CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"DEQTGT_L",   deqLeftTxt,  tx,        deqTextY, deqFontSize, deqTxtClr,   InpLeftDashDayEqTargetFont);
+      CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"DEQTGT_R",   deqRightTxt, deqRightX, deqTextY, deqFontSize, deqRightClr, InpLeftDashDayEqTargetFont);
+      curY += deqBarHeight;
      }
    else
      {
