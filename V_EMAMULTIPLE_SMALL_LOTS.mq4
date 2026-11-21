@@ -55,7 +55,7 @@ double DailyEquityRetraceFloorPct  = 50.0; // Baseline retrace floor % (Dynamic 
 double DailyEquityMaxLossUSD       = 1000;//200.0; // Adverse Day Protection (): Close all orders & pause trading till next day Dubai 16:00 if day equity drops 
 bool   ResumeDayTradingOnEmaDirectionChange =false;// true; // Auto-resume Day Equity trading when EMAdirection changed
 bool   ResumeDayTradingOnStrongAngleSSL     = true; // Option 5 (Choice A): Auto-resume when EMA Angle >= 3.0 and SSL matches EMA direction
-double ResumeDayTradingMinEmaAngle          = 3.0;  // Minimum MathAbs(GlobalEmaAngle30) for strong trend (Default: 3.0 deg)
+double ResumeDayTradingMinEmaAngle          = 2;//3.0;  // Minimum MathAbs(GlobalEmaAngle30) for strong trend (Default: 3.0 deg)
 int    ResumeDayTradingMinCooldownMin      = 10;   // Minimum cooldown buffer minutes after Retrace Floor Stop (e.g. 10m)
 enum ENUM_RESUME_DAY_MODE
   {
@@ -291,10 +291,10 @@ bool   InpEnableV1020EmaTrendSupport              = false;          // Mix V1020
 // ===== NEW RED LINE BUY-CLOSE & REVERSE SELL SETTINGS =====
 bool   InpCloseBuyOnNewEqhRedLine                 = true;          // On new EQH-R red line: Close BUY orders (loss < $1*mult) & Open SSL Short
 double InpCloseBuyMaxLossUSD                      = 1.0;           // Max loss in USD ($1.00 * multiplier) to close BUY order
-double InpNewEqhSellOrderLotBase                  =0.06/3;//0.02;//0.06;// 0.03;//0.06;          // Base lot for immediate SSL Short (0.06 * multiplier)
+double InpNewEqhSellOrderLotBase                  =0.03;//0.06/3;//0.02;//0.06;// 0.03;//0.06;          // Base lot for immediate SSL Short (0.06 * multiplier)
 bool   InpCloseSellOnNewEqlGreenLine              = true;          // On new EQH-G green line: Close SELL orders (loss < $1*mult) & Open SSL Long
 double InpCloseSellMaxLossUSD                     = 1.0;           // Max loss in USD ($1.00 * multiplier) to close SELL order
-double InpNewEqlBuyOrderLotBase                   = 0.06/3;//0.02;//0.06;//0.03;//0.06;          // Base lot for immediate SSL Long (0.06 * multiplier)
+double InpNewEqlBuyOrderLotBase                   = 0.03;//0.06/3;//0.02;//0.06;//0.03;//0.06;          // Base lot for immediate SSL Long (0.06 * multiplier)
 double InpHorizontalOrderSameTypeMinGapUSD        =100;// 200.0;               // Minimum price gap in USD ($200) between 2 horizontal EQH orders of same type
 bool   InpEnableModifySLOnLineEnded               = true;          // When horizontal line ends: modify open horizontal order SL with $50 gap
 double InpHorizontalLineEndedSLGapRaw             =3000;//1000;//200;// 50.0;          // StopLoss raw price gap ($50) when horizontal line ends
@@ -13242,12 +13242,14 @@ void PerformDayTradingResume(string reason)
       g_dayOpeningBalance              = curEq;
       g_dubaiDayOpeningEquity          = curEq;
 
-      PrintFormat(">>> [RESUME DAY TRADING (TRAIL STEP): %s] Trading unpaused! Base Equity=$%.2f | Next Step Target=$%.2f (+$%.2f) | Safety Floor=$%.2f | Multiplier=%d",
-                  reason, curEq, g_dailyEquityNextStepTarget, stepUSD, g_dailyEquityResumeSafetyFloor, balancelomultipler);
+      double freshDayTarget = curEq + (DailyEquityStopUSD * balancelomultipler);
+
+      PrintFormat(">>> [RESUME DAY TRADING (TRAIL STEP): %s] Trading unpaused! Base Equity=$%.2f | Fresh Day Target=$%.2f (+$%.2f) | Next Step Target=$%.2f (+$%.2f) | Safety Floor=$%.2f | Multiplier=%d",
+                  reason, curEq, freshDayTarget, DailyEquityStopUSD * balancelomultipler, g_dailyEquityNextStepTarget, stepUSD, g_dailyEquityResumeSafetyFloor, balancelomultipler);
 
       LogEAEvent("INFO", "RESUME_DAY_TRADING",
-                 StringFormat("[%s] Resume Trail Step! Base=$%.2f NextStep=$%.2f (+Step=$%.2f) Floor=$%.2f Mult=%d",
-                              reason, curEq, g_dailyEquityNextStepTarget, stepUSD, g_dailyEquityResumeSafetyFloor, balancelomultipler));
+                 StringFormat("[%s] Resume Trail Step! Base=$%.2f FreshTarget=$%.2f NextStep=$%.2f (+Step=$%.2f) Floor=$%.2f Mult=%d",
+                              reason, curEq, freshDayTarget, g_dailyEquityNextStepTarget, stepUSD, g_dailyEquityResumeSafetyFloor, balancelomultipler));
      }
    else
      {
@@ -17647,7 +17649,7 @@ int SafeOrderSend(string symbol,int orderType,double lots,double price,int slipp
 
 
 
-if(EMADirection!=requestedDirection && MathAbs(GlobalEmaAngle30)>3)
+if(EMADirection!=requestedDirection && MathAbs(GlobalEmaAngle30)>4)
 {
 
 return -1;
@@ -30657,7 +30659,7 @@ void UpdateLeftLiveOrdersDashboard(bool force = false)
          if(!g_dailyEquityResumedStepHit)
            {
             resFloorEq  = g_dailyEquityResumeSafetyFloor;
-            deqRightTxt = StringFormat("P/L:%s$%.2f  Tgt:$%.0f  SafetyFloor:$%.0f", resSign, resProfit, g_dailyEquityNextStepTarget, resFloorEq);
+            deqRightTxt = StringFormat("P/L:%s$%.2f  StepTgt:$%.0f  SafetyFloor:$%.0f", resSign, resProfit, g_dailyEquityNextStepTarget, resFloorEq);
            }
          else
            {
@@ -30688,8 +30690,9 @@ void UpdateLeftLiveOrdersDashboard(bool force = false)
            }
 
          string resMultTag = (deqMult > 1) ? StringFormat(" [%dX]", (int)deqMult) : "";
-         deqLeftTxt  = StringFormat("DAY: [%s] B:$%.0f  T:$%.0f (+Step$%.0f%s)",
-                                    deqStatusTxt, g_dailyEquityResumeEquity, g_dailyEquityNextStepTarget, resStepUSD, resMultTag);
+         double freshDayTarget = g_dailyEquityResumeEquity + (DailyEquityStopUSD * deqMult);
+         deqLeftTxt  = StringFormat("DAY: [%s] B:$%.0f  T:$%.0f (+$%.0f%s)",
+                                    deqStatusTxt, g_dailyEquityResumeEquity, freshDayTarget, DailyEquityStopUSD * deqMult, resMultTag);
         }
       else if(g_dailyEquityTargetHitToday)
         {

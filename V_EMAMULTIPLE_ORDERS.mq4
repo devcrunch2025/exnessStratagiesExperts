@@ -13248,12 +13248,14 @@ void PerformDayTradingResume(string reason)
       g_dayOpeningBalance              = curEq;
       g_dubaiDayOpeningEquity          = curEq;
 
-      PrintFormat(">>> [RESUME DAY TRADING (TRAIL STEP): %s] Trading unpaused! Base Equity=$%.2f | Next Step Target=$%.2f (+$%.2f) | Safety Floor=$%.2f | Multiplier=%d",
-                  reason, curEq, g_dailyEquityNextStepTarget, stepUSD, g_dailyEquityResumeSafetyFloor, balancelomultipler);
+      double freshDayTarget = curEq + (DailyEquityStopUSD * balancelomultipler);
+
+      PrintFormat(">>> [RESUME DAY TRADING (TRAIL STEP): %s] Trading unpaused! Base Equity=$%.2f | Fresh Day Target=$%.2f (+$%.2f) | Next Step Target=$%.2f (+$%.2f) | Safety Floor=$%.2f | Multiplier=%d",
+                  reason, curEq, freshDayTarget, DailyEquityStopUSD * balancelomultipler, g_dailyEquityNextStepTarget, stepUSD, g_dailyEquityResumeSafetyFloor, balancelomultipler);
 
       LogEAEvent("INFO", "RESUME_DAY_TRADING",
-                 StringFormat("[%s] Resume Trail Step! Base=$%.2f NextStep=$%.2f (+Step=$%.2f) Floor=$%.2f Mult=%d",
-                              reason, curEq, g_dailyEquityNextStepTarget, stepUSD, g_dailyEquityResumeSafetyFloor, balancelomultipler));
+                 StringFormat("[%s] Resume Trail Step! Base=$%.2f FreshTarget=$%.2f NextStep=$%.2f (+Step=$%.2f) Floor=$%.2f Mult=%d",
+                              reason, curEq, freshDayTarget, g_dailyEquityNextStepTarget, stepUSD, g_dailyEquityResumeSafetyFloor, balancelomultipler));
      }
    else
      {
@@ -30678,7 +30680,7 @@ void UpdateLeftLiveOrdersDashboard(bool force = false)
          if(!g_dailyEquityResumedStepHit)
            {
             resFloorEq  = g_dailyEquityResumeSafetyFloor;
-            deqRightTxt = StringFormat("P/L:%s$%.2f  Tgt:$%.0f  SafetyFloor:$%.0f", resSign, resProfit, g_dailyEquityNextStepTarget, resFloorEq);
+            deqRightTxt = StringFormat("P/L:%s$%.2f  StepTgt:$%.0f  SafetyFloor:$%.0f", resSign, resProfit, g_dailyEquityNextStepTarget, resFloorEq);
            }
          else
            {
@@ -30709,8 +30711,9 @@ void UpdateLeftLiveOrdersDashboard(bool force = false)
            }
 
          string resMultTag = (deqMult > 1) ? StringFormat(" [%dX]", (int)deqMult) : "";
-         deqLeftTxt  = StringFormat("DAY EQ TGT : [%s] Base:$%.0f  Tgt:$%.0f (+Step$%.0f%s)",
-                                    deqStatusTxt, g_dailyEquityResumeEquity, g_dailyEquityNextStepTarget, resStepUSD, resMultTag);
+         double freshDayTarget = g_dailyEquityResumeEquity + (DailyEquityStopUSD * deqMult);
+         deqLeftTxt  = StringFormat("DAY EQ TGT : [%s] Base:$%.0f  Tgt:$%.0f (+$%.0f%s)",
+                                    deqStatusTxt, g_dailyEquityResumeEquity, freshDayTarget, DailyEquityStopUSD * deqMult, resMultTag);
         }
       else if(g_dailyEquityTargetHitToday)
         {
