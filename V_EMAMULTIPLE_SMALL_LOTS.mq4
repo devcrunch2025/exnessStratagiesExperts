@@ -892,7 +892,7 @@ bool InpShowLeftDashNightCloseRow    = false;  // Left Dash: Show Night Close ro
 bool   InpShowLeftDashPriceGapRow      = false;        // Left Dash: Show Price Gap Close row [Default: false = HIDDEN]
 bool   InpShowLeftDashStepLossRow      = false;        // Left Dash: Show Step Loss row [Default: false = HIDDEN]
 bool   InpShowLeftDashDayEqTargetRow   = true;         // Left Dash: Show Day Equity Target row (DAY EQ TGT)
-int    InpLeftDashDayEqTargetFontSize  = 16;           // Left Dash: Font size of DAY EQ TGT row (Default 16 = double of 8)
+int    InpLeftDashDayEqTargetFontSize  = 12;           // Left Dash: Font size of DAY EQ TGT row (Default 16 = double of 8)
 string InpLeftDashDayEqTargetFont      = "Arial Bold"; // Left Dash: Font family of DAY EQ TGT row (Arial Bold / Consolas)
 bool   InpHideBidAskRightDashboard     = true;         // Right Dash: Hide BID / ASK / Spread row [Default: true = HIDDEN]
 
@@ -30580,7 +30580,7 @@ void UpdateLeftLiveOrdersDashboard(bool force = false)
         }
 
       string multTag = (deqMult > 1) ? StringFormat(" [%dX]", (int)deqMult) : "";
-      deqLeftTxt  = StringFormat("DAY EQ TGT : [%s] Base:$%.0f  Tgt:$%.0f (+$%.0f%s)",
+      deqLeftTxt  = StringFormat("DAY: [%s] B:$%.0f  T:$%.0f (+$%.0f%s)",
                                  deqStatusTxt, deqOpenBase, deqTarget, DailyEquityStopUSD * deqMult, multTag);
    }
 
