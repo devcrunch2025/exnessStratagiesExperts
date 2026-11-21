@@ -14073,6 +14073,24 @@ if(g_dailyEquityTradingBlocked)
    UpdateLeftLiveOrdersDashboard();    // Refresh live dashboard while paused
    if(ShowTopCenterDubaiTime)
       UpdateTopCenterDubaiTimeDisplay();
+
+   // Draw chart indicators, lines & icons on every incoming tick while trading is paused
+   if(ShowSSLLines)
+      UpdateSSLChannelOnTick();
+   UpdateEMALineOnChart();
+   UpdateLiquiditySweepDetectorOnChart();
+
+   // Draw live SSL signal arrows / labels if SSL flips while paused
+   if(ShowSignalArrows || ShowSignalText)
+     {
+      if(IsLiveBuySignal())
+         DrawLiveSignal(0, true);
+      else if(IsLiveSellSignal())
+         DrawLiveSignal(0, false);
+     }
+
+   ChartRedraw(0);
+
    return ;
   }
 
@@ -24917,7 +24935,7 @@ void UpdateSSLChannelOnTick()
       return;
    LastSSLUpdateMs = now;
 
-   int maxRecentBars = 10;
+   int maxRecentBars = 50;
    if(maxRecentBars > Bars - SSLPeriod - 2)
       maxRecentBars = Bars - SSLPeriod - 2;
 
