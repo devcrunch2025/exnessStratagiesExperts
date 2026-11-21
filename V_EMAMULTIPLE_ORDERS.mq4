@@ -42,7 +42,7 @@ CheckBasketProfitClose  Total open basket profit
 */
 
 
-string glbVersion = "VMULTI-1257- Double font size and color scheme for DAY EQ TGT row";
+string glbVersion = "VMULTI-1258- Move NO MANUAL ORDERS warning to right side";
 
 int AccountMultiplierLOT = 1000;//400;//200;//500; ALWAYS multiples of 1000 is better for best results
 //balance multiplier 
@@ -872,8 +872,20 @@ int  LeftDashboardWidth              = 330;
 int  LeftDashboardMaxRows            = 20;
 bool ShowTopCenterDubaiTime          = true;   // Display Dubai Time centered at chart top between left and right dashboards
 bool ShowTopCenterRequiredGap        = false;  // Display Required Gap Panel on top center bar [Default: false = HIDDEN]
-bool ShowTopCenterNoManualWarning    = true;   // Display RED warning message on top center ("NO MANUAL ORDERS - LOSS ")
-string InpTopCenterNoManualText      = "NO MANUAL ORDERS - LOSS "; // Warning text displayed in RED on top center
+enum ENUM_NO_MANUAL_WARN_POS
+  {
+   WARN_POS_RIGHT_SIDE         = 0, // Right Side (Next to Right Dashboard)
+   WARN_POS_RIGHT_UPPER_CORNER = 1, // Far Top Right Corner of Chart
+   WARN_POS_ABOVE_RIGHT_DASH   = 2, // Above Right Dashboard
+   WARN_POS_TOP_CENTER         = 3, // Top Center (Original)
+   WARN_POS_CUSTOM             = 4  // Custom (Use InpNoManualWarningCustomX/Y)
+  };
+
+bool                    ShowTopCenterNoManualWarning  = true;                 // Display RED warning message ("NO MANUAL ORDERS - LOSS ")
+string                  InpTopCenterNoManualText      = "NO MANUAL ORDERS - LOSS "; // Warning text displayed in RED
+ENUM_NO_MANUAL_WARN_POS InpNoManualWarningPosition    = WARN_POS_RIGHT_SIDE;  // Warning Position [Default: Right Side]
+int                     InpNoManualWarningCustomX     = 0;                    // Custom X coordinate (when Position = Custom)
+int                     InpNoManualWarningCustomY     = 0;                    // Custom Y coordinate (when Position = Custom, 0 = Auto)
 bool InpShowLeftDashHourlyEngineRows = false;  // Left Dash: Show 1H Engine rows (1H A/B/C/D, 1H A-D, Dubai Time) [Default: false = HIDDEN]
 bool InpShowLeftDashNightCloseRow    = false;  // Left Dash: Show Night Close row [Default: false = HIDDEN]
 bool   InpShowLeftDashPriceGapRow      = false;        // Left Dash: Show Price Gap Close row [Default: false = HIDDEN]
@@ -12495,6 +12507,8 @@ void ResetAllRuntimeVariablesOnFreshStart()
    DeleteDashboardObjects();
    DeleteLeftLiveOrdersDashboardObjects();
    DeleteTopCenterDubaiTimeObjects();
+   ObjectDelete(0, NO_MANUAL_WARN_NAME);
+   ObjectDelete(0, TOP_CENTER_DUBAI_PREFIX + "NO_MANUAL");
    DeleteTopCenterGapObjects();
    RemoveDubaiTradingPauseDashboard();
    DeleteOurObjects();
@@ -12805,6 +12819,8 @@ int OnInit()
    DeleteDashboardObjects();
    DeleteLeftLiveOrdersDashboardObjects();
    DeleteTopCenterDubaiTimeObjects();
+   ObjectDelete(0, NO_MANUAL_WARN_NAME);
+   ObjectDelete(0, TOP_CENTER_DUBAI_PREFIX + "NO_MANUAL");
    DeleteTopCenterGapObjects();
    DeleteLiquiditySweepObjects();
    g_lastHandledSweepBlockBarTime = 0;
@@ -29137,13 +29153,15 @@ bool   g_topDubaiLegacyCleaned = false;
 string g_lastTopDubaiTooltip   = "";
 string g_lastTopGapTooltip     = "";
 
+string NO_MANUAL_WARN_NAME     = "SSL_NO_MANUAL_WARNING";
+
 void DeleteTopCenterDubaiTimeObjects()
   {
    int total = ObjectsTotal(0, -1, -1);
    for(int i = total - 1; i >= 0; i--)
      {
       string name = ObjectName(0, i, -1, -1);
-      if(StringFind(name, TOP_CENTER_DUBAI_PREFIX, 0) == 0 || StringFind(name, TOP_CENTER_GAP_PREFIX, 0) == 0)
+      if((StringFind(name, TOP_CENTER_DUBAI_PREFIX, 0) == 0 && StringFind(name, "NO_MANUAL", 0) < 0) || StringFind(name, TOP_CENTER_GAP_PREFIX, 0) == 0)
          ObjectDelete(0, name);
      }
    g_lastTopDubaiUpdateMs  = 0;
@@ -29185,34 +29203,65 @@ void CreateTopCenterDubaiLabel(string name, string text, int x, int y, int fontS
       ObjectSetInteger(0, name, OBJPROP_ANCHOR, ANCHOR_UPPER);
   }
 
-void UpdateTopCenterDubaiTimeDisplay(bool force = false)
+void UpdateNoManualWarningDisplay(int chartWidth, int leftEnd, int rightStart)
   {
-   if(!ShowTopCenterDubaiTime)
+   ObjectDelete(0, TOP_CENTER_DUBAI_PREFIX + "NO_MANUAL"); // Clean legacy object name if present
+   if(!ShowTopCenterNoManualWarning)
      {
-      DeleteTopCenterDubaiTimeObjects();
-      DeleteTopCenterGapObjects();
-      if(ShowTopCenterNoManualWarning)
-        {
-         int chartW = (int)ChartGetInteger(0, CHART_WIDTH_IN_PIXELS, 0);
-         if(chartW <= 0) chartW = 1400;
-         int warnMidX = chartW / 2;
-         int warnY    = MathMin(LeftDashboardY, DashboardTopGap);
-         string warnName  = TOP_CENTER_DUBAI_PREFIX + "NO_MANUAL";
-         string warnText  = InpTopCenterNoManualText;
-         color  warnColor = C'255,45,45';
-         CreateTopCenterDubaiLabel(warnName, warnText, warnMidX, warnY, 9, warnColor, "Arial Black");
-         ObjectSetString(0, warnName, OBJPROP_TOOLTIP, "WARNING: Do NOT place manual orders! Manual trading causes EA hedging calculations to desynchronize and result in losses.");
-        }
+      ObjectDelete(0, NO_MANUAL_WARN_NAME);
       return;
      }
 
-   // Throttle UI/gap recalculation so Strategy Tester (especially while paused) runs at full speed
-   uint nowMs = GetTickCount();
-   uint minInterval = IsTesting() ? 1000 : 500;
-   if(!force && g_lastTopDubaiUpdateMs != 0 && (uint)(nowMs - g_lastTopDubaiUpdateMs) < minInterval)
-      return;
-   g_lastTopDubaiUpdateMs = nowMs;
+   int warnMidX = 0;
+   int warnY    = (InpNoManualWarningCustomY > 0) ? InpNoManualWarningCustomY : MathMin(LeftDashboardY, DashboardTopGap);
 
+   switch(InpNoManualWarningPosition)
+     {
+      case WARN_POS_RIGHT_UPPER_CORNER:
+        {
+         warnMidX = chartWidth - 130;
+         break;
+        }
+      case WARN_POS_ABOVE_RIGHT_DASH:
+        {
+         int rW = (ShowDashboard && ObjectFind(0, DASH_PREFIX + "HEADER") >= 0)
+                  ? (int)ObjectGetInteger(0, DASH_PREFIX + "HEADER", OBJPROP_XSIZE)
+                  : MathMax(DashboardWidth, 375);
+         warnMidX = rightStart + (rW / 2);
+         if(InpNoManualWarningCustomY <= 0)
+            warnY = MathMax(2, DashboardTopGap - 18);
+         break;
+        }
+      case WARN_POS_TOP_CENTER:
+        {
+         warnMidX = (leftEnd + rightStart) / 2;
+         break;
+        }
+      case WARN_POS_CUSTOM:
+        {
+         warnMidX = InpNoManualWarningCustomX;
+         warnY    = InpNoManualWarningCustomY;
+         break;
+        }
+      case WARN_POS_RIGHT_SIDE:
+      default:
+        {
+         // Right Side: Anchored cleanly to the left of the Right Dashboard on top row (y=20)
+         warnMidX = rightStart - 120;
+         if(warnMidX < leftEnd + 120)
+            warnMidX = leftEnd + 120;
+         break;
+        }
+     }
+
+   string warnText  = InpTopCenterNoManualText;
+   color  warnColor = C'255,45,45'; // Vivid Bright Red
+   CreateTopCenterDubaiLabel(NO_MANUAL_WARN_NAME, warnText, warnMidX, warnY, 9, warnColor, "Arial Black");
+   ObjectSetString(0, NO_MANUAL_WARN_NAME, OBJPROP_TOOLTIP, "WARNING: Do NOT place manual orders! Manual trading causes EA hedging calculations to desynchronize and result in losses.");
+  }
+
+void UpdateTopCenterDubaiTimeDisplay(bool force = false)
+  {
    int chartWidth = (int)ChartGetInteger(0, CHART_WIDTH_IN_PIXELS, 0);
    if(chartWidth <= 0)
       chartWidth = 1400;
@@ -29248,6 +29297,23 @@ void UpdateTopCenterDubaiTimeDisplay(bool force = false)
       int rW = MathMax(DashboardWidth, 355);
       rightStart = chartWidth - (DashboardRightGap + 10 + rW);
      }
+
+   // Update warning message position (Right side by default)
+   UpdateNoManualWarningDisplay(chartWidth, leftEnd, rightStart);
+
+   if(!ShowTopCenterDubaiTime)
+     {
+      DeleteTopCenterDubaiTimeObjects();
+      DeleteTopCenterGapObjects();
+      return;
+     }
+
+   // Throttle UI/gap recalculation so Strategy Tester (especially while paused) runs at full speed
+   uint nowMs = GetTickCount();
+   uint minInterval = IsTesting() ? 1000 : 500;
+   if(!force && g_lastTopDubaiUpdateMs != 0 && (uint)(nowMs - g_lastTopDubaiUpdateMs) < minInterval)
+      return;
+   g_lastTopDubaiUpdateMs = nowMs;
 
    int dubaiWidth  = 195;
    int dubaiHeight = 38;
@@ -29511,25 +29577,7 @@ void UpdateTopCenterDubaiTimeDisplay(bool force = false)
       DeleteTopCenterGapObjects();
      }
 
-   // --- WARNING MESSAGE (TOP CENTER): NO MANUAL ORDERS - LOSS ---
-   if(ShowTopCenterNoManualWarning)
-     {
-      int warnMidX = (dubaiX + btnX + btnWidth) / 2;
-      int warnY    = dubaiY + dubaiHeight + 5;
-      if(ShowTopCenterRequiredGap && gapY > dubaiY)
-         warnY = gapY + gapHeight + 5;
-
-      string warnName  = TOP_CENTER_DUBAI_PREFIX + "NO_MANUAL";
-      string warnText  = InpTopCenterNoManualText;
-      color  warnColor = C'255,45,45'; // Vivid Bright Red
-
-      CreateTopCenterDubaiLabel(warnName, warnText, warnMidX, warnY, 9, warnColor, "Arial Black");
-      ObjectSetString(0, warnName, OBJPROP_TOOLTIP, "WARNING: Do NOT place manual orders! Manual trading causes EA hedging calculations to desynchronize and result in losses.");
-     }
-   else
-     {
-      ObjectDelete(0, TOP_CENTER_DUBAI_PREFIX + "NO_MANUAL");
-     }
+   // Warning message display is handled dynamically by UpdateNoManualWarningDisplay()
   }
 
 //+------------------------------------------------------------------+
