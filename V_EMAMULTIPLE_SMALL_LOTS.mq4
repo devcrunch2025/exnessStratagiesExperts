@@ -14032,6 +14032,16 @@ bool IsDailyEquityStopReachedAlldays()
 //+------------------------------------------------------------------+
 void OnTick()
   {
+   RefreshRates();
+
+   // Update live trend & angle metrics on every incoming tick (even when paused)
+   GlobalEmaAngle30   = GetEmaAngleDegrees(30);
+   GlobalEmaAngle200  = GetEmaAngleDegrees(200);
+   GlobalSSLDirection = GetCurrentSSLDirection();
+   double tickEma200  = iMA(Symbol(), Period(), InpEMA200Period, InpEMAPriceShift, MODE_EMA, PRICE_CLOSE, 0);
+   if(tickEma200 > 0.0)
+      EMADirection = (Bid > tickEma200) ? 1 : ((Bid < tickEma200) ? -1 : 0);
+
 CheckForNewDay();
 CheckAndResumeDayTradingOnEmaDirectionChange();
 CheckAndResumeDayTradingOnStrongAngleAndSSL();
