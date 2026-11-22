@@ -67,12 +67,12 @@ int    InpTradingResumeIconCode             = 241;  // Chart icon Wingdings code
 bool   InpCloseOrdersOnManualPause          = false; // When clicking Pause Trading: false = delete pending only & keep open market orders; true = close all market orders
 
 //--- Dynamic Hourly Target Decay (V-SMALL-1023) ---
-input bool   InpEnableHourlyTargetDecay       = true;   // Enable Hourly Target Decay ($1*mult/hr down to min floor)
-input double InpHourlyTargetDecayUSD          = 1.0;    // Hourly Target Decay Step in USD ($1.00 * multiplier)
-input double InpMinTargetProfitFloorUSD       = 1.0;    // Minimum Target Profit Floor ($1.00 * multiplier minimum profit)
-input bool   InpEnableFloatingLossLiveSL      = false;  // Disabled: do not purely close loss orders at $10 loss
-input double InpMaxFloatingLossUSD            = 10.0;   // Obsolete (pure $10 loss close disabled)
-input bool   InpPauseOnFloatingLossExit       = false;  // Obsolete (pure $10 loss close disabled)
+bool   InpEnableHourlyTargetDecay       = true;   // Enable Hourly Target Decay ($1*mult/hr down to min floor)
+double InpHourlyTargetDecayUSD          = 1.0;    // Hourly Target Decay Step in USD ($1.00 * multiplier)
+double InpMinTargetProfitFloorUSD       = 1.0;    // Minimum Target Profit Floor ($1.00 * multiplier minimum profit)
+bool   InpEnableFloatingLossLiveSL      = false;  // Disabled: do not purely close loss orders at $10 loss
+double InpMaxFloatingLossUSD            = 10.0;   // Obsolete (pure $10 loss close disabled)
+bool   InpPauseOnFloatingLossExit       = false;  // Obsolete (pure $10 loss close disabled)
 
 double TargetProfitPerFlipUSD =1000;//50;//;//percentage////1000;//20;//10;//10*2;//10;//5;//20;// 10.0; close all orders at $20Xmultipler
 
