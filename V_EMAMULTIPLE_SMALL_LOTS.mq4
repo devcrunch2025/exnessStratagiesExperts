@@ -43,7 +43,7 @@ CheckBasketProfitClose  Total open basket profit
 
 */
 
-string glbVersion = "V-SMALL-1023- Day equity decay target & close loss/live SL on target hit";
+string glbVersion = "V-SMALL-1024- Hide dashboard and icons when trading paused in tester";
 
 int AccountMultiplierLOT = 500;//100;//1000;//400;//200;//500; ALWAYS multiples of 1000 is better for best results
 //balance multiplier 
@@ -66,13 +66,14 @@ ENUM_RESUME_DAY_MODE InpResumeDayTradingTargetMode = RESUME_MODE_TRAIL_STEP; // 
 int    InpTradingResumeIconCode             = 241;  // Chart icon Wingdings code for Trading Resume (241=Play, 251=Check, 159=Circle)
 bool   InpCloseOrdersOnManualPause          = false; // When clicking Pause Trading: false = delete pending only & keep open market orders; true = close all market orders
 
-//--- Dynamic Hourly Target Decay (V-SMALL-1023) ---
-bool   InpEnableHourlyTargetDecay       = true;   // Enable Hourly Target Decay ($1*mult/hr down to min floor)
-double InpHourlyTargetDecayUSD          = 1.0;    // Hourly Target Decay Step in USD ($1.00 * multiplier)
-double InpMinTargetProfitFloorUSD       = 1.0;    // Minimum Target Profit Floor ($1.00 * multiplier minimum profit)
-bool   InpEnableFloatingLossLiveSL      = false;  // Disabled: do not purely close loss orders at $10 loss
-double InpMaxFloatingLossUSD            = 10.0;   // Obsolete (pure $10 loss close disabled)
-bool   InpPauseOnFloatingLossExit       = false;  // Obsolete (pure $10 loss close disabled)
+//--- Dynamic Hourly Target Decay (V-SMALL-1024) ---
+bool   InpEnableHourlyTargetDecay        = true;   // Enable Hourly Target Decay ($1*mult/hr down to min floor)
+double InpHourlyTargetDecayUSD           = 1.0;    // Hourly Target Decay Step in USD ($1.00 * multiplier)
+double InpMinTargetProfitFloorUSD        = 1.0;    // Minimum Target Profit Floor ($1.00 * multiplier minimum profit)
+bool   InpEnableFloatingLossLiveSL       = false;  // Disabled: do not purely close loss orders at $10 loss
+double InpMaxFloatingLossUSD             = 10.0;   // Obsolete (pure $10 loss close disabled)
+bool   InpPauseOnFloatingLossExit        = false;  // Obsolete (pure $10 loss close disabled)
+bool   InpHideVisualsWhenPausedInTesting = true;   // Testing Only: Hide Dashboard & icons/lines when trading paused (faster backtest)
 
 double TargetProfitPerFlipUSD =1000;//50;//;//percentage////1000;//20;//10;//10*2;//10;//5;//20;// 10.0; close all orders at $20Xmultipler
 
@@ -173,6 +174,7 @@ double   g_dailyEquityResumeEquity           = 0.0;   // Equity baseline capture
 double   g_dailyEquityResumeSafetyFloor      = 0.0;   // Safety floor prior to Step 1 hit (ResumeEquity - StepUSD)
 datetime g_dayTargetStartTime                = 0;     // Timestamp of active day target cycle start
 bool     g_floatingLossLiveSlTriggered       = false; // Latch flag when >$10*mult loss protection triggered
+bool     g_testerPausedVisualsCleaned        = false; // Testing only: Flag when visuals/icons cleaned during pause
 
 bool EnableBounceBackDetection = false;
 
@@ -2434,6 +2436,34 @@ void DeleteOurObjects();
 void ClearEMALineObjects();
 void RemoveDubaiTradingPauseDashboard();
 void ResetAllRuntimeVariablesOnFreshStart();
+void DeleteLiquiditySweepObjects();
+void DeleteTradingResumeChartIcon();
+void HideAllVisualsAndIconsInTestingPaused();
+
+//+------------------------------------------------------------------+
+//| HideAllVisualsAndIconsInTestingPaused                            |
+//| USER RULE (V-SMALL-1024 / VMULTI-1269):                          |
+//| Testing time + Trading Paused = Hide Dashboard and icons,        |
+//| chart icons lines etc. EA moves faster in testing time without   |
+//| dashboard and icons (ONLY TESTING).                              |
+//+------------------------------------------------------------------+
+void HideAllVisualsAndIconsInTestingPaused()
+  {
+   DeleteDashboardObjects();
+   DeleteLeftLiveOrdersDashboardObjects();
+   DeleteTopCenterDubaiTimeObjects();
+   DeleteTopCenterGapObjects();
+   ObjectDelete(0, BTN_TOP_RESUME_DAY);
+   ObjectDelete(0, BTN_TOP_DASHBOARD_TOGGLE);
+   ObjectDelete(0, NO_MANUAL_WARN_NAME);
+   ObjectDelete(0, TOP_CENTER_DUBAI_PREFIX + "NO_MANUAL");
+   RemoveDubaiTradingPauseDashboard();
+   DeleteOurObjects();
+   ClearEMALineObjects();
+   DeleteLiquiditySweepObjects();
+   DeleteTradingResumeChartIcon();
+   ChartRedraw(0);
+  }
 
 //+------------------------------------------------------------------+
 //|                                                                  |
@@ -12560,6 +12590,7 @@ void ResetAllRuntimeVariablesOnFreshStart()
    g_drawdownReliefHitSuccessCount = 0;
 
    // 11. Chart Visual Objects Clean-up
+   g_testerPausedVisualsCleaned    = false;
    DeleteDashboardObjects();
    DeleteLeftLiveOrdersDashboardObjects();
    DeleteTopCenterDubaiTimeObjects();
@@ -14374,7 +14405,10 @@ CheckForNewDay();
 CheckAndResumeDayTradingOnEmaDirectionChange();
 CheckAndResumeDayTradingOnStrongAngleAndSSL();
 IsDailyEquityStopReached(); // Check target every tick; sets g_dailyEquityTradingBlocked and closes all orders if hit
-if(g_dailyEquityTradingBlocked)
+
+bool isTradingPausedOrBlocked = (g_dailyEquityTradingBlocked || g_manualTradingPaused || DayProfitLadderTradingStopped || g_dailyEquityAdverseLossHitToday || TradingHaltedUntilNextFlip);
+
+if(isTradingPausedOrBlocked)
   {
    // Safety check: ensure all EA orders are truly closed and pending deleted (unless manual pause keeping open market orders)
    if(!g_manualTradingPaused || InpCloseOrdersOnManualPause)
@@ -14393,6 +14427,22 @@ if(g_dailyEquityTradingBlocked)
          PrintFormat(">>> [DAILY STOP SAFETY CHECK] %d order(s) still open/pending after stop! Forcing close/delete...", activeEAOrders);
          CloseAndDeleteAllEAOrdersOnTradingStop();
         }
+     }
+
+   // ==============================================================
+   // SPEED OPTIMIZATION (ONLY TESTING):
+   // Testing time + Trading Paused = Hide Dashboard and icons, chart icons, lines etc.
+   // EA moves much faster in testing time without dashboard, lines and icons.
+   // ==============================================================
+   if((IsTesting() || IsOptimization()) && InpHideVisualsWhenPausedInTesting)
+     {
+      if(!g_testerPausedVisualsCleaned)
+        {
+         HideAllVisualsAndIconsInTestingPaused();
+         g_testerPausedVisualsCleaned = true;
+         Print(">>> [TESTER SPEEDUP] Trading Paused: Dashboards, chart icons & lines hidden. Fast-forwarding tester ticks...");
+        }
+      return;
      }
 
    DailyProtectionState pauseDashState = GetCurrentDailyState();
@@ -14419,7 +14469,25 @@ if(g_dailyEquityTradingBlocked)
 
    ChartRedraw(0);
 
-   return ;
+   return;
+  }
+else
+  {
+   if(IsTesting() || IsOptimization())
+     {
+      if(g_testerPausedVisualsCleaned)
+        {
+         g_testerPausedVisualsCleaned = false;
+         // Reset update throttles so dashboards and indicators are redrawn immediately upon resume
+         LastDashboardUpdateSec   = 0;
+         g_lastLeftDashUpdateMs   = 0;
+         g_lastTopDubaiUpdateMs   = 0;
+         LastSSLUpdateMs          = 0;
+         LastEMARedrawMs          = 0;
+         g_forceSweepRecalc       = true;
+         Print(">>> [TESTER SPEEDUP] Trading Resumed: Restoring dashboards, chart icons & lines.");
+        }
+     }
   }
 
    if(AccountEquity()<=0)
