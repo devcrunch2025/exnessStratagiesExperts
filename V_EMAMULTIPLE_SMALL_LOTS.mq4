@@ -51,7 +51,7 @@ double MinimumOpeningBalanceUSD = 90;//500/5;//100;// 500.0; // Minimum required
 
 double DailyEquityStopUSD          = 20/5;//20;//20;//10;//50;//  $50 /10;//10%;//percentage //1000;//50;//20*2.5;//10;//20;// 10;//30.0; close all orders at $50Xmultipler
 double DailyEquityTrailStepUSD     = 2;//5/5;//1;//5.0;  // Collect $5 step profit step-by-step after DailyEquityStopUSD hit
-double DailyEquitySafetyFloor      = 5;//5.0; // Dedicated Safety Floor buffer below resume equity ($5.0 * multiplier)
+double DailyEquitySafetyFloor      = 10;//5;//5.0; // Dedicated Safety Floor buffer below resume equity ($5.0 * multiplier)
 double DailyEquityRetraceFloorPct  = 50.0; // Baseline retrace floor % (Dynamic Tiered: Peak>$50->50%, >$100->30%, >$200->20%, >$300->10%)
 double DailyEquityMaxLossUSD       = 1000;//200.0; // Adverse Day Protection (): Close all orders & pause trading till next day Dubai 16:00 if day equity drops 
 bool   ResumeDayTradingOnEmaDirectionChange =false;// true; // Auto-resume Day Equity trading when EMAdirection changed
