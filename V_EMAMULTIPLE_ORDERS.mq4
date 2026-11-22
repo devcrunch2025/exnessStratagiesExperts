@@ -42,13 +42,14 @@ CheckBasketProfitClose  Total open basket profit
 */
 
 
-string glbVersion = "VMULTI-1270- Dubai 16:00 fresh trading start at any situation";
+string glbVersion = "VMULTI-1271- Dedicated DailyEquitySafetyFloor 5 USD x multiplier";
 
 int AccountMultiplierLOT = 1000;//400;//200;//500; ALWAYS multiples of 1000 is better for best results
 //balance multiplier 
 
 double DailyEquityStopUSD          = 20;//20;//10;//50;//  $50 /10;//10%;//percentage //1000;//50;//20*2.5;//10;//20;// 10;//30.0; close all orders at $50Xmultipler
 double DailyEquityTrailStepUSD     = 5.0;  // Collect $5 step profit step-by-step after DailyEquityStopUSD hit
+double DailyEquitySafetyFloor      = 5.0;  // Dedicated Safety Floor buffer below resume equity ($5.0 * multiplier)
 double DailyEquityRetraceFloorPct  = 50.0; // Baseline retrace floor % (Dynamic Tiered: Peak>$50->50%, >$100->30%, >$200->20%, >$300->10%)
 double DailyEquityMaxLossUSD       = 1000;//200.0; // Adverse Day Protection (): Close all orders & pause trading till next day Dubai 16:00 if day equity drops 
 bool   ResumeDayTradingOnEmaDirectionChange = true; // Auto-resume Day Equity trading when EMAdirection changed
@@ -13313,7 +13314,8 @@ void PerformDayTradingResume(string reason)
    g_dailyEquityPauseSSLDirection   = 0;
    g_dailyEquityPauseSslFlipped     = false;
 
-   double stepUSD = DailyEquityTrailStepUSD * balancelomultipler;
+   double stepUSD        = DailyEquityTrailStepUSD * balancelomultipler;
+   double safetyFloorUSD = (DailyEquitySafetyFloor > 0.0 ? DailyEquitySafetyFloor : DailyEquityTrailStepUSD) * balancelomultipler;
 
    if(InpResumeDayTradingTargetMode == RESUME_MODE_TRAIL_STEP)
      {
@@ -13323,7 +13325,7 @@ void PerformDayTradingResume(string reason)
       g_dailyEquityIsResumedLeg        = true;
       g_dailyEquityResumedStepHit      = false;
       g_dailyEquityResumeEquity        = curEq;
-      g_dailyEquityResumeSafetyFloor   = curEq - stepUSD; // 1-step safety buffer so initial spread/pullback won't stop out
+      g_dailyEquityResumeSafetyFloor   = curEq - safetyFloorUSD; // Dedicated Safety Floor buffer (curEq - DailyEquitySafetyFloor * multiplier)
       g_dailyEquityPeakEquity          = curEq;
       g_dailyEquityNextStepTarget      = curEq + stepUSD; // Only 1 step away!
       g_dailyEquityStepCount           = 0;
@@ -13336,12 +13338,12 @@ void PerformDayTradingResume(string reason)
 
       double freshDayTarget = curEq + (DailyEquityStopUSD * balancelomultipler);
 
-      PrintFormat(">>> [RESUME DAY TRADING (TRAIL STEP): %s] Trading unpaused! Base Equity=$%.2f | Fresh Day Target=$%.2f (+$%.2f) | Next Step Target=$%.2f (+$%.2f) | Safety Floor=$%.2f | Multiplier=%d",
-                  reason, curEq, freshDayTarget, DailyEquityStopUSD * balancelomultipler, g_dailyEquityNextStepTarget, stepUSD, g_dailyEquityResumeSafetyFloor, balancelomultipler);
+      PrintFormat(">>> [RESUME DAY TRADING (TRAIL STEP): %s] Trading unpaused! Base Equity=$%.2f | Fresh Day Target=$%.2f (+$%.2f) | Next Step Target=$%.2f (+$%.2f) | Safety Floor=$%.2f (-$%.2f) | Multiplier=%d",
+                  reason, curEq, freshDayTarget, DailyEquityStopUSD * balancelomultipler, g_dailyEquityNextStepTarget, stepUSD, g_dailyEquityResumeSafetyFloor, safetyFloorUSD, balancelomultipler);
 
       LogEAEvent("INFO", "RESUME_DAY_TRADING",
-                 StringFormat("[%s] Resume Trail Step! Base=$%.2f FreshTarget=$%.2f NextStep=$%.2f (+Step=$%.2f) Floor=$%.2f Mult=%d",
-                              reason, curEq, freshDayTarget, g_dailyEquityNextStepTarget, stepUSD, g_dailyEquityResumeSafetyFloor, balancelomultipler));
+                 StringFormat("[%s] Resume Trail Step! Base=$%.2f FreshTarget=$%.2f NextStep=$%.2f (+Step=$%.2f) Floor=$%.2f (-$%.2f) Mult=%d",
+                              reason, curEq, freshDayTarget, g_dailyEquityNextStepTarget, stepUSD, g_dailyEquityResumeSafetyFloor, safetyFloorUSD, balancelomultipler));
      }
    else
      {
