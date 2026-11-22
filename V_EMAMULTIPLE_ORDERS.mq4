@@ -42,7 +42,7 @@ CheckBasketProfitClose  Total open basket profit
 */
 
 
-string glbVersion = "VMULTI-1266- Move HIDE DASHBOARD button to left side before Dubai time";
+string glbVersion = "VMULTI-1267- Close losing orders and live SL profit orders on reversal";
 
 int AccountMultiplierLOT = 1000;//400;//200;//500; ALWAYS multiples of 1000 is better for best results
 //balance multiplier 
@@ -13907,6 +13907,134 @@ void ModifyOpenOrdersToCurrentPriceSL(string reason = "Daily Equity Target Hit",
 }
 
 //+------------------------------------------------------------------+
+//| CloseLosingOrdersAndLiveSLProfitOrders                           |
+//| USER RULE (V-SMALL-1022 / VMULTI-1267):                          |
+//| When Reversal Protection (> $10 * Multiplier Loss) triggers:     |
+//| 1. Closes ALL losing EA orders immediately at market price.      |
+//| 2. Modifies ALL profitable EA orders with live stop-loss price.  |
+//+------------------------------------------------------------------+
+void CloseLosingOrdersAndLiveSLProfitOrders(string reason = "Max Floating Loss Reversal Protection")
+{
+   RefreshRates();
+   double minDistance = GetRequiredStopDistance();
+   if(minDistance < 20.0)
+      minDistance = 20.0;
+
+   int closedLossCount   = 0;
+   int modifiedProfCount = 0;
+
+   // Pass 1: Close all losing EA market orders immediately at market price
+   for(int i = OrdersTotal() - 1; i >= 0; i--)
+   {
+      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
+         continue;
+      if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber)
+         continue;
+
+      int oType = OrderType();
+      if(oType != OP_BUY && oType != OP_SELL)
+         continue;
+
+      double netPL = OrderProfit() + OrderSwap() + OrderCommission();
+      if(netPL < 0.0)
+      {
+         int    tkt    = OrderTicket();
+         double lots   = OrderLots();
+         bool   closed = SafeOrderCloseMarket(tkt, lots, Slippage, (oType == OP_BUY ? clrTomato : clrOrangeRed));
+         if(!closed)
+         {
+            RefreshRates();
+            double cPx = (oType == OP_BUY) ? Bid : Ask;
+            closed = OrderClose(tkt, lots, cPx, Slippage, clrTomato);
+         }
+         if(closed)
+         {
+            closedLossCount++;
+            PrintFormat("[%s - CLOSE LOSS ORDER] Ticket #%d | Type=%s | Lots=%.2f | Net Loss=$%.2f",
+                        reason, tkt, (oType == OP_BUY ? "BUY" : "SELL"), lots, netPL);
+         }
+      }
+   }
+
+   // Pass 2: Modify remaining profitable EA market orders with Live Stop Loss price
+   RefreshRates();
+   double curBid = MarketInfo(Symbol(), MODE_BID);
+   double curAsk = MarketInfo(Symbol(), MODE_ASK);
+
+   for(int j = OrdersTotal() - 1; j >= 0; j--)
+   {
+      if(!OrderSelect(j, SELECT_BY_POS, MODE_TRADES))
+         continue;
+      if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber)
+         continue;
+
+      int oType = OrderType();
+      if(oType != OP_BUY && oType != OP_SELL)
+         continue;
+
+      double netPL = OrderProfit() + OrderSwap() + OrderCommission();
+      if(netPL >= 0.0)
+      {
+         int    tkt   = OrderTicket();
+         double oOpen = OrderOpenPrice();
+         double curSL = OrderStopLoss();
+         double curTP = OrderTakeProfit();
+
+         RefreshRates();
+         curBid = MarketInfo(Symbol(), MODE_BID);
+         curAsk = MarketInfo(Symbol(), MODE_ASK);
+
+         double proposedSL   = 0.0;
+         bool   shouldModify = false;
+
+         if(oType == OP_BUY)
+         {
+            proposedSL = NormalizeDouble(curBid - minDistance, Digits);
+            if((curBid - proposedSL) < minDistance)
+               proposedSL = NormalizeDouble(curBid - minDistance, Digits);
+
+            if(proposedSL >= curBid)
+               continue;
+
+            if(curSL == 0.0 || proposedSL > curSL || MathAbs(proposedSL - curSL) >= Point)
+            {
+               shouldModify = true;
+            }
+         }
+         else if(oType == OP_SELL)
+         {
+            proposedSL = NormalizeDouble(curAsk + minDistance, Digits);
+            if((proposedSL - curAsk) < minDistance)
+               proposedSL = NormalizeDouble(curAsk + minDistance, Digits);
+
+            if(proposedSL <= curAsk)
+               continue;
+
+            if(curSL == 0.0 || proposedSL < curSL || MathAbs(proposedSL - curSL) >= Point)
+            {
+               shouldModify = true;
+            }
+         }
+
+         if(shouldModify && proposedSL > 0.0)
+         {
+            ResetLastError();
+            bool modified = SafeOrderModify(tkt, oOpen, proposedSL, curTP, 0, (oType == OP_BUY ? clrLimeGreen : clrTomato));
+            if(modified)
+            {
+               modifiedProfCount++;
+               PrintFormat("[%s - LIVE SL PROFIT ORDER] Ticket #%d | Type=%s | Profit=+$%.2f | Old SL=%.2f -> Live SL=%.2f",
+                           reason, tkt, (oType == OP_BUY ? "BUY" : "SELL"), netPL, curSL, proposedSL);
+            }
+         }
+      }
+   }
+
+   PrintFormat("[%s COMPLETE] Closed %d losing orders | Clamped %d profitable orders to Live SL",
+               reason, closedLossCount, modifiedProfCount);
+}
+
+//+------------------------------------------------------------------+
 //| GetDailyEquityRetraceFloorPct: Dynamic tiered retrace floor %     |
 //| USER RULE (VMULTI-1235):                                         |
 //| Peak >= $300 -> Floor is 10%                                     |
@@ -14095,10 +14223,10 @@ bool IsDailyEquityStopReached()
             lastFloatLossActionTime = TimeCurrent();
             g_floatingLossLiveSlTriggered = true;
 
-            PrintFormat(">>> [MAX FLOATING LOSS REVERSAL PROTECTION TRIGGERED] NetFloatPL=-$%.2f <= -$%.2f (%dX) | Modifying ALL %d open orders to Live SL!",
-                        MathAbs(netFloatingPL), maxFloatLossUSD, mult, activeEaOrders);
+            PrintFormat(">>> [MAX FLOATING LOSS REVERSAL PROTECTION TRIGGERED] NetFloatPL=-$%.2f <= -$%.2f (%dX) | Closing losing orders & Clamping profit orders to Live SL!",
+                        MathAbs(netFloatingPL), maxFloatLossUSD, mult);
 
-            ModifyOpenOrdersToCurrentPriceSL("Max Floating Loss Reversal Protection", true);
+            CloseLosingOrdersAndLiveSLProfitOrders("Max Floating Loss Reversal Protection");
             DeleteAllPendingEAOrders();
 
             if(InpPauseOnFloatingLossExit)
