@@ -43,7 +43,7 @@ CheckBasketProfitClose  Total open basket profit
 
 */
 
-string glbVersion = "V-SMALL-1019- Display top buttons fully visible between dashboard headers";
+string glbVersion = "V-SMALL-1020- Dynamic hourly target decay & reversal protection";
 
 int AccountMultiplierLOT = 500;//100;//1000;//400;//200;//500; ALWAYS multiples of 1000 is better for best results
 //balance multiplier 
@@ -65,6 +65,14 @@ enum ENUM_RESUME_DAY_MODE
 ENUM_RESUME_DAY_MODE InpResumeDayTradingTargetMode = RESUME_MODE_TRAIL_STEP; // Resume Target Mode [0=Trail Step Mode, 1=Full Target]
 int    InpTradingResumeIconCode             = 241;  // Chart icon Wingdings code for Trading Resume (241=Play, 251=Check, 159=Circle)
 bool   InpCloseOrdersOnManualPause          = false; // When clicking Pause Trading: false = delete pending only & keep open market orders; true = close all market orders
+
+//--- Dynamic Hourly Target Decay & Reversal Protection (V-SMALL-1020) ---
+input bool   InpEnableHourlyTargetDecay       = true;   // Enable Hourly Target Decay ($1*mult/hr down to min floor)
+input double InpHourlyTargetDecayUSD          = 1.0;    // Hourly Target Decay Step in USD ($1.00 * multiplier)
+input double InpMinTargetProfitFloorUSD       = 1.0;    // Minimum Target Profit Floor ($1.00 * multiplier minimum profit)
+input bool   InpEnableFloatingLossLiveSL      = true;   // Enable Live SL Clamp on Floating Loss
+input double InpMaxFloatingLossUSD            = 10.0;   // Max Floating Loss to Trigger Live SL ($10.00 * multiplier)
+input bool   InpPauseOnFloatingLossExit       = true;   // Pause trading on Floating Loss Live SL exit until SSL flip/resume
 
 double TargetProfitPerFlipUSD =1000;//50;//;//percentage////1000;//20;//10;//10*2;//10;//5;//20;// 10.0; close all orders at $20Xmultipler
 
@@ -163,6 +171,8 @@ bool     g_dailyEquityIsResumedLeg           = false; // True if trading unpause
 bool     g_dailyEquityResumedStepHit         = false; // True once Step 1 has been achieved in the resumed leg
 double   g_dailyEquityResumeEquity           = 0.0;   // Equity baseline captured at the moment trading resumed
 double   g_dailyEquityResumeSafetyFloor      = 0.0;   // Safety floor prior to Step 1 hit (ResumeEquity - StepUSD)
+datetime g_dayTargetStartTime                = 0;     // Timestamp of active day target cycle start
+bool     g_floatingLossLiveSlTriggered       = false; // Latch flag when >$10*mult loss protection triggered
 
 bool EnableBounceBackDetection = false;
 
@@ -13280,6 +13290,8 @@ void PerformDayTradingResume(string reason)
       g_dailyEquityPeakEquity          = curEq;
       g_dailyEquityNextStepTarget      = curEq + stepUSD; // Only 1 step away!
       g_dailyEquityStepCount           = 0;
+      g_dayTargetStartTime             = TimeCurrent();
+      g_floatingLossLiveSlTriggered    = false;
 
       // Keep baseline for adverse loss protection
       g_dayOpeningBalance              = curEq;
@@ -13303,11 +13315,15 @@ void PerformDayTradingResume(string reason)
       g_dailyEquityResumedStepHit      = false;
       g_dailyEquityResumeEquity        = 0.0;
       g_dailyEquityResumeSafetyFloor   = 0.0;
+      g_dayTargetStartTime             = 0;
+      g_floatingLossLiveSlTriggered    = false;
       g_dayOpeningBalance              = curEq;
       g_dubaiDayOpeningEquity          = curEq;
       g_dailyEquityPeakEquity          = curEq;
       g_dailyEquityNextStepTarget      = 0.0;
       g_dailyEquityStepCount           = 0;
+      g_dayTargetStartTime             = TimeCurrent();
+      g_floatingLossLiveSlTriggered    = false;
 
       double newTarget = curEq + (DailyEquityStopUSD * balancelomultipler);
 
@@ -13701,6 +13717,8 @@ void CheckForNewDay()
       g_dailyEquityPeakEquity          = 0.0;
       g_dailyEquityNextStepTarget      = 0.0;
       g_dailyEquityStepCount           = 0;
+      g_dayTargetStartTime             = TimeCurrent();
+      g_floatingLossLiveSlTriggered    = false;
       g_dailyEquityPauseTime           = 0;
       g_dailyEquityPauseSSLDirection   = 0;
       g_dailyEquityPauseSslFlipped     = false;
@@ -13708,6 +13726,8 @@ void CheckForNewDay()
       g_dailyEquityResumedStepHit      = false;
       g_dailyEquityResumeEquity        = 0.0;
       g_dailyEquityResumeSafetyFloor   = 0.0;
+      g_dayTargetStartTime             = 0;
+      g_floatingLossLiveSlTriggered    = false;
 
       // Synchronize Dubai 16:00 opening state and EqDD daily state
       SyncDubaiDayOpeningState(serverTime);
@@ -13783,7 +13803,7 @@ bool IsDailyEquityStopReacheddmanual()
 //| current live market price (with minimum stop distance buffer).   |
 //| Called on DailyEquityStopUSD target hit and on each +$5 step hit.|
 //+------------------------------------------------------------------+
-void ModifyOpenOrdersToCurrentPriceSL(string reason = "Daily Equity Target Hit")
+void ModifyOpenOrdersToCurrentPriceSL(string reason = "Daily Equity Target Hit", bool forceAllOrders = false)
 {
    RefreshRates();
    double minDistance = GetRequiredStopDistance();
@@ -13802,13 +13822,16 @@ void ModifyOpenOrdersToCurrentPriceSL(string reason = "Daily Equity Target Hit")
       if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber)
          continue;
 
-      // Exclude recovery orders: they have their own recovery logic
-      if(IsAnyRecoveryOrder(OrderTicket(), OrderComment()))
-         continue;
+      if(!forceAllOrders)
+      {
+         // Exclude recovery orders: they have their own recovery logic
+         if(IsAnyRecoveryOrder(OrderTicket(), OrderComment()))
+            continue;
 
-      // Exclude FLIPBasketSupport orders: they have dedicated step-trailing SL
-      if(IsFLIPBasketSupportOrder(OrderTicket(), OrderComment()))
-         continue;
+         // Exclude FLIPBasketSupport orders: they have dedicated step-trailing SL
+         if(IsFLIPBasketSupportOrder(OrderTicket(), OrderComment()))
+            continue;
+      }
 
       int    tkt   = OrderTicket();
       int    oType = OrderType();
@@ -13833,8 +13856,8 @@ void ModifyOpenOrdersToCurrentPriceSL(string reason = "Daily Equity Target Hit")
          if(proposedSL >= curBid)
             continue;
 
-         // For BUY: Set if no SL (0.0), or only move SL forward (higher) by at least 1 point
-         if(curSL == 0.0 || (proposedSL > curSL && (proposedSL - curSL) >= Point))
+         // For BUY: Set if no SL (0.0), or move SL forward (higher), or forced clamp
+         if(curSL == 0.0 || (proposedSL > curSL && (proposedSL - curSL) >= Point) || (forceAllOrders && (curSL == 0.0 || MathAbs(proposedSL - curSL) >= Point)))
          {
             shouldModify = true;
          }
@@ -13848,8 +13871,8 @@ void ModifyOpenOrdersToCurrentPriceSL(string reason = "Daily Equity Target Hit")
          if(proposedSL <= curAsk)
             continue;
 
-         // For SELL: Set if no SL (0.0), or only move SL forward (lower) by at least 1 point
-         if(curSL == 0.0 || (proposedSL < curSL && (curSL - proposedSL) >= Point))
+         // For SELL: Set if no SL (0.0), or move SL forward (lower), or forced clamp
+         if(curSL == 0.0 || (proposedSL < curSL && (curSL - proposedSL) >= Point) || (forceAllOrders && (curSL == 0.0 || MathAbs(proposedSL - curSL) >= Point)))
          {
             shouldModify = true;
          }
@@ -13891,6 +13914,82 @@ double GetDailyEquityRetraceFloorPct(double peakProfit)
 
    return (DailyEquityRetraceFloorPct > 0.0) ? DailyEquityRetraceFloorPct : 50.0;
   }
+
+//+------------------------------------------------------------------+
+//| GetEffectiveDailyTargetEquity: Calculates target equity with      |
+//| dynamic hourly decay ($1*mult/hr) down to min profit floor.      |
+//| USER RULE (V-SMALL-1020 / VMULTI-1265):                           |
+//| - 1st hour (0-60m): Base Target (e.g. $161 at 1X, +$4)           |
+//| - 2nd hour (60-120m): Base Target - $1*mult (e.g. $160, +$3)     |
+//| - 3rd hour (120-180m): Base Target - $2*mult (e.g. $159, +$2)    |
+//| - Floor (180m+): Base + $1*mult (e.g. $158, +$1 minimum profit)  |
+//+------------------------------------------------------------------+
+double GetEffectiveDailyTargetEquity(int &outHoursDecay, double &outDecayUSD)
+{
+   outHoursDecay = 0;
+   outDecayUSD   = 0.0;
+
+   double dailyTarget = DailyEquityStopUSD;
+   datetime dubaiTime = 0;
+   datetime gmt = TimeGMT();
+   if(gmt > 0 && !IsTesting() && !IsOptimization())
+      dubaiTime = gmt + (4 * 3600);
+   else
+      dubaiTime = TimeCurrent() + (ServerToDubaiOffsetHours * 3600);
+
+   int dayOfWeek = TimeDayOfWeek(dubaiTime);
+   if(dayOfWeek == 6 || dayOfWeek == 0)
+      dailyTarget = DailyEquityStopUSD / 2.0;
+
+   int mult = (balancelomultipler > 0) ? balancelomultipler : 1;
+   double openBase = (g_dayOpeningBalance > 0.0) ? g_dayOpeningBalance : AccountBalance();
+   double baseTargetEquity = openBase + (dailyTarget * mult);
+
+   if(!InpEnableHourlyTargetDecay || g_dailyEquityTargetHitToday || openBase <= 0.0)
+      return baseTargetEquity;
+
+   // Identify earliest open EA order time or target cycle start time
+   datetime activeStart = g_dayTargetStartTime;
+   datetime earliestOpen = 0;
+   int openEaOrders = 0;
+   for(int i = OrdersTotal() - 1; i >= 0; i--)
+   {
+      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
+         continue;
+      if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber)
+         continue;
+      if(OrderType() != OP_BUY && OrderType() != OP_SELL)
+         continue;
+
+      openEaOrders++;
+      if(earliestOpen == 0 || OrderOpenTime() < earliestOpen)
+         earliestOpen = OrderOpenTime();
+   }
+
+   if(openEaOrders > 0)
+   {
+      if(activeStart <= 0 || (earliestOpen > 0 && earliestOpen < activeStart))
+         activeStart = earliestOpen;
+      if(g_dayTargetStartTime <= 0)
+         g_dayTargetStartTime = activeStart;
+   }
+
+   if(openEaOrders <= 0 || activeStart <= 0 || TimeCurrent() <= activeStart)
+      return baseTargetEquity;
+
+   int elapsedHours = (int)((TimeCurrent() - activeStart) / 3600);
+   if(elapsedHours <= 0)
+      return baseTargetEquity;
+
+   outHoursDecay = elapsedHours;
+   outDecayUSD   = elapsedHours * InpHourlyTargetDecayUSD * mult;
+   double effTarget = baseTargetEquity - outDecayUSD;
+   double minFloor  = openBase + (InpMinTargetProfitFloorUSD * mult);
+   if(effTarget < minFloor)
+      effTarget = minFloor;
+
+   return effTarget;
+}
 
 //+------------------------------------------------------------------+
 //| IsDailyEquityStopReached                                         |
@@ -13953,7 +14052,57 @@ bool IsDailyEquityStopReached()
       }
    }
 
-   double targetEquity = g_dayOpeningBalance + (dailyTarget * mult);
+   // ==============================================================
+   // MAX FLOATING LOSS PROTECTION (> $10 * Multiplier Reversal)
+   // If trade is running and has not hit target, and floating loss exceeds $10 * multiplier:
+   // Modify ALL open orders (profits and losses) with live stop-loss prices!
+   // ==============================================================
+   if(InpEnableFloatingLossLiveSL && !g_dailyEquityTargetHitToday && !g_dailyEquityTradingBlocked)
+   {
+      double maxFloatLossUSD = InpMaxFloatingLossUSD * mult;
+      double netFloatingPL   = 0.0;
+      int    activeEaOrders  = 0;
+      for(int fl_i = OrdersTotal() - 1; fl_i >= 0; fl_i--)
+      {
+         if(!OrderSelect(fl_i, SELECT_BY_POS, MODE_TRADES)) continue;
+         if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber) continue;
+         if(OrderType() == OP_BUY || OrderType() == OP_SELL)
+         {
+            netFloatingPL += (OrderProfit() + OrderSwap() + OrderCommission());
+            activeEaOrders++;
+         }
+      }
+
+      if(activeEaOrders > 0 && netFloatingPL <= -maxFloatLossUSD)
+      {
+         static datetime lastFloatLossActionTime = 0;
+         if(TimeCurrent() - lastFloatLossActionTime >= 5)
+         {
+            lastFloatLossActionTime = TimeCurrent();
+            g_floatingLossLiveSlTriggered = true;
+
+            PrintFormat(">>> [MAX FLOATING LOSS REVERSAL PROTECTION TRIGGERED] NetFloatPL=-$%.2f <= -$%.2f (%dX) | Modifying ALL %d open orders to Live SL!",
+                        MathAbs(netFloatingPL), maxFloatLossUSD, mult, activeEaOrders);
+
+            ModifyOpenOrdersToCurrentPriceSL("Max Floating Loss Reversal Protection", true);
+            DeleteAllPendingEAOrders();
+
+            if(InpPauseOnFloatingLossExit)
+            {
+               g_dailyEquityTradingBlocked    = true;
+               g_dailyEquityPauseTime         = TimeCurrent();
+               g_dailyEquityPauseSSLDirection = GetCurrentSSLDirection();
+               g_dailyEquityPauseSslFlipped   = false;
+               Print(">>> [MAX FLOATING LOSS REVERSAL PROTECTION] Trading PAUSED until SSL direction change or manual resume.");
+               return true;
+            }
+         }
+      }
+   }
+
+   int hoursDecay = 0;
+   double decayUSD = 0.0;
+   double targetEquity = GetEffectiveDailyTargetEquity(hoursDecay, decayUSD);
    double stepUSD      = DailyEquityTrailStepUSD * mult;
 
    // Track peak equity once target is hit today
@@ -14041,13 +14190,14 @@ bool IsDailyEquityStopReached()
          floorProfit     = totalPeakProfit * (currentFloorPct / 100.0);
          floorEquity     = g_dayOpeningBalance + floorProfit;
 
-         Print(StringFormat("[DAILY EQUITY PROFIT TARGET HIT] Target=$%.2f | CurEquity=$%.2f (Profit=+$%.2f) | Modifying SL to Current Price | Trail Step=$%.2f | Dynamic %.0f%% Floor=$%.2f (%.0f%% of $%.2f) | Continuing trading...",
-               targetEquity, curEquity, (curEquity - g_dayOpeningBalance), stepUSD, currentFloorPct, floorEquity, currentFloorPct, totalPeakProfit));
+         string decayNote = (hoursDecay > 0) ? StringFormat(" [Hourly Decay #%dh: Base $%.0f -> EffTgt $%.0f]", hoursDecay, g_dayOpeningBalance + (dailyTarget * mult), targetEquity) : "";
+         Print(StringFormat("[DAILY EQUITY PROFIT TARGET HIT%s] Target=$%.2f | CurEquity=$%.2f (Profit=+$%.2f) | Modifying SL to Current Price | Trail Step=$%.2f | Dynamic %.0f%% Floor=$%.2f (%.0f%% of $%.2f) | Continuing trading with DailyEquityTrailStepUSD...",
+               decayNote, targetEquity, curEquity, (curEquity - g_dayOpeningBalance), stepUSD, currentFloorPct, floorEquity, currentFloorPct, totalPeakProfit));
 
          // User Rule: Modify orders with stoploss price at current price
-         ModifyOpenOrdersToCurrentPriceSL("Initial Target Hit");
+         ModifyOpenOrdersToCurrentPriceSL(StringFormat("Initial Target Hit%s", decayNote));
 
-         // Continue trading to collect $5 step profit step-by-step
+         // Post-Exit Action: as usual start DailyEquityTrailStepUSD process
       }
    }
    // ==============================================================
@@ -30780,11 +30930,14 @@ void UpdateLeftLiveOrdersDashboard(bool force = false)
    {
     double deqOpenBase   = (g_dayOpeningBalance > 0.0) ? g_dayOpeningBalance : AccountBalance();
     double deqMult       = (balancelomultipler > 0) ? balancelomultipler : 1;
-    double deqTarget     = deqOpenBase + (DailyEquityStopUSD * deqMult);
+    int    deqHoursDecay = 0;
+    double deqDecayUSD   = 0.0;
+    double deqTarget     = GetEffectiveDailyTargetEquity(deqHoursDecay, deqDecayUSD);
     double deqCurrent    = AccountEquity();
     double deqProfit     = deqCurrent - deqOpenBase;
     double deqRemaining  = MathMax(0.0, deqTarget - deqCurrent);
-    double deqPct        = (DailyEquityStopUSD * deqMult > 0.0) ? (deqProfit / (DailyEquityStopUSD * deqMult) * 100.0) : 0.0;
+    double deqTgtProfit  = deqTarget - deqOpenBase;
+    double deqPct        = (deqTgtProfit > 0.0) ? (deqProfit / deqTgtProfit * 100.0) : 0.0;
     string deqSign       = (deqProfit >= 0.0) ? "+" : "";
     string deqStatusTxt  = "";
       double deqPeakProfit = (g_dailyEquityPeakEquity > deqOpenBase) ? (g_dailyEquityPeakEquity - deqOpenBase) : (deqTarget - deqOpenBase);
@@ -30898,9 +31051,10 @@ void UpdateLeftLiveOrdersDashboard(bool force = false)
 
       if(!g_dailyEquityIsResumedLeg || InpResumeDayTradingTargetMode != RESUME_MODE_TRAIL_STEP)
         {
-         string multTag = (deqMult > 1) ? StringFormat(" [%dX]", (int)deqMult) : "";
-         deqLeftTxt  = StringFormat("DAY: [%s] B:$%.0f  T:$%.0f (+$%.0f%s)",
-                                    deqStatusTxt, deqOpenBase, deqTarget, DailyEquityStopUSD * deqMult, multTag);
+         string multTag  = (deqMult > 1) ? StringFormat(" [%dX]", (int)deqMult) : "";
+         string decayTag = (deqHoursDecay > 0) ? StringFormat(" (%dH-Decay)", deqHoursDecay) : "";
+         deqLeftTxt  = StringFormat("DAY: [%s] B:$%.0f  T:$%.0f (+$%.0f%s%s)",
+                                    deqStatusTxt, deqOpenBase, deqTarget, deqTgtProfit, multTag, decayTag);
         }
 
       if(deqLeftTxt == "")
