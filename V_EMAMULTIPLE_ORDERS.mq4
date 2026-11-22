@@ -42,7 +42,7 @@ CheckBasketProfitClose  Total open basket profit
 */
 
 
-string glbVersion = "VMULTI-1261- Add SHOW HIDE Dashboard button";
+string glbVersion = "VMULTI-1262- Fix disconnected startup base equity & harden OnInit";
 
 int AccountMultiplierLOT = 1000;//400;//200;//500; ALWAYS multiples of 1000 is better for best results
 //balance multiplier 
@@ -934,6 +934,20 @@ double   DayProfitLadderNextTargetEquity = 0.0;
 bool     DayProfitLadderTradingStopped = false;
 datetime DayProfitLadderDate = 0;
 bool     DayProfitLadderInitialized = false;
+
+int CountClosedOrdersSinceInitialization();
+
+DailyProtectionState GetCurrentDailyState()
+  {
+   DailyProtectionState st;
+   st.DayDate             = DayProfitLadderDate;
+   st.DayStartBalance     = (g_dayOpeningBalance > 0.0) ? g_dayOpeningBalance : ((DayProfitLadderStartBalance > 0.0) ? DayProfitLadderStartBalance : AccountBalance());
+   st.DayProtectedBalance = DayProfitLadderProtectionEquity;
+   st.ClosedOrdersToday   = CountClosedOrdersSinceInitialization();
+   st.TradingStopped      = DayProfitLadderTradingStopped;
+   st.Initialized         = true;
+   return st;
+  }
 datetime DayProfitLadderTargetReachedCandle = 0;
 bool DayProfitLadderResumePending = false;
 int  DayProfitLadderResumeDirection = 0;
@@ -12543,7 +12557,11 @@ int OnInit()
    ResetAllRuntimeVariablesOnFreshStart();
    CheckForNewDay();
 // Check minimum opening balance condition (.00)
-   if(AccountBalance() < MinimumOpeningBalanceUSD)
+   if(!IsConnected() || AccountBalance() <= 0.0)
+     {
+      Print(">>> [EA ONINIT] Notice: Terminal connecting or disconnected (AccountBalance=$0.00). Balance validation deferred until connected.");
+     }
+   else if(AccountBalance() < MinimumOpeningBalanceUSD)
      {
       Print("INIT FAILED: Account Balance ($", DoubleToString(AccountBalance(), 2),
             ") is below minimum required opening balance ($", DoubleToString(MinimumOpeningBalanceUSD, 2), ").");
@@ -13304,8 +13322,8 @@ void PerformDayTradingResume(string reason)
    CreateTradingResumeChartIcon(reason, curEq);
 
    // Force instant update of dashboards
-   DailyProtectionState dummyState;
-   UpdateDashboardsThrottled(dummyState, true);
+   DailyProtectionState activeState = GetCurrentDailyState();
+   UpdateDashboardsThrottled(activeState, true);
    UpdateLeftLiveOrdersDashboard(true);
    UpdateTopCenterDubaiTimeDisplay(true);
    ChartRedraw(0);
@@ -13339,9 +13357,9 @@ void ToggleDashboardsVisibility()
    else
      {
       Print(">>> [UI] SHOW/HIDE Dashboard: User clicked SHOW. Left and right dashboards restored on chart.");
-      DailyProtectionState dummyState;
+      DailyProtectionState activeState = GetCurrentDailyState();
       if(ShowDashboard)
-         UpdateDashboard(dummyState);
+         UpdateDashboard(activeState);
       if(ShowLeftLiveOrdersDashboard)
          UpdateLeftLiveOrdersDashboard(true);
      }
@@ -13421,8 +13439,8 @@ void PauseDailyEquityTradingManual()
 
    DeleteTradingResumeChartIcon();
 
-   DailyProtectionState dummyState;
-   UpdateDashboardsThrottled(dummyState, true);
+   DailyProtectionState activeState = GetCurrentDailyState();
+   UpdateDashboardsThrottled(activeState, true);
    UpdateLeftLiveOrdersDashboard(true);
    UpdateTopCenterDubaiTimeDisplay(true);
    ChartRedraw(0);
@@ -13595,6 +13613,20 @@ void CheckForNewDay()
 
    int today = GetDubai16TradingDayKey(dubaiTime);
 
+   // CRITICAL SAFEGUARD: If EA initialized while disconnected or balance was $0.00,
+   // capture the true opening balance as soon as connection/balance becomes available!
+   double curBal = (AccountBalance() > 0.0) ? AccountBalance() : AccountEquity();
+   if(g_dayOpeningBalance <= 0.0 && curBal > 0.0)
+   {
+      g_dayOpeningBalance     = curBal;
+      g_dubaiDayOpeningEquity = curBal;
+      int lotMultiplierDivDay = (AccountMultiplierLOT > 0) ? AccountMultiplierLOT : 1001;
+      balancelomultipler      = (int)MathRound(curBal / (double)lotMultiplierDivDay);
+      if(balancelomultipler <= 0) balancelomultipler = 1;
+      PrintFormat(">>> [DAY BASE RECOVERY] Connected to broker: Fresh Day Base initialized to $%.2f (Multiplier=%dX)",
+                  g_dayOpeningBalance, balancelomultipler);
+   }
+
    if(today != g_dayNumber)
    {
       // NEW TRADING DAY (DUBAI 16:00)
@@ -13604,15 +13636,21 @@ void CheckForNewDay()
       int  prevDayKey                 = g_dayNumber;
       g_dayNumber                     = today;
 
-      double curBal = (AccountBalance() > 0.0) ? AccountBalance() : AccountEquity();
-
       if(isFirstStart || g_dayOpeningBalance <= 0.0)
       {
          // Fresh EA startup / first day initialization
-         g_dayOpeningBalance     = curBal;
-         g_dubaiDayOpeningEquity = g_dayOpeningBalance;
-         PrintFormat(">>> [NEW TRADING DAY (Dubai 16:00)] DayKey=%d | DubaiTime=%s | Fresh Initial Day Base = $%.2f",
-                     today, TimeToString(dubaiTime, TIME_DATE|TIME_MINUTES|TIME_SECONDS), g_dayOpeningBalance);
+         if(curBal > 0.0)
+         {
+            g_dayOpeningBalance     = curBal;
+            g_dubaiDayOpeningEquity = g_dayOpeningBalance;
+            PrintFormat(">>> [NEW TRADING DAY (Dubai 16:00)] DayKey=%d | DubaiTime=%s | Fresh Initial Day Base = $%.2f",
+                        today, TimeToString(dubaiTime, TIME_DATE|TIME_MINUTES|TIME_SECONDS), g_dayOpeningBalance);
+         }
+         else
+         {
+            PrintFormat(">>> [NEW TRADING DAY (Dubai 16:00)] DayKey=%d | DubaiTime=%s | Broker connecting (AccountBalance=$0.00). Base init deferred.",
+                        today, TimeToString(dubaiTime, TIME_DATE|TIME_MINUTES|TIME_SECONDS));
+         }
       }
       else if(wasTargetHitYesterday)
       {
@@ -14132,7 +14170,7 @@ if(g_dailyEquityTradingBlocked)
         }
      }
 
-   DailyProtectionState pauseDashState;
+   DailyProtectionState pauseDashState = GetCurrentDailyState();
    UpdateDashboardsThrottled(pauseDashState);
    UpdateDubaiTradingPauseDashboard(); // Keep dashboard updated while paused
    UpdateLeftLiveOrdersDashboard();    // Refresh live dashboard while paused
