@@ -43,7 +43,7 @@ CheckBasketProfitClose  Total open basket profit
 
 */
 
-string glbVersion = "V-SMALL-1017- Fix disconnected startup base equity & harden OnInit";
+string glbVersion = "V-SMALL-1018- Top toolbar buttons priority over dashboards";
 
 int AccountMultiplierLOT = 500;//100;//1000;//400;//200;//500; ALWAYS multiples of 1000 is better for best results
 //balance multiplier 
@@ -2366,11 +2366,16 @@ void CreateTopCenterButton(string name, string text, int x, int y, int width, in
       ObjectSetInteger(0, name, OBJPROP_STATE, false);
       ObjectSetInteger(0, name, OBJPROP_SELECTABLE, false);
       ObjectSetInteger(0, name, OBJPROP_HIDDEN, true);
-      ObjectSetInteger(0, name, OBJPROP_ZORDER, 1002);
+      ObjectSetInteger(0, name, OBJPROP_BACK, false);
+      ObjectSetInteger(0, name, OBJPROP_ZORDER, 5002);
       if(tooltip != "")
          ObjectSetString(0, name, OBJPROP_TOOLTIP, tooltip);
       return;
      }
+
+   // Always guarantee top priority display on visible layers
+   ObjectSetInteger(0, name, OBJPROP_ZORDER, 5002);
+   ObjectSetInteger(0, name, OBJPROP_BACK, false);
 
    if((int)ObjectGetInteger(0, name, OBJPROP_XDISTANCE) != x)
       ObjectSetInteger(0, name, OBJPROP_XDISTANCE, x);
@@ -27612,8 +27617,11 @@ void CreateDashboardPanel(string name, int x, int y, int width, int height, colo
       ObjectSetInteger(0, name, OBJPROP_COLOR, clrDimGray);
       ObjectSetInteger(0, name, OBJPROP_SELECTABLE, false);
       ObjectSetInteger(0, name, OBJPROP_HIDDEN, true);
+      ObjectSetInteger(0, name, OBJPROP_BACK, false);
+      ObjectSetInteger(0, name, OBJPROP_ZORDER, 100);
       return;
      }
+   ObjectSetInteger(0, name, OBJPROP_ZORDER, 100);
    if((color)ObjectGetInteger(0, name, OBJPROP_BGCOLOR) != background)
       ObjectSetInteger(0, name, OBJPROP_BGCOLOR, background);
    if((int)ObjectGetInteger(0, name, OBJPROP_XSIZE) != width)
@@ -27772,8 +27780,11 @@ void CreateDashboardLabel(string name, string text, int x, int y, int fontSize, 
       ObjectSetInteger(0, name, OBJPROP_COLOR, textColor);
       ObjectSetInteger(0, name, OBJPROP_SELECTABLE, false);
       ObjectSetInteger(0, name, OBJPROP_HIDDEN, true);
+      ObjectSetInteger(0, name, OBJPROP_BACK, false);
+      ObjectSetInteger(0, name, OBJPROP_ZORDER, 105);
       return;
      }
+   ObjectSetInteger(0, name, OBJPROP_ZORDER, 105);
    if(ObjectGetString(0, name, OBJPROP_TEXT) != text)
       ObjectSetString(0, name, OBJPROP_TEXT, text);
    if((color)ObjectGetInteger(0, name, OBJPROP_COLOR) != textColor)
@@ -29173,7 +29184,7 @@ void CreateLeftLivePanel(string name,int x,int y,int width,int height,color back
       ObjectCreate(0,name,OBJ_RECTANGLE_LABEL,0,0,0);
       ObjectSetInteger(0,name,OBJPROP_CORNER,CORNER_LEFT_UPPER);
       ObjectSetInteger(0,name,OBJPROP_BACK,false);
-      ObjectSetInteger(0,name,OBJPROP_ZORDER,1000);
+      ObjectSetInteger(0,name,OBJPROP_ZORDER,100);
       ObjectSetInteger(0,name,OBJPROP_XDISTANCE,x);
       ObjectSetInteger(0,name,OBJPROP_YDISTANCE,y);
       ObjectSetInteger(0,name,OBJPROP_XSIZE,width);
@@ -29185,6 +29196,7 @@ void CreateLeftLivePanel(string name,int x,int y,int width,int height,color back
       ObjectSetInteger(0,name,OBJPROP_HIDDEN,true);
       return;
      }
+   ObjectSetInteger(0,name,OBJPROP_ZORDER,100);
    if((color)ObjectGetInteger(0,name,OBJPROP_BGCOLOR) != background)
       ObjectSetInteger(0,name,OBJPROP_BGCOLOR,background);
    if((int)ObjectGetInteger(0,name,OBJPROP_YDISTANCE) != y)
@@ -29212,8 +29224,11 @@ void CreateLeftLiveLabel(string name,string text,int x,int y,int fontSize,color 
       ObjectSetInteger(0,name,OBJPROP_COLOR,textColor);
       ObjectSetInteger(0,name,OBJPROP_SELECTABLE,false);
       ObjectSetInteger(0,name,OBJPROP_HIDDEN,true);
+      ObjectSetInteger(0,name,OBJPROP_BACK,false);
+      ObjectSetInteger(0,name,OBJPROP_ZORDER,105);
       return;
      }
+   ObjectSetInteger(0,name,OBJPROP_ZORDER,105);
    if(ObjectGetString(0,name,OBJPROP_TEXT) != text)
       ObjectSetString(0,name,OBJPROP_TEXT,text);
    if((color)ObjectGetInteger(0,name,OBJPROP_COLOR) != textColor)
@@ -29385,7 +29400,7 @@ void CreateTopCenterDubaiLabel(string name, string text, int x, int y, int fontS
       ObjectSetInteger(0, name, OBJPROP_CORNER, CORNER_LEFT_UPPER);
       ObjectSetInteger(0, name, OBJPROP_ANCHOR, ANCHOR_UPPER);
       ObjectSetInteger(0, name, OBJPROP_BACK, false);
-      ObjectSetInteger(0, name, OBJPROP_ZORDER, 1001);
+      ObjectSetInteger(0, name, OBJPROP_ZORDER, 5001);
       ObjectSetInteger(0, name, OBJPROP_XDISTANCE, x);
       ObjectSetInteger(0, name, OBJPROP_YDISTANCE, y);
       ObjectSetString(0, name, OBJPROP_TEXT, text);
@@ -29396,6 +29411,8 @@ void CreateTopCenterDubaiLabel(string name, string text, int x, int y, int fontS
       ObjectSetInteger(0, name, OBJPROP_HIDDEN, true);
       return;
      }
+   ObjectSetInteger(0, name, OBJPROP_ZORDER, 5001);
+   ObjectSetInteger(0, name, OBJPROP_BACK, false);
    if(ObjectGetString(0, name, OBJPROP_TEXT) != text)
       ObjectSetString(0, name, OBJPROP_TEXT, text);
    if((color)ObjectGetInteger(0, name, OBJPROP_COLOR) != textColor)
@@ -29513,7 +29530,9 @@ void UpdateTopCenterDubaiTimeDisplay(bool force = false)
       DeleteTopCenterDubaiTimeObjects();
       if(ShowDashboardToggleButton)
         {
-         int fbX = 10, fbY = 20, fbW = 145, fbH = 32;
+         int fbW = 145, fbH = 32;
+         int fbX = MathMax(10, (chartWidth - fbW) / 2);
+         int fbY = 20;
          string fbText = g_dashboardsUserHidden ? "SHOW DASHBOARD" : "HIDE DASHBOARD";
          color  fbBg   = g_dashboardsUserHidden ? C'18,105,175' : C'35,50,75';
          color  fbBrd  = g_dashboardsUserHidden ? clrAqua : C'85,125,175';
@@ -29577,12 +29596,13 @@ void UpdateTopCenterDubaiTimeDisplay(bool force = false)
         }
       else
         {
-         dubaiX   = 10;
+         int row1Width = dubaiWidth + gapSpacing + btnWidth + (ShowDashboardToggleButton ? (gapSpacing + toggleWidth) : 0);
+         dubaiX   = MathMax(10, (chartWidth - row1Width) / 2);
          btnX     = dubaiX + dubaiWidth + gapSpacing;
          toggleX  = btnX + btnWidth + gapSpacing;
          btnY     = dubaiY;
          toggleY  = dubaiY;
-         gapX     = 10;
+         gapX     = MathMax(10, (chartWidth - gapWidth) / 2);
          gapY     = dubaiY + dubaiHeight + 4;
         }
      }
@@ -29590,23 +29610,20 @@ void UpdateTopCenterDubaiTimeDisplay(bool force = false)
      {
       // Required Gap is hidden: Dubai Time + Single Status/Toggle Button + SHOW/HIDE Dashboard Button centered cleanly
       int rowWidth = dubaiWidth + gapSpacing + btnWidth + (ShowDashboardToggleButton ? (gapSpacing + toggleWidth) : 0);
+      int startX = 10;
       if(rightStart > (leftEnd + rowWidth + 20))
         {
-         int startX = (leftEnd + rightStart - rowWidth) / 2;
-         dubaiX   = MathMax(10, startX);
-         btnX     = dubaiX + dubaiWidth + gapSpacing;
-         toggleX  = btnX + btnWidth + gapSpacing;
-         btnY     = dubaiY;
-         toggleY  = dubaiY;
+         startX = (leftEnd + rightStart - rowWidth) / 2;
         }
       else
         {
-         dubaiX   = 10;
-         btnX     = dubaiX + dubaiWidth + gapSpacing;
-         toggleX  = btnX + btnWidth + gapSpacing;
-         btnY     = dubaiY;
-         toggleY  = dubaiY;
+         startX = MathMax(10, (chartWidth - rowWidth) / 2);
         }
+      dubaiX   = MathMax(10, startX);
+      btnX     = dubaiX + dubaiWidth + gapSpacing;
+      toggleX  = btnX + btnWidth + gapSpacing;
+      btnY     = dubaiY;
+      toggleY  = dubaiY;
       DeleteTopCenterGapObjects();
      }
 
@@ -29620,7 +29637,7 @@ void UpdateTopCenterDubaiTimeDisplay(bool force = false)
       ObjectCreate(0, dubaiPnlName, OBJ_RECTANGLE_LABEL, 0, 0, 0);
       ObjectSetInteger(0, dubaiPnlName, OBJPROP_CORNER, CORNER_LEFT_UPPER);
       ObjectSetInteger(0, dubaiPnlName, OBJPROP_BACK, false);
-      ObjectSetInteger(0, dubaiPnlName, OBJPROP_ZORDER, 1000);
+      ObjectSetInteger(0, dubaiPnlName, OBJPROP_ZORDER, 5000);
       ObjectSetInteger(0, dubaiPnlName, OBJPROP_XDISTANCE, dubaiX);
       ObjectSetInteger(0, dubaiPnlName, OBJPROP_YDISTANCE, dubaiY);
       ObjectSetInteger(0, dubaiPnlName, OBJPROP_XSIZE, dubaiWidth);
@@ -29633,6 +29650,8 @@ void UpdateTopCenterDubaiTimeDisplay(bool force = false)
      }
    else
      {
+      ObjectSetInteger(0, dubaiPnlName, OBJPROP_ZORDER, 5000);
+      ObjectSetInteger(0, dubaiPnlName, OBJPROP_BACK, false);
       if((int)ObjectGetInteger(0, dubaiPnlName, OBJPROP_XDISTANCE) != dubaiX)
          ObjectSetInteger(0, dubaiPnlName, OBJPROP_XDISTANCE, dubaiX);
       if((int)ObjectGetInteger(0, dubaiPnlName, OBJPROP_YDISTANCE) != dubaiY)
@@ -29654,7 +29673,7 @@ void UpdateTopCenterDubaiTimeDisplay(bool force = false)
          ObjectCreate(0, gapPnlName, OBJ_RECTANGLE_LABEL, 0, 0, 0);
          ObjectSetInteger(0, gapPnlName, OBJPROP_CORNER, CORNER_LEFT_UPPER);
          ObjectSetInteger(0, gapPnlName, OBJPROP_BACK, false);
-         ObjectSetInteger(0, gapPnlName, OBJPROP_ZORDER, 1000);
+         ObjectSetInteger(0, gapPnlName, OBJPROP_ZORDER, 5000);
          ObjectSetInteger(0, gapPnlName, OBJPROP_XDISTANCE, gapX);
          ObjectSetInteger(0, gapPnlName, OBJPROP_YDISTANCE, gapY);
          ObjectSetInteger(0, gapPnlName, OBJPROP_XSIZE, gapWidth);
@@ -29667,6 +29686,8 @@ void UpdateTopCenterDubaiTimeDisplay(bool force = false)
         }
       else
         {
+         ObjectSetInteger(0, gapPnlName, OBJPROP_ZORDER, 5000);
+         ObjectSetInteger(0, gapPnlName, OBJPROP_BACK, false);
          if((int)ObjectGetInteger(0, gapPnlName, OBJPROP_XDISTANCE) != gapX)
             ObjectSetInteger(0, gapPnlName, OBJPROP_XDISTANCE, gapX);
          if((int)ObjectGetInteger(0, gapPnlName, OBJPROP_YDISTANCE) != gapY)
