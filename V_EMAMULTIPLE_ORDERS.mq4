@@ -42,7 +42,7 @@ CheckBasketProfitClose  Total open basket profit
 */
 
 
-string glbVersion = "VMULTI-1267- Close losing orders and live SL profit orders on reversal";
+string glbVersion = "VMULTI-1268- Day equity decay target & close loss/live SL on target hit";
 
 int AccountMultiplierLOT = 1000;//400;//200;//500; ALWAYS multiples of 1000 is better for best results
 //balance multiplier 
@@ -64,13 +64,13 @@ ENUM_RESUME_DAY_MODE InpResumeDayTradingTargetMode = RESUME_MODE_TRAIL_STEP; // 
 int    InpTradingResumeIconCode             = 241;  // Chart icon Wingdings code for Trading Resume (241=Play, 251=Check, 159=Circle)
 bool   InpCloseOrdersOnManualPause          = false; // When clicking Pause Trading: false = delete pending only & keep open market orders; true = close all market orders
 
-//--- Dynamic Hourly Target Decay & Reversal Protection (VMULTI-1265) ---
+//--- Dynamic Hourly Target Decay (VMULTI-1268) ---
 input bool   InpEnableHourlyTargetDecay       = true;   // Enable Hourly Target Decay ($1*mult/hr down to min floor)
 input double InpHourlyTargetDecayUSD          = 1.0;    // Hourly Target Decay Step in USD ($1.00 * multiplier)
 input double InpMinTargetProfitFloorUSD       = 1.0;    // Minimum Target Profit Floor ($1.00 * multiplier minimum profit)
-input bool   InpEnableFloatingLossLiveSL      = true;   // Enable Live SL Clamp on Floating Loss
-input double InpMaxFloatingLossUSD            = 10.0;   // Max Floating Loss to Trigger Live SL ($10.00 * multiplier)
-input bool   InpPauseOnFloatingLossExit       = true;   // Pause trading on Floating Loss Live SL exit until SSL flip/resume
+input bool   InpEnableFloatingLossLiveSL      = false;  // Disabled: do not purely close loss orders at $10 loss
+input double InpMaxFloatingLossUSD            = 10.0;   // Obsolete (pure $10 loss close disabled)
+input bool   InpPauseOnFloatingLossExit       = false;  // Obsolete (pure $10 loss close disabled)
 
 double TargetProfitPerFlipUSD =1000;//50;//;//percentage////1000;//20;//10;//10*2;//10;//5;//20;// 10.0; close all orders at $20Xmultipler
 
@@ -14194,54 +14194,6 @@ bool IsDailyEquityStopReached()
       }
    }
 
-   // ==============================================================
-   // MAX FLOATING LOSS PROTECTION (> $10 * Multiplier Reversal)
-   // If trade is running and has not hit target, and floating loss exceeds $10 * multiplier:
-   // Modify ALL open orders (profits and losses) with live stop-loss prices!
-   // ==============================================================
-   if(InpEnableFloatingLossLiveSL && !g_dailyEquityTargetHitToday && !g_dailyEquityTradingBlocked)
-   {
-      double maxFloatLossUSD = InpMaxFloatingLossUSD * mult;
-      double netFloatingPL   = 0.0;
-      int    activeEaOrders  = 0;
-      for(int fl_i = OrdersTotal() - 1; fl_i >= 0; fl_i--)
-      {
-         if(!OrderSelect(fl_i, SELECT_BY_POS, MODE_TRADES)) continue;
-         if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber) continue;
-         if(OrderType() == OP_BUY || OrderType() == OP_SELL)
-         {
-            netFloatingPL += (OrderProfit() + OrderSwap() + OrderCommission());
-            activeEaOrders++;
-         }
-      }
-
-      if(activeEaOrders > 0 && netFloatingPL <= -maxFloatLossUSD)
-      {
-         static datetime lastFloatLossActionTime = 0;
-         if(TimeCurrent() - lastFloatLossActionTime >= 5)
-         {
-            lastFloatLossActionTime = TimeCurrent();
-            g_floatingLossLiveSlTriggered = true;
-
-            PrintFormat(">>> [MAX FLOATING LOSS REVERSAL PROTECTION TRIGGERED] NetFloatPL=-$%.2f <= -$%.2f (%dX) | Closing losing orders & Clamping profit orders to Live SL!",
-                        MathAbs(netFloatingPL), maxFloatLossUSD, mult);
-
-            CloseLosingOrdersAndLiveSLProfitOrders("Max Floating Loss Reversal Protection");
-            DeleteAllPendingEAOrders();
-
-            if(InpPauseOnFloatingLossExit)
-            {
-               g_dailyEquityTradingBlocked    = true;
-               g_dailyEquityPauseTime         = TimeCurrent();
-               g_dailyEquityPauseSSLDirection = GetCurrentSSLDirection();
-               g_dailyEquityPauseSslFlipped   = false;
-               Print(">>> [MAX FLOATING LOSS REVERSAL PROTECTION] Trading PAUSED until SSL direction change or manual resume.");
-               return true;
-            }
-         }
-      }
-   }
-
    int hoursDecay = 0;
    double decayUSD = 0.0;
    double targetEquity = GetEffectiveDailyTargetEquity(hoursDecay, decayUSD);
@@ -14333,11 +14285,14 @@ bool IsDailyEquityStopReached()
          floorEquity     = g_dayOpeningBalance + floorProfit;
 
          string decayNote = (hoursDecay > 0) ? StringFormat(" [Hourly Decay #%dh: Base $%.0f -> EffTgt $%.0f]", hoursDecay, g_dayOpeningBalance + (dailyTarget * mult), targetEquity) : "";
-         Print(StringFormat("[DAILY EQUITY PROFIT TARGET HIT%s] Target=$%.2f | CurEquity=$%.2f (Profit=+$%.2f) | Modifying SL to Current Price | Trail Step=$%.2f | Dynamic %.0f%% Floor=$%.2f (%.0f%% of $%.2f) | Continuing trading with DailyEquityTrailStepUSD...",
+         Print(StringFormat("[DAILY EQUITY PROFIT TARGET HIT%s] Target=$%.2f | CurEquity=$%.2f (Profit=+$%.2f) | Closing Losing Orders & Live SL Clamping Profit Orders | Trail Step=$%.2f | Dynamic %.0f%% Floor=$%.2f (%.0f%% of $%.2f) | Continuing trading with DailyEquityTrailStepUSD...",
                decayNote, targetEquity, curEquity, (curEquity - g_dayOpeningBalance), stepUSD, currentFloorPct, floorEquity, currentFloorPct, totalPeakProfit));
 
-         // User Rule: Modify orders with stoploss price at current price
-         ModifyOpenOrdersToCurrentPriceSL(StringFormat("Initial Target Hit%s", decayNote));
+         // User Rule (V-SMALL-1023 / VMULTI-1268):
+         // On Day Equity Target Hit (with 1h, 2h delay adjustments):
+         // 1. Close all losing EA market orders immediately.
+         // 2. Modify all profitable EA orders with live stop-loss price.
+         CloseLosingOrdersAndLiveSLProfitOrders(StringFormat("Daily Equity Target Hit%s", decayNote));
 
          // Post-Exit Action: as usual start DailyEquityTrailStepUSD process
       }
