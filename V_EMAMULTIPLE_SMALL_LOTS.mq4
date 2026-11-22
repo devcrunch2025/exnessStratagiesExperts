@@ -43,7 +43,7 @@ CheckBasketProfitClose  Total open basket profit
 
 */
 
-string glbVersion = "V-SMALL-1018- Top toolbar buttons priority over dashboards";
+string glbVersion = "V-SMALL-1019- Display top buttons fully visible between dashboard headers";
 
 int AccountMultiplierLOT = 500;//100;//1000;//400;//200;//500; ALWAYS multiples of 1000 is better for best results
 //balance multiplier 
@@ -2357,9 +2357,10 @@ void CreateTopCenterButton(string name, string text, int x, int y, int width, in
       ObjectSetInteger(0, name, OBJPROP_YDISTANCE, y);
       ObjectSetInteger(0, name, OBJPROP_XSIZE, width);
       ObjectSetInteger(0, name, OBJPROP_YSIZE, height);
+      int targetFontSize = (width < 115) ? 8 : 9;
       ObjectSetString(0, name, OBJPROP_TEXT, text);
       ObjectSetString(0, name, OBJPROP_FONT, "Arial Bold");
-      ObjectSetInteger(0, name, OBJPROP_FONTSIZE, 9);
+      ObjectSetInteger(0, name, OBJPROP_FONTSIZE, targetFontSize);
       ObjectSetInteger(0, name, OBJPROP_COLOR, textColor);
       ObjectSetInteger(0, name, OBJPROP_BGCOLOR, bgColor);
       ObjectSetInteger(0, name, OBJPROP_BORDER_COLOR, borderColor);
@@ -2376,6 +2377,10 @@ void CreateTopCenterButton(string name, string text, int x, int y, int width, in
    // Always guarantee top priority display on visible layers
    ObjectSetInteger(0, name, OBJPROP_ZORDER, 5002);
    ObjectSetInteger(0, name, OBJPROP_BACK, false);
+
+   int targetFontSize = (width < 115) ? 8 : 9;
+   if((int)ObjectGetInteger(0, name, OBJPROP_FONTSIZE) != targetFontSize)
+      ObjectSetInteger(0, name, OBJPROP_FONTSIZE, targetFontSize);
 
    if((int)ObjectGetInteger(0, name, OBJPROP_XDISTANCE) != x)
       ObjectSetInteger(0, name, OBJPROP_XDISTANCE, x);
@@ -29470,10 +29475,21 @@ void UpdateNoManualWarningDisplay(int chartWidth, int leftEnd, int rightStart)
       case WARN_POS_RIGHT_SIDE:
       default:
         {
-         // Right Side: Anchored cleanly to the left of the Right Dashboard on top row (y=20)
-         warnMidX = rightStart - 120;
-         if(warnMidX < leftEnd + 120)
-            warnMidX = leftEnd + 120;
+         if(!g_dashboardsUserHidden && (rightStart - leftEnd) < 460)
+           {
+            int rW = (ShowDashboard && ObjectFind(0, DASH_PREFIX + "HEADER") >= 0)
+                     ? (int)ObjectGetInteger(0, DASH_PREFIX + "HEADER", OBJPROP_XSIZE)
+                     : MathMax(DashboardWidth, 375);
+            warnMidX = rightStart + (rW / 2);
+            warnY    = 4;
+           }
+         else
+           {
+            // Right Side: Anchored cleanly to the left of the Right Dashboard on top row (y=20)
+            warnMidX = rightStart - 120;
+            if(warnMidX < leftEnd + 120)
+               warnMidX = leftEnd + 120;
+           }
          break;
         }
      }
@@ -29500,8 +29516,7 @@ void UpdateTopCenterDubaiTimeDisplay(bool force = false)
      }
    else if(ShowLeftLiveOrdersDashboard && !g_dashboardsUserHidden)
      {
-      int minLDWidth = (InpShowLeftDashDayEqTargetRow && InpLeftDashDayEqTargetFontSize >= 14) ? 740 : 560;
-      leftEnd = LeftDashboardX + MathMax(LeftDashboardWidth + 230, minLDWidth);
+      leftEnd = LeftDashboardX + 415;
      }
 
    // 2. Determine left boundary of Right Dashboard
@@ -29549,6 +29564,9 @@ void UpdateTopCenterDubaiTimeDisplay(bool force = false)
       return;
    g_lastTopDubaiUpdateMs = nowMs;
 
+   int availGap = rightStart - leftEnd;
+   bool showDubaiTimeInBar = ShowTopCenterDubaiTime && (g_dashboardsUserHidden || availGap >= 460);
+
    int dubaiWidth   = 195;
    int dubaiHeight  = 38;
    int btnWidth     = 170;
@@ -29558,7 +29576,6 @@ void UpdateTopCenterDubaiTimeDisplay(bool force = false)
    int gapWidth     = 360;
    int gapHeight    = 38;
    int gapSpacing   = 6;
-   int totalWidth   = dubaiWidth + gapSpacing + btnWidth + (ShowDashboardToggleButton ? (gapSpacing + toggleWidth) : 0) + (ShowTopCenterRequiredGap ? (gapSpacing + gapWidth) : 0);
 
    int dubaiX  = 10;
    int dubaiY  = MathMin(LeftDashboardY, DashboardTopGap);
@@ -29569,154 +29586,89 @@ void UpdateTopCenterDubaiTimeDisplay(bool force = false)
    int gapX    = 10;
    int gapY    = dubaiY;
 
-   if(ShowTopCenterRequiredGap)
+   if(!showDubaiTimeInBar)
      {
-      if(rightStart > (leftEnd + totalWidth + 20))
-        {
-         int startX = (leftEnd + rightStart - totalWidth) / 2;
-         dubaiX   = MathMax(10, startX);
-         btnX     = dubaiX + dubaiWidth + gapSpacing;
-         toggleX  = btnX + btnWidth + gapSpacing;
-         gapX     = toggleX + (ShowDashboardToggleButton ? (toggleWidth + gapSpacing) : 0);
-         btnY     = dubaiY;
-         toggleY  = dubaiY;
-         gapY     = dubaiY;
-        }
-      else if(rightStart > (leftEnd + dubaiWidth + gapSpacing + btnWidth + (ShowDashboardToggleButton ? (gapSpacing + toggleWidth) : 0) + 20))
-        {
-         int row1Width = dubaiWidth + gapSpacing + btnWidth + (ShowDashboardToggleButton ? (gapSpacing + toggleWidth) : 0);
-         int startX = (leftEnd + rightStart - row1Width) / 2;
-         dubaiX   = MathMax(10, startX);
-         btnX     = dubaiX + dubaiWidth + gapSpacing;
-         toggleX  = btnX + btnWidth + gapSpacing;
-         btnY     = dubaiY;
-         toggleY  = dubaiY;
-         gapX     = MathMax(10, (leftEnd + rightStart - gapWidth) / 2);
-         gapY     = dubaiY + dubaiHeight + 4;
-        }
-      else
-        {
-         int row1Width = dubaiWidth + gapSpacing + btnWidth + (ShowDashboardToggleButton ? (gapSpacing + toggleWidth) : 0);
-         dubaiX   = MathMax(10, (chartWidth - row1Width) / 2);
-         btnX     = dubaiX + dubaiWidth + gapSpacing;
-         toggleX  = btnX + btnWidth + gapSpacing;
-         btnY     = dubaiY;
-         toggleY  = dubaiY;
-         gapX     = MathMax(10, (chartWidth - gapWidth) / 2);
-         gapY     = dubaiY + dubaiHeight + 4;
-        }
+      DeleteTopCenterDubaiTimeObjects();
+      DeleteTopCenterGapObjects();
+
+      int usableSpace = MathMax(160, availGap - 12);
+      btnWidth = MathMax(85, MathMin(140, (usableSpace - gapSpacing) / 2));
+      toggleWidth = btnWidth;
+      int totalBtns = btnWidth + gapSpacing + toggleWidth;
+      int startX = leftEnd + MathMax(2, (availGap - totalBtns) / 2);
+      btnX = startX;
+      toggleX = btnX + btnWidth + gapSpacing;
+      btnY = dubaiY;
+      toggleY = dubaiY;
      }
    else
      {
-      // Required Gap is hidden: Dubai Time + Single Status/Toggle Button + SHOW/HIDE Dashboard Button centered cleanly
-      int rowWidth = dubaiWidth + gapSpacing + btnWidth + (ShowDashboardToggleButton ? (gapSpacing + toggleWidth) : 0);
+      int totalWidth = dubaiWidth + gapSpacing + btnWidth + (ShowDashboardToggleButton ? (gapSpacing + toggleWidth) : 0);
       int startX = 10;
-      if(rightStart > (leftEnd + rowWidth + 20))
-        {
-         startX = (leftEnd + rightStart - rowWidth) / 2;
-        }
+      if(g_dashboardsUserHidden)
+         startX = MathMax(10, (chartWidth - totalWidth) / 2);
       else
-        {
-         startX = MathMax(10, (chartWidth - rowWidth) / 2);
-        }
+         startX = leftEnd + MathMax(2, (availGap - totalWidth) / 2);
+
       dubaiX   = MathMax(10, startX);
       btnX     = dubaiX + dubaiWidth + gapSpacing;
       toggleX  = btnX + btnWidth + gapSpacing;
       btnY     = dubaiY;
       toggleY  = dubaiY;
       DeleteTopCenterGapObjects();
-     }
 
-   int dubaiMidX = dubaiX + (dubaiWidth / 2);
-   int gapMidX   = gapX + (gapWidth / 2);
+      int dubaiMidX = dubaiX + (dubaiWidth / 2);
 
-   // --- BOX 1: DUBAI TIME PANEL ---
-   string dubaiPnlName = TOP_CENTER_DUBAI_PREFIX + "PANEL";
-   if(ObjectFind(0, dubaiPnlName) < 0)
-     {
-      ObjectCreate(0, dubaiPnlName, OBJ_RECTANGLE_LABEL, 0, 0, 0);
-      ObjectSetInteger(0, dubaiPnlName, OBJPROP_CORNER, CORNER_LEFT_UPPER);
-      ObjectSetInteger(0, dubaiPnlName, OBJPROP_BACK, false);
-      ObjectSetInteger(0, dubaiPnlName, OBJPROP_ZORDER, 5000);
-      ObjectSetInteger(0, dubaiPnlName, OBJPROP_XDISTANCE, dubaiX);
-      ObjectSetInteger(0, dubaiPnlName, OBJPROP_YDISTANCE, dubaiY);
-      ObjectSetInteger(0, dubaiPnlName, OBJPROP_XSIZE, dubaiWidth);
-      ObjectSetInteger(0, dubaiPnlName, OBJPROP_YSIZE, dubaiHeight);
-      ObjectSetInteger(0, dubaiPnlName, OBJPROP_BGCOLOR, C'20,48,82');
-      ObjectSetInteger(0, dubaiPnlName, OBJPROP_BORDER_TYPE, BORDER_FLAT);
-      ObjectSetInteger(0, dubaiPnlName, OBJPROP_COLOR, C'45,95,155');
-      ObjectSetInteger(0, dubaiPnlName, OBJPROP_SELECTABLE, false);
-      ObjectSetInteger(0, dubaiPnlName, OBJPROP_HIDDEN, true);
-     }
-   else
-     {
-      ObjectSetInteger(0, dubaiPnlName, OBJPROP_ZORDER, 5000);
-      ObjectSetInteger(0, dubaiPnlName, OBJPROP_BACK, false);
-      if((int)ObjectGetInteger(0, dubaiPnlName, OBJPROP_XDISTANCE) != dubaiX)
-         ObjectSetInteger(0, dubaiPnlName, OBJPROP_XDISTANCE, dubaiX);
-      if((int)ObjectGetInteger(0, dubaiPnlName, OBJPROP_YDISTANCE) != dubaiY)
-         ObjectSetInteger(0, dubaiPnlName, OBJPROP_YDISTANCE, dubaiY);
-      if((int)ObjectGetInteger(0, dubaiPnlName, OBJPROP_XSIZE) != dubaiWidth)
-         ObjectSetInteger(0, dubaiPnlName, OBJPROP_XSIZE, dubaiWidth);
-      if((int)ObjectGetInteger(0, dubaiPnlName, OBJPROP_YSIZE) != dubaiHeight)
-         ObjectSetInteger(0, dubaiPnlName, OBJPROP_YSIZE, dubaiHeight);
-      if((color)ObjectGetInteger(0, dubaiPnlName, OBJPROP_BGCOLOR) != C'20,48,82')
-         ObjectSetInteger(0, dubaiPnlName, OBJPROP_BGCOLOR, C'20,48,82');
-     }
-
-   if(ShowTopCenterRequiredGap)
-     {
-      // --- BOX 2: REQUIRED GAP PANEL ---
-      string gapPnlName = TOP_CENTER_GAP_PREFIX + "PANEL";
-      if(ObjectFind(0, gapPnlName) < 0)
+      // --- BOX 1: DUBAI TIME PANEL ---
+      string dubaiPnlName = TOP_CENTER_DUBAI_PREFIX + "PANEL";
+      if(ObjectFind(0, dubaiPnlName) < 0)
         {
-         ObjectCreate(0, gapPnlName, OBJ_RECTANGLE_LABEL, 0, 0, 0);
-         ObjectSetInteger(0, gapPnlName, OBJPROP_CORNER, CORNER_LEFT_UPPER);
-         ObjectSetInteger(0, gapPnlName, OBJPROP_BACK, false);
-         ObjectSetInteger(0, gapPnlName, OBJPROP_ZORDER, 5000);
-         ObjectSetInteger(0, gapPnlName, OBJPROP_XDISTANCE, gapX);
-         ObjectSetInteger(0, gapPnlName, OBJPROP_YDISTANCE, gapY);
-         ObjectSetInteger(0, gapPnlName, OBJPROP_XSIZE, gapWidth);
-         ObjectSetInteger(0, gapPnlName, OBJPROP_YSIZE, gapHeight);
-         ObjectSetInteger(0, gapPnlName, OBJPROP_BGCOLOR, C'20,48,82');
-         ObjectSetInteger(0, gapPnlName, OBJPROP_BORDER_TYPE, BORDER_FLAT);
-         ObjectSetInteger(0, gapPnlName, OBJPROP_COLOR, C'45,95,155');
-         ObjectSetInteger(0, gapPnlName, OBJPROP_SELECTABLE, false);
-         ObjectSetInteger(0, gapPnlName, OBJPROP_HIDDEN, true);
+         ObjectCreate(0, dubaiPnlName, OBJ_RECTANGLE_LABEL, 0, 0, 0);
+         ObjectSetInteger(0, dubaiPnlName, OBJPROP_CORNER, CORNER_LEFT_UPPER);
+         ObjectSetInteger(0, dubaiPnlName, OBJPROP_BACK, false);
+         ObjectSetInteger(0, dubaiPnlName, OBJPROP_ZORDER, 5000);
+         ObjectSetInteger(0, dubaiPnlName, OBJPROP_XDISTANCE, dubaiX);
+         ObjectSetInteger(0, dubaiPnlName, OBJPROP_YDISTANCE, dubaiY);
+         ObjectSetInteger(0, dubaiPnlName, OBJPROP_XSIZE, dubaiWidth);
+         ObjectSetInteger(0, dubaiPnlName, OBJPROP_YSIZE, dubaiHeight);
+         ObjectSetInteger(0, dubaiPnlName, OBJPROP_BGCOLOR, C'20,48,82');
+         ObjectSetInteger(0, dubaiPnlName, OBJPROP_BORDER_TYPE, BORDER_FLAT);
+         ObjectSetInteger(0, dubaiPnlName, OBJPROP_COLOR, C'45,95,155');
+         ObjectSetInteger(0, dubaiPnlName, OBJPROP_SELECTABLE, false);
+         ObjectSetInteger(0, dubaiPnlName, OBJPROP_HIDDEN, true);
         }
       else
         {
-         ObjectSetInteger(0, gapPnlName, OBJPROP_ZORDER, 5000);
-         ObjectSetInteger(0, gapPnlName, OBJPROP_BACK, false);
-         if((int)ObjectGetInteger(0, gapPnlName, OBJPROP_XDISTANCE) != gapX)
-            ObjectSetInteger(0, gapPnlName, OBJPROP_XDISTANCE, gapX);
-         if((int)ObjectGetInteger(0, gapPnlName, OBJPROP_YDISTANCE) != gapY)
-            ObjectSetInteger(0, gapPnlName, OBJPROP_YDISTANCE, gapY);
-         if((int)ObjectGetInteger(0, gapPnlName, OBJPROP_XSIZE) != gapWidth)
-            ObjectSetInteger(0, gapPnlName, OBJPROP_XSIZE, gapWidth);
-         if((int)ObjectGetInteger(0, gapPnlName, OBJPROP_YSIZE) != gapHeight)
-            ObjectSetInteger(0, gapPnlName, OBJPROP_YSIZE, gapHeight);
-         if((color)ObjectGetInteger(0, gapPnlName, OBJPROP_BGCOLOR) != C'20,48,82')
-            ObjectSetInteger(0, gapPnlName, OBJPROP_BGCOLOR, C'20,48,82');
+         ObjectSetInteger(0, dubaiPnlName, OBJPROP_ZORDER, 5000);
+         ObjectSetInteger(0, dubaiPnlName, OBJPROP_BACK, false);
+         if((int)ObjectGetInteger(0, dubaiPnlName, OBJPROP_XDISTANCE) != dubaiX)
+            ObjectSetInteger(0, dubaiPnlName, OBJPROP_XDISTANCE, dubaiX);
+         if((int)ObjectGetInteger(0, dubaiPnlName, OBJPROP_YDISTANCE) != dubaiY)
+            ObjectSetInteger(0, dubaiPnlName, OBJPROP_YDISTANCE, dubaiY);
+         if((int)ObjectGetInteger(0, dubaiPnlName, OBJPROP_XSIZE) != dubaiWidth)
+            ObjectSetInteger(0, dubaiPnlName, OBJPROP_XSIZE, dubaiWidth);
+         if((int)ObjectGetInteger(0, dubaiPnlName, OBJPROP_YSIZE) != dubaiHeight)
+            ObjectSetInteger(0, dubaiPnlName, OBJPROP_YSIZE, dubaiHeight);
+         if((color)ObjectGetInteger(0, dubaiPnlName, OBJPROP_BGCOLOR) != C'20,48,82')
+            ObjectSetInteger(0, dubaiPnlName, OBJPROP_BGCOLOR, C'20,48,82');
         }
-     }
 
-   // Time Calculation
-   datetime nowServer = TimeCurrent();
-   datetime dubaiTime = (nowServer > 0) ? (nowServer + (ServerToDubaiOffsetHours * 3600)) : 0;
-   string   clockStr  = (dubaiTime > 0) ? TimeToString(dubaiTime, TIME_DATE|TIME_MINUTES|TIME_SECONDS) : "--:--:--";
-   string   headerStr = "DUBAI TIME (UTC+4)";
+      // Time Calculation
+      datetime nowServer = TimeCurrent();
+      datetime dubaiTime = (nowServer > 0) ? (nowServer + (ServerToDubaiOffsetHours * 3600)) : 0;
+      string   clockStr  = (dubaiTime > 0) ? TimeToString(dubaiTime, TIME_DATE|TIME_MINUTES|TIME_SECONDS) : "--:--:--";
+      string   headerStr = "DUBAI TIME (UTC+4)";
+      string   dubaiTooltip = StringFormat("Dubai GST (UTC+4) | Day Rollover: 16:00 Dubai | Server Offset: %+dh", ServerToDubaiOffsetHours);
 
-   string dubaiTooltip = StringFormat("Dubai GST (UTC+4) | Day Rollover: 16:00 Dubai | Server Offset: %+dh", ServerToDubaiOffsetHours);
-
-   CreateTopCenterDubaiLabel(TOP_CENTER_DUBAI_PREFIX + "TITLE", headerStr, dubaiMidX, dubaiY + 4,  8, C'175,220,255', "Arial");
-   CreateTopCenterDubaiLabel(TOP_CENTER_DUBAI_PREFIX + "CLOCK", clockStr,  dubaiMidX, dubaiY + 18, 9, clrWhite,       "Consolas");
-   if(dubaiTooltip != g_lastTopDubaiTooltip)
-     {
-      ObjectSetString(0, dubaiPnlName, OBJPROP_TOOLTIP, dubaiTooltip);
-      ObjectSetString(0, TOP_CENTER_DUBAI_PREFIX + "TITLE", OBJPROP_TOOLTIP, dubaiTooltip);
-      ObjectSetString(0, TOP_CENTER_DUBAI_PREFIX + "CLOCK", OBJPROP_TOOLTIP, dubaiTooltip);
-      g_lastTopDubaiTooltip = dubaiTooltip;
+      CreateTopCenterDubaiLabel(TOP_CENTER_DUBAI_PREFIX + "TITLE", headerStr, dubaiMidX, dubaiY + 4,  8, C'175,220,255', "Arial");
+      CreateTopCenterDubaiLabel(TOP_CENTER_DUBAI_PREFIX + "CLOCK", clockStr,  dubaiMidX, dubaiY + 18, 9, clrWhite,       "Consolas");
+      if(dubaiTooltip != g_lastTopDubaiTooltip)
+        {
+         ObjectSetString(0, dubaiPnlName, OBJPROP_TOOLTIP, dubaiTooltip);
+         ObjectSetString(0, TOP_CENTER_DUBAI_PREFIX + "TITLE", OBJPROP_TOOLTIP, dubaiTooltip);
+         ObjectSetString(0, TOP_CENTER_DUBAI_PREFIX + "CLOCK", OBJPROP_TOOLTIP, dubaiTooltip);
+         g_lastTopDubaiTooltip = dubaiTooltip;
+        }
      }
    // --- BUTTON 1: STATUS BUTTON (TOP CENTER - SAME ROW AFTER DUBAI TIME) ---
    string topBtnName = BTN_TOP_RESUME_DAY;
@@ -29801,6 +29753,7 @@ void UpdateTopCenterDubaiTimeDisplay(bool force = false)
 
    if(ShowTopCenterRequiredGap)
      {
+      int gapMidX = gapX + (gapWidth / 2);
       string buyGapStr    = "";
       string sellGapStr   = "";
       color  buyGapColor  = C'180,240,180';
@@ -29994,8 +29947,12 @@ void UpdateLeftLiveOrdersDashboard(bool force = false)
    string buyPLStr  = (buyPL>=0  ? "+" : "") + DoubleToString(buyPL,2);
    string sellPLStr = (sellPL>=0 ? "+" : "") + DoubleToString(sellPL,2);
 
-   CreateLeftLivePanel(LEFT_LIVE_PREFIX+"PANEL", x, y, width, panelHeight, C'12,16,22');
-   CreateLeftLivePanel(LEFT_LIVE_PREFIX+"HEADER", x, y, width, 38, C'25,70,115');
+   int leftHeaderWidth = 415;
+   int panelTopY       = y + 38;
+   int panelRemainH    = MathMax(20, panelHeight - 38);
+
+   CreateLeftLivePanel(LEFT_LIVE_PREFIX+"PANEL", x, panelTopY, width, panelRemainH, C'12,16,22');
+   CreateLeftLivePanel(LEFT_LIVE_PREFIX+"HEADER", x, y, leftHeaderWidth, 38, C'25,70,115');
    CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"TITLE", "LIVE POSITION MONITOR", tx, y+8, 11, clrWhite);
 
    double liveBal = AccountBalance();
@@ -30132,9 +30089,10 @@ void UpdateLeftLiveOrdersDashboard(bool force = false)
          eqBadgeClr = hrlyPlanDArmed ? clrDeepSkyBlue : ((eqDiffUSD > 0.0) ? clrLime : clrSilver);
          eqBadgeTxt = StringFormat("SIDE DD: 0.0%% (+$%s)%s", gainStr, pkTag);
         }
-   CreateLeftLivePanel(LEFT_LIVE_PREFIX+"EQDD_BG", x+206, y+6, width-314, 26, C'14,18,26');
-   CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"EQDD_TXT", eqBadgeTxt, x+214, y+11, 9, eqBadgeClr);
-   CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"SYMBOL", Symbol()+"  |  "+TimeframeToString(Period()), x+width-102, y+10, 8, clrLightGray);
+   int eqBadgeWidth = MathMax(160, leftHeaderWidth - 210);
+   CreateLeftLivePanel(LEFT_LIVE_PREFIX+"EQDD_BG", x+202, y+6, eqBadgeWidth, 26, C'14,18,26');
+   CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"EQDD_TXT", eqBadgeTxt, x+208, y+11, 9, eqBadgeClr);
+   ObjectDelete(0, LEFT_LIVE_PREFIX+"SYMBOL");
 
 // Row 2 (y+38): Live Current DD Status Bar (Per-Side % / Active Tier / Wait / Next Trigger)
    bool leftWaitBuy  = (InpEnableEqDdLotReduction && buyTier  > 0 && g_eqDdBuyLastReachTime  > 0 && buyTier  >= g_eqDdBuyLastReachTier  && g_eqDdBuyLastReachTime  > g_eqDdBuyLastHitTime  && g_eqDdBuyLastReachReason  != "");
