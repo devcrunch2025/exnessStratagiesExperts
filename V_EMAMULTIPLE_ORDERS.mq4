@@ -42,7 +42,7 @@ CheckBasketProfitClose  Total open basket profit
 */
 
 
-string glbVersion = "VMULTI-1271- Dedicated DailyEquitySafetyFloor 5 USD x multiplier";
+string glbVersion = "VMULTI-1272- Method6 Threshold Doubled when EMA Angle > 4 deg";
 
 int AccountMultiplierLOT = 1000;//400;//200;//500; ALWAYS multiples of 1000 is better for best results
 //balance multiplier 
@@ -7547,7 +7547,7 @@ double InpOverallBasketSLGapUSD             = 100.0;  // Method 5: Overall hedge
 
 // Method 6: Multi-Order Combinations (> 2 orders, Profit or Loss mix) > $20 Profit SL Modifier
 bool   InpEnableMethod6CombinationSLModify  = true;   // Method 6: Check combinations of >2 orders (profit/loss mix) > $20 profit
-double InpMethod6ProfitThresholdUSD         = 5;//10;//20.0;   // Method 6: Base profit threshold in USD ($20.00 * multiplier)
+double InpMethod6ProfitThresholdUSD         = 2.0;//10/5;//5;//10;//20.0;   // Method 6: Base profit threshold in USD ($2.00 * multiplier)
 double InpMethod6SLDistanceUSD              = 20.0;  // Method 6: StopLoss gap in USD points ($150)
 int    InpMethod6MinOrderCount              = 2;      // Method 6: Minimum number of orders in combination (default 2 or 3)
 bool   InpDrawMethod6HitIcon                = true;   // Method 6: Draw chart icon when combination profit threshold is hit
@@ -7562,7 +7562,9 @@ bool   InpMethod6CreatePendingOnWinnerClose = true;   // Method 6: Create new pe
 bool   InpMethod6CloseWinnerAtMarket        = false;  // Method 6 full combo: false = modify SL to live price; true = close winner at market
 bool   InpMethod6PrioritizeOppositeLosers   = true;   // Method 6: 1st Priority = Close opposite-type losers, 2nd Priority = Close same-type losers
 double InpMethod6PartialMaxCutLots          = 0.0;    // Method 6: Max partial lots to cut from loser per trigger (0.0 = auto max safe)
-double InpMethod6LowAngleThresholdUSD       = 5;//10;//2.0;    // Method 6: Profit threshold when MathAbs(EMA Angle) < 4 deg ($2.00 * multiplier)
+double InpMethod6SteepAngleDegrees          = 4.0;    // Method 6: EMA angle threshold in degrees (if MathAbs > 4: threshold is doubled)
+double InpMethod6SteepAngleMultiplier       = 2.0;    // Method 6: Threshold multiplier when MathAbs(EMA Angle) > 4 (default 2.0 = double)
+double InpMethod6LowAngleThresholdUSD       = 1.0;//5;//10;//2.0;    // Method 6: Profit threshold when MathAbs(EMA Angle) < 4 deg ($2.00 * multiplier)
 double InpMethod6LowAngleEmaDegrees         = 0;//4.0;    // Method 6: Dynamic EMA angle boundary in degrees (default 4.0)
 
 // Universal Trend-Aware StopLoss Modifier (Applies across all order modify methods)
@@ -9267,8 +9269,19 @@ void ExecuteMethod6CombinationAction(int &comboIndices[], int comboCount, double
      }
    RecordMethodActionCluster(6, m6Tkts, m6Pls, comboCount, comboSum, "1) Close losing orders at market, 2) Modify winning orders with SL at current price");
 
+   double curEmaAng = (GlobalEmaAngle30 != 0.0) ? GlobalEmaAngle30 : GetEmaAngleDegrees(30);
+   double absEmaAng = MathAbs(curEmaAng);
+   double baseThreshold = InpMethod6ProfitThresholdUSD;
+   if(baseThreshold <= 0.0)
+      baseThreshold = 2.0;
+   double angleMult = (absEmaAng > InpMethod6SteepAngleDegrees) ? InpMethod6SteepAngleMultiplier : 1.0;
+   int mult = (balancelomultipler > 0) ? balancelomultipler : 1;
+   double activeThresholdUSD = baseThreshold * angleMult * mult;
+
    Print(">>> [METHOD 6 TRIGGERED] Combination of ", comboCount, " orders hit Profit = $", DoubleToString(comboSum, 2),
-         " >= Threshold. Executing Action: 1) Close losing orders at market, 2) Modify profit orders with SL at current price.");
+         " >= Threshold $", DoubleToString(activeThresholdUSD, 2),
+         " (EMA Angle=", DoubleToString(curEmaAng, 1), " deg", (absEmaAng > InpMethod6SteepAngleDegrees ? " [DOUBLED >4 deg]" : ""), ")",
+         ". Executing Action: 1) Close losing orders at market, 2) Modify profit orders with SL at current price.");
 
 // 1. FIRST: Close losing orders at market (Priority 1: Opposite order type, Priority 2: Same order type)
    bool allLosersClosed = true;
@@ -9616,9 +9629,12 @@ void ExecuteMethod6PartialLotAction(int winIdx, int lossIdx, double partialLots,
 
    double curEmaAng = (GlobalEmaAngle30 != 0.0) ? GlobalEmaAngle30 : GetEmaAngleDegrees(30);
    double absEmaAng = MathAbs(curEmaAng);
-   double baseThreshold = (absEmaAng < InpMethod6LowAngleEmaDegrees) ? InpMethod6LowAngleThresholdUSD : InpMethod6ProfitThresholdUSD;
+   double baseThreshold = InpMethod6ProfitThresholdUSD;
+   if(baseThreshold <= 0.0)
+      baseThreshold = 2.0;
+   double angleMult = (absEmaAng > InpMethod6SteepAngleDegrees) ? InpMethod6SteepAngleMultiplier : 1.0;
    int mult = (balancelomultipler > 0) ? balancelomultipler : 1;
-   double activeThresholdUSD = baseThreshold * mult;
+   double activeThresholdUSD = baseThreshold * angleMult * mult;
 
    Print(">>> [METHOD 6 PARTIAL LOT TRIGGERED] Winner Ticket #", winTkt,
          " (", (winType == OP_BUY ? "BUY " : "SELL "), DoubleToString(winLots, 2), "L, Total P/L=+$", DoubleToString(winPL, 2),
@@ -9890,11 +9906,13 @@ void ModifyMethod6MultiOrderCombinationsOver5USD()
    int mult = (balancelomultipler > 0) ? balancelomultipler : 1;
    double curEmaAng = (GlobalEmaAngle30 != 0.0) ? GlobalEmaAngle30 : GetEmaAngleDegrees(30);
    double absEmaAng = MathAbs(curEmaAng);
-   double baseThreshold = (absEmaAng < InpMethod6LowAngleEmaDegrees) ? InpMethod6LowAngleThresholdUSD : InpMethod6ProfitThresholdUSD;
+   double baseThreshold = InpMethod6ProfitThresholdUSD;
    if(baseThreshold <= 0.0)
       baseThreshold = 2.0;
-   double threshold = baseThreshold * mult;
-   double fullThreshold = InpMethod6ProfitThresholdUSD * mult;
+   // USER RULE: If MathAbs(EMA Angle) > 4 -> threshold should be double: InpMethod6ProfitThresholdUSD * 2 * multiplier
+   double angleMult = (absEmaAng > InpMethod6SteepAngleDegrees) ? InpMethod6SteepAngleMultiplier : 1.0;
+   double threshold = baseThreshold * angleMult * mult;
+   double fullThreshold = threshold;
    if(fullThreshold <= 0.0)
       fullThreshold = 5.0 * mult;
    int minOrders = (InpMethod6MinOrderCount >= 2) ? InpMethod6MinOrderCount : 2;
