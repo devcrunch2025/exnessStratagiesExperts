@@ -5877,12 +5877,15 @@ void Check50PctDrawdownReliefTightenSL()
 // Auto-reset when equity >= balance (no floating drawdown)
    if(currentDrawdown <= 0.0)
      {
-      if(g_drawdownReliefArmed)
+      if(g_drawdownReliefArmed || g_drawdownReliefPeakUSD > 0.0 || g_drawdownReliefExecuted)
         {
-         Print(">>> [DRAWDOWN RELIEF RESET] Equity ($", DoubleToString(equity, 2),
-               ") >= Balance ($", DoubleToString(balance, 2), "). Drawdown cleared! Resetting peak tracker.");
+         if(g_drawdownReliefArmed)
+           {
+            Print(">>> [DRAWDOWN RELIEF RESET] Equity ($", DoubleToString(equity, 2),
+                  ") >= Balance ($", DoubleToString(balance, 2), "). Drawdown cleared! Resetting peak tracker.");
+           }
+         ResetDrawdownReliefCycle("Equity >= Balance (drawdown cleared)");
         }
-      ResetDrawdownReliefCycle("Equity >= Balance (drawdown cleared)");
       return;
      }
 
