@@ -42,7 +42,7 @@ CheckBasketProfitClose  Total open basket profit
 */
 
 
-string glbVersion = "VMULTI-1260- Resume Day Trading from Trail Step mode";
+string glbVersion = "VMULTI-1261- Add SHOW HIDE Dashboard button";
 
 int AccountMultiplierLOT = 1000;//400;//200;//500; ALWAYS multiples of 1000 is better for best results
 //balance multiplier 
@@ -882,6 +882,8 @@ int  LeftDashboardWidth              = 330;
 int  LeftDashboardMaxRows            = 20;
 bool ShowTopCenterDubaiTime          = true;   // Display Dubai Time centered at chart top between left and right dashboards
 bool ShowTopCenterRequiredGap        = false;  // Display Required Gap Panel on top center bar [Default: false = HIDDEN]
+bool ShowDashboardToggleButton      = true;   // Display SHOW/HIDE Dashboard button on chart
+bool g_dashboardsUserHidden         = false;  // Runtime toggle state for SHOW/HIDE Dashboard (true = hidden)
 enum ENUM_NO_MANUAL_WARN_POS
   {
    WARN_POS_RIGHT_SIDE         = 0, // Right Side (Next to Right Dashboard)
@@ -943,6 +945,7 @@ string PREFIX = "SSL_CROSS_";
 string DASH_PREFIX = "SSL_DASHBOARD_";
 #define BTN_TOP_RESUME_DAY "SSL_TOP_DUBAI_BTN_RESUME"
 #define BTN_TOP_PAUSE_DAY  "SSL_TOP_DUBAI_BTN_PAUSE"
+#define BTN_TOP_DASHBOARD_TOGGLE "SSL_TOP_DUBAI_BTN_DASH_TOGGLE"
 datetime LastProcessedBar = 0;
 datetime LastProcessedClosedOrderTime = 0;
 datetime DailyProtectionStartTime = 0;
@@ -2377,6 +2380,7 @@ void CreateTopCenterButton(string name, string text, int x, int y, int width, in
 void UpdateTopCenterDubaiTimeDisplay(bool force = false);
 void DeleteDashboardObjects();
 void DeleteLeftLiveOrdersDashboardObjects();
+void ToggleDashboardsVisibility();
 void DeleteTopCenterGapObjects()
   {
    int total = ObjectsTotal(0, -1, -1);
@@ -12967,6 +12971,14 @@ void OnChartEvent(const int id, const long &lparam, const double &dparam, const 
   {
    if(id == CHARTEVENT_OBJECT_CLICK)
      {
+      if(sparam == BTN_TOP_DASHBOARD_TOGGLE)
+        {
+         ObjectSetInteger(0, sparam, OBJPROP_STATE, false);
+         ToggleDashboardsVisibility();
+         ChartRedraw(0);
+         return;
+        }
+
       if(sparam == (DASH_PREFIX + "BTN_RESUME_DAY") || sparam == BTN_TOP_RESUME_DAY || sparam == BTN_TOP_PAUSE_DAY)
         {
          ObjectSetInteger(0, sparam, OBJPROP_STATE, false);
@@ -13305,6 +13317,38 @@ void PerformDayTradingResume(string reason)
 void ResumeDailyEquityTradingManual()
   {
    PerformDayTradingResume("MANUAL BUTTON CLICK");
+  }
+
+//+------------------------------------------------------------------+
+//| ToggleDashboardsVisibility                                       |
+//| User clicks SHOW/HIDE Dashboard button:                          |
+//| - Toggles g_dashboardsUserHidden state                           |
+//| - When HIDING: deletes left and right dashboard objects          |
+//| - When SHOWING: recreates left and right dashboard objects       |
+//| - Refreshes top center toolbar and chart immediately             |
+//+------------------------------------------------------------------+
+void ToggleDashboardsVisibility()
+  {
+   g_dashboardsUserHidden = !g_dashboardsUserHidden;
+   if(g_dashboardsUserHidden)
+     {
+      DeleteDashboardObjects();
+      DeleteLeftLiveOrdersDashboardObjects();
+      Print(">>> [UI] SHOW/HIDE Dashboard: User clicked HIDE. Left and right dashboards removed from chart.");
+     }
+   else
+     {
+      Print(">>> [UI] SHOW/HIDE Dashboard: User clicked SHOW. Left and right dashboards restored on chart.");
+      DailyProtectionState dummyState;
+      if(ShowDashboard)
+         UpdateDashboard(dummyState);
+      if(ShowLeftLiveOrdersDashboard)
+         UpdateLeftLiveOrdersDashboard(true);
+     }
+
+   if(ShowTopCenterDubaiTime)
+      UpdateTopCenterDubaiTimeDisplay(true);
+   ChartRedraw(0);
   }
 
 //+------------------------------------------------------------------+
@@ -15793,9 +15837,9 @@ void UpdateDashboardsThrottled(DailyProtectionState &state, bool force = false)
    LastDashboardUpdateMs  = now;
    LastDashboardUpdateSec = TimeCurrent();
 
-   if(ShowDashboard)
+   if(ShowDashboard && !g_dashboardsUserHidden)
       UpdateDashboard(state);
-   if(ShowLeftLiveOrdersDashboard)
+   if(ShowLeftLiveOrdersDashboard && !g_dashboardsUserHidden)
       UpdateLeftLiveOrdersDashboard(force);
    if(ShowTopCenterDubaiTime)
       UpdateTopCenterDubaiTimeDisplay(force);
@@ -27781,6 +27825,9 @@ double GetTotalLots(int orderType)
 //+------------------------------------------------------------------+
 void UpdateDashboard(DailyProtectionState &state)
   {
+   if(g_dashboardsUserHidden || !ShowDashboard)
+      return;
+
    UpdateOrderCacheIfNeeded();
    int totalOrders   = g_orderCache.totalOrders;
    int buyOrders     = g_orderCache.buyOrders;
@@ -29410,13 +29457,13 @@ void UpdateTopCenterDubaiTimeDisplay(bool force = false)
 
    // 1. Determine right boundary of Left Dashboard
    int leftEnd = 0;
-   if(ShowLeftLiveOrdersDashboard && ObjectFind(0, LEFT_LIVE_PREFIX + "HEADER") >= 0)
+   if(ShowLeftLiveOrdersDashboard && !g_dashboardsUserHidden && ObjectFind(0, LEFT_LIVE_PREFIX + "HEADER") >= 0)
      {
       int lX = (int)ObjectGetInteger(0, LEFT_LIVE_PREFIX + "HEADER", OBJPROP_XDISTANCE);
       int lW = (int)ObjectGetInteger(0, LEFT_LIVE_PREFIX + "HEADER", OBJPROP_XSIZE);
       leftEnd = lX + lW;
      }
-   else if(ShowLeftLiveOrdersDashboard)
+   else if(ShowLeftLiveOrdersDashboard && !g_dashboardsUserHidden)
      {
       int minLDWidth = (InpShowLeftDashDayEqTargetRow && InpLeftDashDayEqTargetFontSize >= 14) ? 740 : 560;
       leftEnd = LeftDashboardX + MathMax(LeftDashboardWidth + 230, minLDWidth);
@@ -29424,7 +29471,7 @@ void UpdateTopCenterDubaiTimeDisplay(bool force = false)
 
    // 2. Determine left boundary of Right Dashboard
    int rightStart = chartWidth;
-   if(ShowDashboard && ObjectFind(0, DASH_PREFIX + "HEADER") >= 0)
+   if(ShowDashboard && !g_dashboardsUserHidden && ObjectFind(0, DASH_PREFIX + "HEADER") >= 0)
      {
       int rX      = (int)ObjectGetInteger(0, DASH_PREFIX + "HEADER", OBJPROP_XDISTANCE);
       int rW      = (int)ObjectGetInteger(0, DASH_PREFIX + "HEADER", OBJPROP_XSIZE);
@@ -29434,7 +29481,7 @@ void UpdateTopCenterDubaiTimeDisplay(bool force = false)
       else
          rightStart = rX;
      }
-   else if(ShowDashboard)
+   else if(ShowDashboard && !g_dashboardsUserHidden)
      {
       int rW = MathMax(DashboardWidth, 355);
       rightStart = chartWidth - (DashboardRightGap + 10 + rW);
@@ -29447,6 +29494,15 @@ void UpdateTopCenterDubaiTimeDisplay(bool force = false)
      {
       DeleteTopCenterDubaiTimeObjects();
       DeleteTopCenterGapObjects();
+      if(ShowDashboardToggleButton)
+        {
+         int fbX = 10, fbY = 20, fbW = 145, fbH = 32;
+         string fbText = g_dashboardsUserHidden ? "SHOW DASHBOARD" : "HIDE DASHBOARD";
+         color  fbBg   = g_dashboardsUserHidden ? C'18,105,175' : C'35,50,75';
+         color  fbBrd  = g_dashboardsUserHidden ? clrAqua : C'85,125,175';
+         string fbTip  = g_dashboardsUserHidden ? "Dashboards are HIDDEN. Click to SHOW Left & Right Dashboards." : "Dashboards are VISIBLE. Click to HIDE Left & Right Dashboards.";
+         CreateTopCenterButton(BTN_TOP_DASHBOARD_TOGGLE, fbText, fbX, fbY, fbW, fbH, fbBg, clrWhite, fbBrd, fbTip);
+        }
       return;
      }
 
@@ -29457,68 +29513,82 @@ void UpdateTopCenterDubaiTimeDisplay(bool force = false)
       return;
    g_lastTopDubaiUpdateMs = nowMs;
 
-   int dubaiWidth  = 195;
-   int dubaiHeight = 38;
-   int btnWidth    = 170;
-   int btnHeight   = 38;
-   int gapWidth    = 360;
-   int gapHeight   = 38;
-   int gapSpacing  = 6;
-   int totalWidth  = dubaiWidth + gapSpacing + btnWidth + (ShowTopCenterRequiredGap ? (gapSpacing + gapWidth) : 0);
+   int dubaiWidth   = 195;
+   int dubaiHeight  = 38;
+   int btnWidth     = 170;
+   int btnHeight    = 38;
+   int toggleWidth  = (ShowDashboardToggleButton ? 145 : 0);
+   int toggleHeight = 38;
+   int gapWidth     = 360;
+   int gapHeight    = 38;
+   int gapSpacing   = 6;
+   int totalWidth   = dubaiWidth + gapSpacing + btnWidth + (ShowDashboardToggleButton ? (gapSpacing + toggleWidth) : 0) + (ShowTopCenterRequiredGap ? (gapSpacing + gapWidth) : 0);
 
-   int dubaiX = 10;
-   int dubaiY = MathMin(LeftDashboardY, DashboardTopGap);
-   int btnX   = 10;
-   int btnY   = dubaiY;
-   int gapX   = 10;
-   int gapY   = dubaiY;
+   int dubaiX  = 10;
+   int dubaiY  = MathMin(LeftDashboardY, DashboardTopGap);
+   int btnX    = 10;
+   int btnY    = dubaiY;
+   int toggleX = 10;
+   int toggleY = dubaiY;
+   int gapX    = 10;
+   int gapY    = dubaiY;
 
    if(ShowTopCenterRequiredGap)
      {
       if(rightStart > (leftEnd + totalWidth + 20))
         {
          int startX = (leftEnd + rightStart - totalWidth) / 2;
-         dubaiX = MathMax(10, startX);
-         btnX   = dubaiX + dubaiWidth + gapSpacing;
-         gapX   = btnX + btnWidth + gapSpacing;
-         btnY   = dubaiY;
-         gapY   = dubaiY;
+         dubaiX   = MathMax(10, startX);
+         btnX     = dubaiX + dubaiWidth + gapSpacing;
+         toggleX  = btnX + btnWidth + gapSpacing;
+         gapX     = toggleX + (ShowDashboardToggleButton ? (toggleWidth + gapSpacing) : 0);
+         btnY     = dubaiY;
+         toggleY  = dubaiY;
+         gapY     = dubaiY;
         }
-      else if(rightStart > (leftEnd + dubaiWidth + gapSpacing + btnWidth + 20))
+      else if(rightStart > (leftEnd + dubaiWidth + gapSpacing + btnWidth + (ShowDashboardToggleButton ? (gapSpacing + toggleWidth) : 0) + 20))
         {
-         int row1Width = dubaiWidth + gapSpacing + btnWidth;
+         int row1Width = dubaiWidth + gapSpacing + btnWidth + (ShowDashboardToggleButton ? (gapSpacing + toggleWidth) : 0);
          int startX = (leftEnd + rightStart - row1Width) / 2;
-         dubaiX = MathMax(10, startX);
-         btnX   = dubaiX + dubaiWidth + gapSpacing;
-         btnY   = dubaiY;
-         gapX   = MathMax(10, (leftEnd + rightStart - gapWidth) / 2);
-         gapY   = dubaiY + dubaiHeight + 4;
+         dubaiX   = MathMax(10, startX);
+         btnX     = dubaiX + dubaiWidth + gapSpacing;
+         toggleX  = btnX + btnWidth + gapSpacing;
+         btnY     = dubaiY;
+         toggleY  = dubaiY;
+         gapX     = MathMax(10, (leftEnd + rightStart - gapWidth) / 2);
+         gapY     = dubaiY + dubaiHeight + 4;
         }
       else
         {
-         dubaiX = 10;
-         btnX   = dubaiX + dubaiWidth + gapSpacing;
-         btnY   = dubaiY;
-         gapX   = 10;
-         gapY   = dubaiY + dubaiHeight + 4;
+         dubaiX   = 10;
+         btnX     = dubaiX + dubaiWidth + gapSpacing;
+         toggleX  = btnX + btnWidth + gapSpacing;
+         btnY     = dubaiY;
+         toggleY  = dubaiY;
+         gapX     = 10;
+         gapY     = dubaiY + dubaiHeight + 4;
         }
      }
    else
      {
-      // Required Gap is hidden: Dubai Time + Single Status/Toggle Button centered cleanly between dashboards
-      int rowWidth = dubaiWidth + gapSpacing + btnWidth;
+      // Required Gap is hidden: Dubai Time + Single Status/Toggle Button + SHOW/HIDE Dashboard Button centered cleanly
+      int rowWidth = dubaiWidth + gapSpacing + btnWidth + (ShowDashboardToggleButton ? (gapSpacing + toggleWidth) : 0);
       if(rightStart > (leftEnd + rowWidth + 20))
         {
          int startX = (leftEnd + rightStart - rowWidth) / 2;
-         dubaiX = MathMax(10, startX);
-         btnX   = dubaiX + dubaiWidth + gapSpacing;
-         btnY   = dubaiY;
+         dubaiX   = MathMax(10, startX);
+         btnX     = dubaiX + dubaiWidth + gapSpacing;
+         toggleX  = btnX + btnWidth + gapSpacing;
+         btnY     = dubaiY;
+         toggleY  = dubaiY;
         }
       else
         {
-         dubaiX = 10;
-         btnX   = dubaiX + dubaiWidth + gapSpacing;
-         btnY   = dubaiY;
+         dubaiX   = 10;
+         btnX     = dubaiX + dubaiWidth + gapSpacing;
+         toggleX  = btnX + btnWidth + gapSpacing;
+         btnY     = dubaiY;
+         toggleY  = dubaiY;
         }
       DeleteTopCenterGapObjects();
      }
@@ -29654,6 +29724,39 @@ void UpdateTopCenterDubaiTimeDisplay(bool force = false)
 
    CreateTopCenterButton(topBtnName, topBtnText, btnX, btnY, btnWidth, btnHeight, topBtnBg, topBtnTxt, topBtnBrd, topBtnTooltip);
 
+   // --- BUTTON 2: SHOW/HIDE DASHBOARD BUTTON ---
+   if(ShowDashboardToggleButton)
+     {
+      string toggleBtnText;
+      color  toggleBtnBg;
+      color  toggleBtnTxt;
+      color  toggleBtnBrd;
+      string toggleBtnTooltip;
+
+      if(g_dashboardsUserHidden)
+        {
+         toggleBtnText    = "SHOW DASHBOARD";
+         toggleBtnBg      = C'18,105,175'; // Vibrant Marine Blue
+         toggleBtnTxt     = clrWhite;
+         toggleBtnBrd     = clrAqua;
+         toggleBtnTooltip = "Dashboards are currently HIDDEN. Click to SHOW Left & Right Dashboards.";
+        }
+      else
+        {
+         toggleBtnText    = "HIDE DASHBOARD";
+         toggleBtnBg      = C'35,50,75';   // Slate Dark Navy
+         toggleBtnTxt     = clrWhite;
+         toggleBtnBrd     = C'85,125,175'; // Slate Blue border
+         toggleBtnTooltip = "Dashboards are currently VISIBLE. Click to HIDE Left & Right Dashboards.";
+        }
+
+      CreateTopCenterButton(BTN_TOP_DASHBOARD_TOGGLE, toggleBtnText, toggleX, toggleY, toggleWidth, toggleHeight, toggleBtnBg, toggleBtnTxt, toggleBtnBrd, toggleBtnTooltip);
+     }
+   else
+     {
+      ObjectDelete(0, BTN_TOP_DASHBOARD_TOGGLE);
+     }
+
    // Clean up obsolete second button from chart if it exists
    ObjectDelete(0, BTN_TOP_PAUSE_DAY);
 
@@ -29742,6 +29845,9 @@ struct LeftDashOrderSnapshot
 //+------------------------------------------------------------------+
 void UpdateLeftLiveOrdersDashboard(bool force = false)
   {
+   if(g_dashboardsUserHidden || !ShowLeftLiveOrdersDashboard)
+      return;
+
    uint nowMs = GetTickCount();
    uint minInterval = IsTesting() ? 1000 : 500;
    if(!force && g_lastLeftDashUpdateMs != 0 && (uint)(nowMs - g_lastLeftDashUpdateMs) < minInterval)
