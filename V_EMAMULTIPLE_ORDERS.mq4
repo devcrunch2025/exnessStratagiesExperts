@@ -42,7 +42,7 @@ CheckBasketProfitClose  Total open basket profit
 */
 
 
-string glbVersion = "VMULTI-1269- Hide dashboard and icons when trading paused in tester";
+string glbVersion = "VMULTI-1270- Dubai 16:00 fresh trading start at any situation";
 
 int AccountMultiplierLOT = 1000;//400;//200;//500; ALWAYS multiples of 1000 is better for best results
 //balance multiplier 
@@ -13684,76 +13684,57 @@ void CheckForNewDay()
 
    if(today != g_dayNumber)
    {
-      // NEW TRADING DAY (DUBAI 16:00)
+      // NEW TRADING DAY (DUBAI 16:00 - FRESH START IN ANY SITUATION)
       bool isFirstStart               = (g_dayNumber == -1);
       bool wasTargetHitYesterday      = g_dailyEquityTargetHitToday;
       bool wasAdverseLossHitYesterday = g_dailyEquityAdverseLossHitToday;
       int  prevDayKey                 = g_dayNumber;
       g_dayNumber                     = today;
 
-      if(isFirstStart || g_dayOpeningBalance <= 0.0)
-      {
-         // Fresh EA startup / first day initialization
-         if(curBal > 0.0)
-         {
-            g_dayOpeningBalance     = curBal;
-            g_dubaiDayOpeningEquity = g_dayOpeningBalance;
-            PrintFormat(">>> [NEW TRADING DAY (Dubai 16:00)] DayKey=%d | DubaiTime=%s | Fresh Initial Day Base = $%.2f",
-                        today, TimeToString(dubaiTime, TIME_DATE|TIME_MINUTES|TIME_SECONDS), g_dayOpeningBalance);
-         }
-         else
-         {
-            PrintFormat(">>> [NEW TRADING DAY (Dubai 16:00)] DayKey=%d | DubaiTime=%s | Broker connecting (AccountBalance=$0.00). Base init deferred.",
-                        today, TimeToString(dubaiTime, TIME_DATE|TIME_MINUTES|TIME_SECONDS));
-         }
-      }
-      else if(wasTargetHitYesterday)
-      {
-         // USER RULE: Day Equity Target was HIT yesterday -> Increase base amount to current balance!
-         double prevBase = g_dayOpeningBalance;
-         g_dayOpeningBalance     = curBal;
-         g_dubaiDayOpeningEquity = g_dayOpeningBalance;
-         PrintFormat(">>> [NEW TRADING DAY (Dubai 16:00)] DayKey=%d | DubaiTime=%s | DAY EQUITY TARGET WAS HIT! Increasing Base: $%.2f -> $%.2f (New Tgt: $%.2f)",
-                     today, TimeToString(dubaiTime, TIME_DATE|TIME_MINUTES|TIME_SECONDS),
-                     prevBase, g_dayOpeningBalance, g_dayOpeningBalance + (DailyEquityStopUSD * balancelomultipler));
-      }
-      else if(wasAdverseLossHitYesterday)
-      {
-         // Adverse Day Loss was HIT yesterday (-$200 stop) -> Reset base to current balance to give fresh risk protection band
-         double prevBase = g_dayOpeningBalance;
-         g_dayOpeningBalance     = curBal;
-         g_dubaiDayOpeningEquity = g_dayOpeningBalance;
-         PrintFormat(">>> [NEW TRADING DAY (Dubai 16:00)] DayKey=%d | DubaiTime=%s | ADVERSE LOSS HIT yesterday! Resetting Base: $%.2f -> $%.2f",
-                     today, TimeToString(dubaiTime, TIME_DATE|TIME_MINUTES|TIME_SECONDS),
-                     prevBase, g_dayOpeningBalance);
-      }
-      else
-      {
-         // USER RULE: Day Equity Target was NOT hit yesterday -> DO NOT INCREASE BASE AMOUNT!
-         PrintFormat(">>> [NEW TRADING DAY (Dubai 16:00)] DayKey=%d | DubaiTime=%s | Day Target NOT hit yesterday! Keeping Base: $%.2f (CurBal=$%.2f). Target stays: $%.2f",
-                     today, TimeToString(dubaiTime, TIME_DATE|TIME_MINUTES|TIME_SECONDS),
-                     g_dayOpeningBalance, curBal, g_dayOpeningBalance + (DailyEquityStopUSD * balancelomultipler));
-         // g_dayOpeningBalance and g_dubaiDayOpeningEquity remain unchanged!
-      }
+      double prevBase                 = g_dayOpeningBalance;
+      // User Rule (V-SMALL-1025 / VMULTI-1270):
+      // Start trading freshly at Dubai trading time (16:00) in ANY situation!
+      // Always reset day opening base to current available balance/equity:
+      double freshBase = (curBal > 0.0) ? curBal : ((AccountEquity() > 0.0) ? AccountEquity() : prevBase);
+      g_dayOpeningBalance     = freshBase;
+      g_dubaiDayOpeningEquity = freshBase;
 
-      // 2ND TIME: When day changed Dubai time (Dubai 16:00 trading day key)
       // USER RULE: On day change Dubai market opening time, change/update balance multiplier based on equity available
-      double eqAvailable = (AccountEquity() > 0.0) ? AccountEquity() : curBal;
+      double eqAvailable = (AccountEquity() > 0.0) ? AccountEquity() : freshBase;
       int lotMultiplierDivDay = (AccountMultiplierLOT > 0) ? AccountMultiplierLOT : 1001;
       balancelomultipler = (int)MathRound(eqAvailable / (double)lotMultiplierDivDay);
       if(balancelomultipler <= 0)
          balancelomultipler = 1;
 
+      // User Choice: Keep open market positions running into the new session, but delete pending orders
+      int deletedPending = 0;
+      for(int p_i = OrdersTotal() - 1; p_i >= 0; p_i--)
+      {
+         if(!OrderSelect(p_i, SELECT_BY_POS, MODE_TRADES))
+            continue;
+         if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber)
+            continue;
+         int oType = OrderType();
+         if(oType == OP_BUYSTOP || oType == OP_SELLSTOP || oType == OP_BUYLIMIT || oType == OP_SELLLIMIT)
+         {
+            int pTkt = OrderTicket();
+            ResetLastError();
+            if(OrderDelete(pTkt, clrGray))
+               deletedPending++;
+         }
+      }
+
       bool wasPausedAtDayChange = (g_dailyEquityTradingBlocked || DayProfitLadderTradingStopped || TradingHaltedUntilNextFlip);
 
-      // Reset daily protection & pause flags (Pause Duration till next day Dubai 16:00)
+      // Reset ALL daily protection, pause, halt, retrace & trailing leg states to guarantee FRESH ACTIVE trading
       g_manualTradingPaused            = false;
       g_dailyEquityTradingBlocked      = false;
       g_dailyEquityTargetHitToday      = false;
       g_dailyEquityAdverseLossHitToday = false;
       DayProfitLadderTradingStopped    = false;
       TradingHaltedUntilNextFlip       = false;
-      g_dailyEquityPeakEquity          = 0.0;
+      EnableTrading                    = true;
+      g_dailyEquityPeakEquity          = g_dayOpeningBalance;
       g_dailyEquityNextStepTarget      = 0.0;
       g_dailyEquityStepCount           = 0;
       g_dayTargetStartTime             = TimeCurrent();
@@ -13761,7 +13742,7 @@ void CheckForNewDay()
       g_dailyEquityPauseTime           = 0;
       g_dailyEquityPauseSSLDirection   = 0;
       g_dailyEquityPauseSslFlipped     = false;
-      g_dailyEquityIsResumedLeg        = false;
+      g_dailyEquityIsResumedLeg        = false; // Reset trailing/resumed leg to Phase 1 fresh day target!
       g_dailyEquityResumedStepHit      = false;
       g_dailyEquityResumeEquity        = 0.0;
       g_dailyEquityResumeSafetyFloor   = 0.0;
@@ -13773,14 +13754,15 @@ void CheckForNewDay()
       if(wasPausedAtDayChange)
         {
          g_lastTradingResumeTime   = serverTime;
-         g_lastTradingResumeReason = "NEW DUBAI DAY (16:00)";
+         g_lastTradingResumeReason = "NEW DUBAI DAY (16:00 FRESH START)";
          CreateTradingResumeChartIcon("NEW DUBAI DAY", eqAvailable);
         }
       UpdateTopCenterDubaiTimeDisplay(true);
 
-      PrintFormat(">>> [NEW TRADING DAY DETECTED (Dubai 16:00)] DayKey=%d | DubaiTime=%s | Day Opening Base = $%.2f (Target = $%.2f, Mult = %d [AvailEq=$%.2f]) | Pause Duration Reset -> Trading Active",
-                  today, TimeToString(dubaiTime, TIME_DATE|TIME_MINUTES|TIME_SECONDS), g_dayOpeningBalance,
-                  g_dayOpeningBalance + (DailyEquityStopUSD * balancelomultipler), balancelomultipler, eqAvailable);
+      PrintFormat(">>> [NEW TRADING DAY (Dubai 16:00 - FRESH START)] DayKey=%d | DubaiTime=%s | Fresh Base=$%.2f (Prev=$%.2f) | Target=$%.2f (+Target=$%.2f) | Mult=%d [AvailEq=$%.2f] | Stale Pending Deleted=%d | Status: ACTIVE",
+                  today, TimeToString(dubaiTime, TIME_DATE|TIME_MINUTES|TIME_SECONDS), g_dayOpeningBalance, prevBase,
+                  g_dayOpeningBalance + (DailyEquityStopUSD * balancelomultipler), DailyEquityStopUSD * balancelomultipler,
+                  balancelomultipler, eqAvailable, deletedPending);
    }
 }
 //+------------------------------------------------------------------+
