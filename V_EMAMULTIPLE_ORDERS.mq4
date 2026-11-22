@@ -42,7 +42,7 @@ CheckBasketProfitClose  Total open basket profit
 */
 
 
-string glbVersion = "VMULTI-1265- Dynamic hourly target decay & reversal protection";
+string glbVersion = "VMULTI-1266- Move HIDE DASHBOARD button to left side before Dubai time";
 
 int AccountMultiplierLOT = 1000;//400;//200;//500; ALWAYS multiples of 1000 is better for best results
 //balance multiplier 
@@ -29763,23 +29763,31 @@ void UpdateTopCenterDubaiTimeDisplay(bool force = false)
       toggleWidth = btnWidth;
       int totalBtns = btnWidth + gapSpacing + toggleWidth;
       int startX = leftEnd + MathMax(2, (availGap - totalBtns) / 2);
-      btnX = startX;
-      toggleX = btnX + btnWidth + gapSpacing;
+      toggleX = startX;
+      btnX = toggleX + toggleWidth + gapSpacing;
       btnY = dubaiY;
       toggleY = dubaiY;
      }
    else
      {
-      int totalWidth = dubaiWidth + gapSpacing + btnWidth + (ShowDashboardToggleButton ? (gapSpacing + toggleWidth) : 0);
+      int totalWidth = (ShowDashboardToggleButton ? (toggleWidth + gapSpacing) : 0) + dubaiWidth + gapSpacing + btnWidth;
       int startX = 10;
       if(g_dashboardsUserHidden)
          startX = MathMax(10, (chartWidth - totalWidth) / 2);
       else
          startX = leftEnd + MathMax(2, (availGap - totalWidth) / 2);
 
-      dubaiX   = MathMax(10, startX);
+      if(ShowDashboardToggleButton)
+        {
+         toggleX  = MathMax(10, startX);
+         dubaiX   = toggleX + toggleWidth + gapSpacing;
+        }
+      else
+        {
+         toggleX  = MathMax(10, startX);
+         dubaiX   = MathMax(10, startX);
+        }
       btnX     = dubaiX + dubaiWidth + gapSpacing;
-      toggleX  = btnX + btnWidth + gapSpacing;
       btnY     = dubaiY;
       toggleY  = dubaiY;
       DeleteTopCenterGapObjects();
