@@ -43,7 +43,7 @@ CheckBasketProfitClose  Total open basket profit
 
 */
 
-string glbVersion = "V-SMALL-1047- Disable Opposite-Line Directional Shield on Horizontal Lines";
+string glbVersion = "V-SMALL-1048- Allow Horizontal Orders on All Angles if EMA is Weak";
 
 int AccountMultiplierLOT = 500;//100;//1000;//400;//200;//500; ALWAYS multiples of 1000 is better for best results
 //balance multiplier
@@ -15519,12 +15519,14 @@ void OnTick()
    SyncHorizontalLineStartPendingCleanup();
 // ManageLsdSweepLineStopLossProtection(); // DISABLED: LSD Sweep lines only create FlipBasketSupport, DO NOT modify/close orders
 
-   if(MathAbs(GlobalEmaAngle30) <= 3 && EMADirection == -1)
+   bool isEmaWeakH = IsEmaWEAKDistanceReduced50PercentFromPeak();
+
+   if((MathAbs(GlobalEmaAngle30) <= 3.0 || isEmaWeakH) && EMADirection == -1)
      {
       CheckNewGreenLineCloseSellAndOpenBuy(); // USER RULE: On new EQH-G green line: close SELL if loss < $1*mult & open SSL Long 0.02*mult
      }
 
-   if(MathAbs(GlobalEmaAngle30) <= 3 && EMADirection == 1)
+   if((MathAbs(GlobalEmaAngle30) <= 3.0 || isEmaWeakH) && EMADirection == 1)
      {
       CheckNewRedLineCloseBuyAndOpenSell();
      }
