@@ -42,7 +42,7 @@ CheckBasketProfitClose  Total open basket profit
 */
 
 
-string glbVersion = "VMULTI-1275- Method 6: Close Winner at Market & Create Pending Order with Regular SSL Gap";
+string glbVersion = "VMULTI-1276- Display Day Reset Session Time 10AM/4PM in Dubai Time Button";
 
 int AccountMultiplierLOT = 1000;//400;//200;//500; ALWAYS multiples of 1000 is better for best results
 //balance multiplier 
@@ -665,6 +665,18 @@ string GetDayStartSessionModeName()
    if(mode == DAY_START_BOTH_1000_1600)
       return "Both Sessions (10:00 & 16:00)";
    return "Dubai 16:00";
+  }
+
+string GetDayStartSessionShortTag()
+  {
+   int mode = GetEffectiveDayStartSessionMode();
+   if(mode == DAY_START_DUBAI_1600)
+      return "4PM";
+   if(mode == DAY_START_DUBAI_1000)
+      return "10AM";
+   if(mode == DAY_START_BOTH_1000_1600)
+      return "10AM/4PM";
+   return "4PM";
   }
 
 string GetActiveSessionResumeReason(datetime dubaiTime)
@@ -30125,8 +30137,9 @@ void UpdateTopCenterDubaiTimeDisplay(bool force = false)
       datetime nowServer = TimeCurrent();
       datetime dubaiTime = (nowServer > 0) ? (nowServer + (ServerToDubaiOffsetHours * 3600)) : 0;
       string   clockStr  = (dubaiTime > 0) ? TimeToString(dubaiTime, TIME_DATE|TIME_MINUTES|TIME_SECONDS) : "--:--:--";
-      string   headerStr = "DUBAI TIME (UTC+4)";
-      string   dubaiTooltip = StringFormat("Dubai GST (UTC+4) | Day Rollover: 16:00 Dubai | Server Offset: %+dh", ServerToDubaiOffsetHours);
+      string   sessionTag = GetDayStartSessionShortTag();
+      string   headerStr = StringFormat("DUBAI TIME (%s)", sessionTag);
+      string   dubaiTooltip = StringFormat("Dubai GST (UTC+4) | Day Reset: %s Dubai | Server Offset: %+dh", sessionTag, ServerToDubaiOffsetHours);
 
       CreateTopCenterDubaiLabel(TOP_CENTER_DUBAI_PREFIX + "TITLE", headerStr, dubaiMidX, dubaiY + 4,  8, C'175,220,255', "Arial");
       CreateTopCenterDubaiLabel(TOP_CENTER_DUBAI_PREFIX + "CLOCK", clockStr,  dubaiMidX, dubaiY + 18, 9, clrWhite,       "Consolas");
