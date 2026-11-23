@@ -42,7 +42,7 @@ CheckBasketProfitClose  Total open basket profit
 */
 
 
-string glbVersion = "VMULTI-1282- Basket Loss De-Risk and Breakeven Protection at $50 Profit";
+string glbVersion = "VMULTI-1283- Double Pending Order Gap on Basket Floating Loss <= -$10";
 
 int AccountMultiplierLOT = 1000;//400;//200;//500; ALWAYS multiples of 1000 is better for best results
 //balance multiplier 
@@ -608,6 +608,7 @@ void     CreateDeepDrawdownClampedChartIcon(double curEq, double recTarget, doub
 void     CreateDeepDrawdownEndChartIcon(double finalBal);
 void     DeleteDeepDrawdownChartIcons();
 void     CheckBasketLossDeRiskAndBreakevenProtection();
+double   GetSSLLongShortPendingGapRaw(int orderType, bool logMessage = false);
 void     CreateDashboardButton(string name, string text, int x, int y, int width, int height, color bgColor, color textColor, color borderColor);
 void     UpdateLiquiditySweepDetectorOnChart();
 void     DeleteLiquiditySweepObjects();
@@ -876,6 +877,9 @@ double MinimumClosedProfitUSD = -9;
 double ProfitReEntryGapRaw =30;//50;//30;//10;// 25;
 double MinimumSameOrderGapRawReEntry =50;//30;//10;//20;// 50;
 double SSLLongShortPendingGapRaw = 20.0; // Raw price gap ($20) for SSL Long / Short pending stop orders
+input bool   InpEnablePendingGapDoubleOnLoss     = true;  // Double pending order gap when directional basket loss <= -$10 * mult
+input double InpPendingGapDoubleLossThresholdUSD = 10.0;  // Basket floating loss threshold ($10 * multiplier) to double pending gap
+input double InpPendingGapLossMultiplier         = 2.0;   // Pending gap multiplier on basket loss threshold (2.0 = double)
 // double MinimumSameOrderGapRawSSLLongShort =50;// 50;
 double MinimumSameOrderGapRawMatched =50;//30;//50;//100;//50;//30;//10;//20;//50;//20;// 50;//SSL long //SSL short
 double MinimumSameOrderGapRawUnmatched =50;//10;//10;//20;// 100;
@@ -9658,7 +9662,7 @@ void CreateMethod6PendingOrderAfterClose(int winType)
      }
 
    RefreshRates();
-   double pendingGap = (SSLLongShortPendingGapRaw > 0.0) ? SSLLongShortPendingGapRaw : 20.0;
+   double pendingGap = GetSSLLongShortPendingGapRaw(winType, true);
    double minStopDist = GetRequiredStopDistance();
    double entryPrice = 0.0;
    double stopLoss = 0.0;
@@ -16311,7 +16315,7 @@ bool HasMinimumSameOrderGap(int orderType, double minimumGapRaw, double proposed
    double checkPrice = proposedEntryPrice;
    if(checkPrice <= 0.0)
      {
-      double pendingGap = (SSLLongShortPendingGapRaw > 0.0) ? SSLLongShortPendingGapRaw : 20.0;
+      double pendingGap = GetSSLLongShortPendingGapRaw(orderType, false);
       double minStopDist = GetRequiredStopDistance();
       if(isBuy)
         {
@@ -26543,6 +26547,53 @@ int GetTotalEAOrders()
 void InvalidateTotalEAOrdersCache() { InvalidateOrderCache(); }
 
 //+------------------------------------------------------------------+
+//| GetSSLLongShortPendingGapRaw                                     |
+//| Calculates the raw price gap for SSL pending stop orders.        |
+//| USER RULE: If directional basket loss <= -$10 * mult:            |
+//| BUY pending gap is doubled, SELL pending gap is doubled.         |
+//+------------------------------------------------------------------+
+double GetSSLLongShortPendingGapRaw(int orderType, bool logMessage = false)
+{
+   double baseGap = (SSLLongShortPendingGapRaw > 0.0) ? SSLLongShortPendingGapRaw : 20.0;
+   if(!InpEnablePendingGapDoubleOnLoss)
+      return baseGap;
+
+   int mult = (balancelomultipler > 0) ? balancelomultipler : 1;
+   double lossThreshold = InpPendingGapDoubleLossThresholdUSD * mult;
+
+   if(orderType == OP_BUY || orderType == OP_BUYSTOP || orderType == OP_BUYLIMIT)
+   {
+      double buyPL = GetOpenPL(OP_BUY);
+      if(buyPL <= -lossThreshold)
+      {
+         double doubledGap = baseGap * InpPendingGapLossMultiplier;
+         if(logMessage)
+         {
+            PrintFormat(">>> [PENDING GAP DOUBLED] BUY Basket Loss=$%.2f <= -$%.2f | Doubled pending order gap from $%.0f to $%.0f",
+                        buyPL, lossThreshold, baseGap, doubledGap);
+         }
+         return doubledGap;
+      }
+   }
+   else if(orderType == OP_SELL || orderType == OP_SELLSTOP || orderType == OP_SELLLIMIT)
+   {
+      double sellPL = GetOpenPL(OP_SELL);
+      if(sellPL <= -lossThreshold)
+      {
+         double doubledGap = baseGap * InpPendingGapLossMultiplier;
+         if(logMessage)
+         {
+            PrintFormat(">>> [PENDING GAP DOUBLED] SELL Basket Loss=$%.2f <= -$%.2f | Doubled pending order gap from $%.0f to $%.0f",
+                        sellPL, lossThreshold, baseGap, doubledGap);
+         }
+         return doubledGap;
+      }
+   }
+
+   return baseGap;
+}
+
+//+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
 void OpenBuy(string MOMorder="")
@@ -26560,7 +26611,7 @@ void OpenBuy(string MOMorder="")
 
      }
    RefreshRates();
-   double pendingGap = (SSLLongShortPendingGapRaw > 0.0) ? SSLLongShortPendingGapRaw : 20.0;
+   double pendingGap = GetSSLLongShortPendingGapRaw(OP_BUY, true);
    double minStopDist = GetRequiredStopDistance();
    double entryPrice = Ask + pendingGap;
    if(entryPrice < Ask + minStopDist)
@@ -26637,7 +26688,7 @@ void OpenSell(string MOMorder="")
 
      }
    RefreshRates();
-   double pendingGap = (SSLLongShortPendingGapRaw > 0.0) ? SSLLongShortPendingGapRaw : 20.0;
+   double pendingGap = GetSSLLongShortPendingGapRaw(OP_SELL, true);
    double minStopDist = GetRequiredStopDistance();
    double entryPrice = Bid - pendingGap;
    if(entryPrice > Bid - minStopDist)
@@ -29562,19 +29613,23 @@ void UpdateDashboard(DailyProtectionState &state)
       else
          if(pendingBuyCount > 0 && pendingSellCount > 0)
            {
-            spcSummary = StringFormat("BUY & SELL STOPS Active ($%.0f Gap)", SSLLongShortPendingGapRaw);
+            double actBGap = GetSSLLongShortPendingGapRaw(OP_BUY, false);
+            double actSGap = GetSSLLongShortPendingGapRaw(OP_SELL, false);
+            spcSummary = StringFormat("BUY ($%.0f) & SELL ($%.0f) STOPS Active", actBGap, actSGap);
             spcColor = clrGold;
            }
          else
             if(pendingBuyCount > 0)
               {
-               spcSummary = StringFormat("BUY STOP @ %." + IntegerToString(Digits) + "f ($%.0f Gap)", pendingBuyPrice, SSLLongShortPendingGapRaw);
+               double actBGap = GetSSLLongShortPendingGapRaw(OP_BUY, false);
+               spcSummary = StringFormat("BUY STOP @ %." + IntegerToString(Digits) + "f ($%.0f Gap%s)", pendingBuyPrice, actBGap, (actBGap > SSLLongShortPendingGapRaw ? " [2X]" : ""));
                spcColor = clrDeepSkyBlue;
               }
             else
                if(pendingSellCount > 0)
                  {
-                  spcSummary = StringFormat("SELL STOP @ %." + IntegerToString(Digits) + "f ($%.0f Gap)", pendingSellPrice, SSLLongShortPendingGapRaw);
+                  double actSGap = GetSSLLongShortPendingGapRaw(OP_SELL, false);
+                  spcSummary = StringFormat("SELL STOP @ %." + IntegerToString(Digits) + "f ($%.0f Gap%s)", pendingSellPrice, actSGap, (actSGap > SSLLongShortPendingGapRaw ? " [2X]" : ""));
                   spcColor = clrTomato;
                  }
                else
