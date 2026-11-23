@@ -30232,10 +30232,10 @@ void UpdateTopCenterDubaiTimeDisplay(bool force = false)
         {
          // Skip heavy dynamic gap / iCustom calculations while daily trading is paused
          buyGapStr    = "TRADING PAUSED (DAILY TARGET HIT)";
-         sellGapStr   = StringFormat("WAITING FOR NEXT SESSION (DUBAI %s)", GetNextSessionWaitHourStr(dashDubaiTime));
+         sellGapStr   = StringFormat("WAITING FOR NEXT SESSION (DUBAI %s)", GetNextSessionWaitHourStr());
          buyGapColor  = clrGold;
          sellGapColor = C'175,220,255';
-         gapTooltip   = StringFormat("Daily Equity Stop Hit - Trading Paused Until Next Session Dubai %s", GetNextSessionWaitHourStr(dashDubaiTime));
+         gapTooltip   = StringFormat("Daily Equity Stop Hit - Trading Paused Until Next Session Dubai %s", GetNextSessionWaitHourStr());
         }
       else
         {
@@ -30342,9 +30342,9 @@ void UpdateDayEquityTargetBarStandalone()
       deqBarClr    = C'50,15,15';
       deqTxtClr    = clrWhite;
       if(g_dailyEquityAdverseLossHitToday)
-         deqRightTxt  = StringFormat("P/L:%s$%.2f  PAUSED AT -$%.0f LOSS (TILL %s)", deqSign, deqProfit, DailyEquityMaxLossUSD * deqMult, GetNextSessionWaitHourStr(dashDubaiTime));
+         deqRightTxt  = StringFormat("P/L:%s$%.2f  PAUSED AT -$%.0f LOSS (TILL %s)", deqSign, deqProfit, DailyEquityMaxLossUSD * deqMult, GetNextSessionWaitHourStr());
       else
-         deqRightTxt  = StringFormat("P/L:%s$%.2f  PAUSED AT %.0f%% RETRACE (TILL %s)", deqSign, deqProfit, deqFloorPct, GetNextSessionWaitHourStr(dashDubaiTime));
+         deqRightTxt  = StringFormat("P/L:%s$%.2f  PAUSED AT %.0f%% RETRACE (TILL %s)", deqSign, deqProfit, deqFloorPct, GetNextSessionWaitHourStr());
       deqRightClr  = clrTomato;
 
       double pauseBaseUSD = (g_dailyEquityIsResumedLeg && g_dailyEquityResumeEquity > 0.0) ? g_dailyEquityResumeEquity : deqOpenBase;
@@ -31449,9 +31449,9 @@ void UpdateLeftLiveOrdersDashboard(bool force = false)
          deqBarClr    = C'50,15,15';
          deqTxtClr    = clrWhite;
          if(g_dailyEquityAdverseLossHitToday)
-            deqRightTxt  = StringFormat("P/L:%s$%.2f  PAUSED AT -$%.0f LOSS (TILL %s)", deqSign, deqProfit, DailyEquityMaxLossUSD * deqMult, GetNextSessionWaitHourStr(dashDubaiTime));
+            deqRightTxt  = StringFormat("P/L:%s$%.2f  PAUSED AT -$%.0f LOSS (TILL %s)", deqSign, deqProfit, DailyEquityMaxLossUSD * deqMult, GetNextSessionWaitHourStr(dDubaiTime));
          else
-            deqRightTxt  = StringFormat("P/L:%s$%.2f  PAUSED AT %.0f%% RETRACE (TILL %s)", deqSign, deqProfit, deqFloorPct, GetNextSessionWaitHourStr(dashDubaiTime));
+            deqRightTxt  = StringFormat("P/L:%s$%.2f  PAUSED AT %.0f%% RETRACE (TILL %s)", deqSign, deqProfit, deqFloorPct, GetNextSessionWaitHourStr(dDubaiTime));
          deqRightClr  = clrTomato;
 
          double pauseBaseUSD = (g_dailyEquityIsResumedLeg && g_dailyEquityResumeEquity > 0.0) ? g_dailyEquityResumeEquity : deqOpenBase;
