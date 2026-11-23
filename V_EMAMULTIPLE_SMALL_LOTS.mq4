@@ -43,7 +43,7 @@ CheckBasketProfitClose  Total open basket profit
 
 */
 
-string glbVersion = "V-SMALL-1034- Set Deep Drawdown Arm Threshold to 50% Account Balance";
+string glbVersion = "V-SMALL-1035- Display Chart Icon on V-Equity Armed and Clamped";
 
 int AccountMultiplierLOT = 500;//100;//1000;//400;//200;//500; ALWAYS multiples of 1000 is better for best results
 //balance multiplier 
@@ -56,7 +56,7 @@ double DailyEquityRetraceFloorPct  = 50.0; // Baseline retrace floor % (Dynamic 
 double DailyEquityMaxLossUSD       = 1000;//200.0; // Adverse Day Protection (): Close all orders & pause trading till next day Dubai 16:00 if day equity drops 
 bool   ResumeDayTradingOnEmaDirectionChange =false;// true; // Auto-resume Day Equity trading when EMAdirection changed
 bool   ResumeDayTradingOnStrongAngleSSL     = true;//false;//true; // Option 5 (Choice A): Auto-resume when EMA Angle >= 3.0 and SSL matches EMA direction
-double ResumeDayTradingMinEmaAngle          = 3;//2;//3;//5;//4;//3;//2;//3.0;  // Minimum MathAbs(GlobalEmaAngle30) for strong trend (Default: 3.0 deg)
+double ResumeDayTradingMinEmaAngle          = 2;//3;//2;//3;//5;//4;//3;//2;//3.0;  // Minimum MathAbs(GlobalEmaAngle30) for strong trend (Default: 3.0 deg)
 int    ResumeDayTradingMinCooldownMin      = 10;   // Minimum cooldown buffer minutes after Retrace Floor Stop (e.g. 10m)
 enum ENUM_RESUME_DAY_MODE
   {
@@ -594,6 +594,9 @@ bool     IsBuySignal(int shift);
 bool     IsSellSignal(int shift);
 void     CreateTradingResumeChartIcon(string reason, double curEq);
 void     DeleteTradingResumeChartIcon();
+void     CreateDeepDrawdownArmedChartIcon(double startBal, double lowestEq, double gap, double recTarget);
+void     CreateDeepDrawdownClampedChartIcon(double curEq, double recTarget);
+void     DeleteDeepDrawdownChartIcons();
 void     CreateDashboardButton(string name, string text, int x, int y, int width, int height, color bgColor, color textColor, color borderColor);
 void     UpdateLiquiditySweepDetectorOnChart();
 void     DeleteLiquiditySweepObjects();
@@ -2573,6 +2576,7 @@ void HideAllVisualsAndIconsInTestingPaused()
    ClearEMALineObjects();
    DeleteLiquiditySweepObjects();
    DeleteTradingResumeChartIcon();
+   DeleteDeepDrawdownChartIcons();
    ChartRedraw(0);
   }
 
@@ -13464,6 +13468,131 @@ void DeleteTradingResumeChartIcon()
      }
   }
 
+//+------------------------------------------------------------------+
+//| CreateDeepDrawdownArmedChartIcon                                 |
+//| Displays an icon and bold text label on the chart to indicate    |
+//| that the V-Shape Equity Recovery Shield is ARMED.                |
+//+------------------------------------------------------------------+
+void CreateDeepDrawdownArmedChartIcon(double startBal, double lowestEq, double gap, double recTarget)
+{
+   datetime barTime = Time[0];
+   double atr = iATR(Symbol(), Period(), 14, 0);
+   if(atr <= 0.0)
+      atr = 50.0 * Point;
+
+   double markerPrice = Low[0] - (atr * 0.25);
+   double labelPrice  = markerPrice - (atr * 0.45);
+
+   static int armedIconSeq = 0;
+   armedIconSeq++;
+   string baseName = PREFIX + "V_ARMED_" + IntegerToString(TimeCurrent()) + "_" + IntegerToString(armedIconSeq);
+   string txtName  = baseName + "_TXT";
+
+   color iconColor = clrGold;
+   int   iconCode  = 217; // Wingdings 217 = thick up arrow pointing to recovery
+
+   // 1. Solid Marker Icon on candle
+   ObjectCreate(0, baseName, OBJ_ARROW, 0, barTime, markerPrice);
+   ObjectSetInteger(0, baseName, OBJPROP_ARROWCODE, iconCode);
+   ObjectSetInteger(0, baseName, OBJPROP_COLOR, iconColor);
+   ObjectSetInteger(0, baseName, OBJPROP_WIDTH, 4);
+   ObjectSetInteger(0, baseName, OBJPROP_BACK, false);
+   ObjectSetInteger(0, baseName, OBJPROP_SELECTABLE, false);
+   ObjectSetInteger(0, baseName, OBJPROP_HIDDEN, false);
+
+   string tooltip = StringFormat("V-Shape Equity Shield ARMED | StartBal=$%.2f | LowEq=$%.2f | Gap=-$%.2f (>=50%% Bal) | Bounce Target: $%.2f | Time: %s",
+                                 startBal, lowestEq, gap, recTarget, TimeToString(TimeCurrent(), TIME_DATE|TIME_MINUTES|TIME_SECONDS));
+   ObjectSetString(0, baseName, OBJPROP_TOOLTIP, tooltip);
+
+   // 2. Bold Text Label below the icon
+   string labelText = StringFormat("V-EQ ARMED (Gap -$%.0f | Bounce Tgt: $%.0f)", gap, recTarget);
+
+   ObjectCreate(0, txtName, OBJ_TEXT, 0, barTime, labelPrice);
+   ObjectSetString(0, txtName, OBJPROP_TEXT, labelText);
+   ObjectSetString(0, txtName, OBJPROP_FONT, "Arial Black");
+   ObjectSetInteger(0, txtName, OBJPROP_FONTSIZE, 9);
+   ObjectSetInteger(0, txtName, OBJPROP_COLOR, iconColor);
+   ObjectSetInteger(0, txtName, OBJPROP_BACK, false);
+   ObjectSetInteger(0, txtName, OBJPROP_SELECTABLE, false);
+   ObjectSetInteger(0, txtName, OBJPROP_HIDDEN, false);
+   ObjectSetString(0, txtName, OBJPROP_TOOLTIP, tooltip);
+
+   ChartRedraw(0);
+
+   PrintFormat(">>> [V-EQ ARMED CHART ICON] Placed '%s' on bar %s (StartBal=$%.2f, LowEq=$%.2f, Gap=-$%.2f)",
+               labelText, TimeToString(barTime, TIME_DATE|TIME_MINUTES), startBal, lowestEq, gap);
+}
+
+//+------------------------------------------------------------------+
+//| CreateDeepDrawdownClampedChartIcon                               |
+//| Displays an icon and bold text label on the chart to indicate    |
+//| that V-Shape Recovery has triggered and all orders are clamped.   |
+//+------------------------------------------------------------------+
+void CreateDeepDrawdownClampedChartIcon(double curEq, double recTarget)
+{
+   datetime barTime = Time[0];
+   double atr = iATR(Symbol(), Period(), 14, 0);
+   if(atr <= 0.0)
+      atr = 50.0 * Point;
+
+   double markerPrice = High[0] + (atr * 0.25);
+   double labelPrice  = markerPrice + (atr * 0.45);
+
+   static int clampedIconSeq = 0;
+   clampedIconSeq++;
+   string baseName = PREFIX + "V_CLAMPED_" + IntegerToString(TimeCurrent()) + "_" + IntegerToString(clampedIconSeq);
+   string txtName  = baseName + "_TXT";
+
+   color iconColor = clrLime;
+   int   iconCode  = 241; // Wingdings 241 = play / forward check
+
+   // 1. Solid Marker Icon on candle
+   ObjectCreate(0, baseName, OBJ_ARROW, 0, barTime, markerPrice);
+   ObjectSetInteger(0, baseName, OBJPROP_ARROWCODE, iconCode);
+   ObjectSetInteger(0, baseName, OBJPROP_COLOR, iconColor);
+   ObjectSetInteger(0, baseName, OBJPROP_WIDTH, 4);
+   ObjectSetInteger(0, baseName, OBJPROP_BACK, false);
+   ObjectSetInteger(0, baseName, OBJPROP_SELECTABLE, false);
+   ObjectSetInteger(0, baseName, OBJPROP_HIDDEN, false);
+
+   string tooltip = StringFormat("V-Shape Recovery TRIGGERED & CLAMPED | Equity=$%.2f >= Target=$%.2f | Live SL Locked | Time: %s",
+                                 curEq, recTarget, TimeToString(TimeCurrent(), TIME_DATE|TIME_MINUTES|TIME_SECONDS));
+   ObjectSetString(0, baseName, OBJPROP_TOOLTIP, tooltip);
+
+   // 2. Bold Text Label above the icon
+   string labelText = StringFormat("V-CLAMPED (Eq: $%.0f | Live SL Locked)", curEq);
+
+   ObjectCreate(0, txtName, OBJ_TEXT, 0, barTime, labelPrice);
+   ObjectSetString(0, txtName, OBJPROP_TEXT, labelText);
+   ObjectSetString(0, txtName, OBJPROP_FONT, "Arial Black");
+   ObjectSetInteger(0, txtName, OBJPROP_FONTSIZE, 9);
+   ObjectSetInteger(0, txtName, OBJPROP_COLOR, iconColor);
+   ObjectSetInteger(0, txtName, OBJPROP_BACK, false);
+   ObjectSetInteger(0, txtName, OBJPROP_SELECTABLE, false);
+   ObjectSetInteger(0, txtName, OBJPROP_HIDDEN, false);
+   ObjectSetString(0, txtName, OBJPROP_TOOLTIP, tooltip);
+
+   ChartRedraw(0);
+
+   PrintFormat(">>> [V-CLAMPED CHART ICON] Placed '%s' on bar %s (Eq=$%.2f, Target=$%.2f)",
+               labelText, TimeToString(barTime, TIME_DATE|TIME_MINUTES), curEq, recTarget);
+}
+
+//+------------------------------------------------------------------+
+//| DeleteDeepDrawdownChartIcons                                     |
+//| Removes all V-Equity Armed and Clamped icons from chart.         |
+//+------------------------------------------------------------------+
+void DeleteDeepDrawdownChartIcons()
+{
+   int total = ObjectsTotal(0, -1, -1);
+   for(int i = total - 1; i >= 0; i--)
+   {
+      string name = ObjectName(0, i, -1, -1);
+      if(StringFind(name, PREFIX + "V_ARMED_", 0) == 0 || StringFind(name, PREFIX + "V_CLAMPED_", 0) == 0)
+         ObjectDelete(0, name);
+   }
+}
+
 
 //+------------------------------------------------------------------+
 //| PerformDayTradingResume                                          |
@@ -14645,6 +14774,9 @@ void CheckDeepDrawdownRecoveryShield()
       LogEAEvent("WARN", "DEEP_DD_SHIELD",
                  StringFormat("ARMED! StartBal=$%.2f LowestEq=$%.2f Gap=-$%.2f Threshold=$%.2f (%s) Target=$%.2f",
                               g_deepDrawdownCycleStartBalance, g_deepDrawdownCycleLowestEquity, gap, minGapThreshold, gapTag, recTarget));
+
+      // Display chart icon and label to clearly show V-Equity Armed on chart
+      CreateDeepDrawdownArmedChartIcon(g_deepDrawdownCycleStartBalance, g_deepDrawdownCycleLowestEquity, gap, recTarget);
    }
 
    // -------------------------------------------------------------
@@ -14674,6 +14806,9 @@ void CheckDeepDrawdownRecoveryShield()
 
          // 2. Clamp ALL open market orders to Live Market SL (forceAllOrders = true)
          ModifyOpenOrdersToCurrentPriceSL("Deep Drawdown Recovery Shield", true);
+
+         // 3. Display chart icon and label to show V-Equity Clamped
+         CreateDeepDrawdownClampedChartIcon(curEq, recTarget);
       }
    }
 
