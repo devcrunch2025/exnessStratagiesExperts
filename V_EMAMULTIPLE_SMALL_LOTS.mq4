@@ -879,7 +879,7 @@ double ProfitReEntryGapRaw =30;//50;//30;//10;// 25;
 double MinimumSameOrderGapRawReEntry =50;//30;//10;//20;// 50;
 double SSLLongShortPendingGapRaw = 20.0; // Raw price gap ($20) for SSL Long / Short pending stop orders
 bool   InpEnablePendingGapDoubleOnLoss     = true;  // Double pending order gap when directional basket loss <= -$10 * mult
-double InpPendingGapDoubleLossThresholdUSD = 10.0;  // Basket floating loss threshold ($10 * multiplier) to double pending gap
+double InpPendingGapDoubleLossThresholdUSD = 30;//10.0;  // Basket floating loss threshold ($10 * multiplier) to double pending gap
 double InpPendingGapLossMultiplier         = 2.0;   // Pending gap multiplier on basket loss threshold (2.0 = double)
 // double MinimumSameOrderGapRawSSLLongShort =50;// 50;
 double MinimumSameOrderGapRawMatched =50;//30;//50;//100;//50;//30;//10;//20;//50;//20;// 50;//SSL long //SSL short
