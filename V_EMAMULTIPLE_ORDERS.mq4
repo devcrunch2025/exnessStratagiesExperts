@@ -42,7 +42,7 @@ CheckBasketProfitClose  Total open basket profit
 */
 
 
-string glbVersion = "VMULTI-1289- Dynamic Matched Order Gap 50 on Angle >3 and 25 on Angle <=3";
+string glbVersion = "VMULTI-1290- Disable Dubai Hours 15-17 Block on Horizontal Orders";
 
 int AccountMultiplierLOT = 1000;//400;//200;//500; ALWAYS multiples of 1000 is better for best results
 //balance multiplier 
@@ -34121,21 +34121,13 @@ void CheckNewRedLineCloseBuyAndOpenSell()
   {
    if(!InpCloseBuyOnNewEqhRedLine)
       return;
-      
-      
-      
 
- datetime dubaiTime1 = TimeCurrent() + (ServerToDubaiOffsetHours * 3600);
-   int currentHour1 = TimeHour(dubaiTime1);
-       
+   // DISABLED: Dubai Time-of-Day Block (Hours 15, 16, 17)
+   // datetime dubaiTime1 = TimeCurrent() + (ServerToDubaiOffsetHours * 3600);
+   // int currentHour1 = TimeHour(dubaiTime1);
+   // if(currentHour1==15 || currentHour1==16 || currentHour1==17)
+   //    return;
 
-
-
-if(currentHour1==15 || currentHour1==16 || currentHour1==17)
-
- return;
-
-      
    if(!EAStartupComplete)
       return;
 
@@ -34492,17 +34484,12 @@ void CheckNewGreenLineCloseSellAndOpenBuy()
       return;
    if(!EAStartupComplete)
       return;
-      
-      
-       datetime dubaiTime1 = TimeCurrent() + (ServerToDubaiOffsetHours * 3600);
-   int currentHour1 = TimeHour(dubaiTime1);
-       
 
-
-
-if(currentHour1==15 || currentHour1==16 || currentHour1==17)
-
- return;
+   // DISABLED: Dubai Time-of-Day Block (Hours 15, 16, 17)
+   // datetime dubaiTime1 = TimeCurrent() + (ServerToDubaiOffsetHours * 3600);
+   // int currentHour1 = TimeHour(dubaiTime1);
+   // if(currentHour1==15 || currentHour1==16 || currentHour1==17)
+   //    return;
 
    SyncHorizontalLineActivationTimers();
 
