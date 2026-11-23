@@ -43,7 +43,7 @@ CheckBasketProfitClose  Total open basket profit
 
 */
 
-string glbVersion = "V-SMALL-1036- Display V-Monitoring Started to V-End Chart Icons";
+string glbVersion = "V-SMALL-1037- Early V-Equity Recovery Trigger at 90% Target on EMA Angle > 6";
 
 int AccountMultiplierLOT = 500;//100;//1000;//400;//200;//500; ALWAYS multiples of 1000 is better for best results
 //balance multiplier 
@@ -84,6 +84,8 @@ double InpDeepDrawdownRecoveryBufferUSD    = 2.0;   // Recovery buffer below bal
 bool   InpDeepDrawdownDeletePendings       = true;  // Delete all pending orders on recovery trigger
 bool   InpDeepDrawdownTrailLiveSL          = true;  // Ratchet/trail SL higher if market continues moving into profit
 int    InpDeepDrawdownCooldownMinutes      = 30;    // Cooldown pause minutes after clamped basket exits completely
+double InpDeepDrawdownSteepAngleDeg        = 6.0;   // Minimum MathAbs(EMAangle) to allow 90% early recovery trigger (> 6.0 deg)
+double InpDeepDrawdownSteepAngleTargetPct  = 90.0;  // Recovery target percentage (90% of armed target) when MathAbs(EMAangle) > threshold
 
 double TargetProfitPerFlipUSD =1000;//50;//;//percentage////1000;//20;//10;//10*2;//10;//5;//20;// 10.0; close all orders at $20Xmultipler
 
@@ -194,6 +196,7 @@ bool     g_deepDrawdownLiveSlClamped         = false; // True once Live SL clamp
 datetime g_deepDrawdownCooldownUntil         = 0;     // Server time until which new orders are blocked after clamped basket exits
 datetime g_deepDrawdownArmedBarTime          = 0;     // Bar time when V-Monitoring Armed was triggered
 double   g_deepDrawdownArmedPrice            = 0.0;   // Price level where V-Monitoring Armed icon was placed
+double   g_deepDrawdownArmedTarget           = 0.0;   // Target equity amount calculated when shield was armed
 
 bool EnableBounceBackDetection = false;
 
@@ -597,7 +600,7 @@ bool     IsSellSignal(int shift);
 void     CreateTradingResumeChartIcon(string reason, double curEq);
 void     DeleteTradingResumeChartIcon();
 void     CreateDeepDrawdownArmedChartIcon(double startBal, double lowestEq, double gap, double recTarget);
-void     CreateDeepDrawdownClampedChartIcon(double curEq, double recTarget);
+void     CreateDeepDrawdownClampedChartIcon(double curEq, double recTarget, double emaAngle = 0.0, bool isSteepAngle = false);
 void     CreateDeepDrawdownEndChartIcon(double finalBal);
 void     DeleteDeepDrawdownChartIcons();
 void     CreateDashboardButton(string name, string text, int x, int y, int width, int height, color bgColor, color textColor, color borderColor);
@@ -13534,7 +13537,7 @@ void CreateDeepDrawdownArmedChartIcon(double startBal, double lowestEq, double g
 //| Displays an icon and bold text label on the chart to indicate    |
 //| that V-Shape Recovery has triggered and all orders are clamped.   |
 //+------------------------------------------------------------------+
-void CreateDeepDrawdownClampedChartIcon(double curEq, double recTarget)
+void CreateDeepDrawdownClampedChartIcon(double curEq, double recTarget, double emaAngle = 0.0, bool isSteepAngle = false)
 {
    datetime barTime = Time[0];
    double atr = iATR(Symbol(), Period(), 14, 0);
@@ -13561,12 +13564,21 @@ void CreateDeepDrawdownClampedChartIcon(double curEq, double recTarget)
    ObjectSetInteger(0, baseName, OBJPROP_SELECTABLE, false);
    ObjectSetInteger(0, baseName, OBJPROP_HIDDEN, false);
 
-   string tooltip = StringFormat("V-Shape Recovery TRIGGERED & CLAMPED | Equity=$%.2f >= Target=$%.2f | Live SL Locked | Time: %s",
-                                 curEq, recTarget, TimeToString(TimeCurrent(), TIME_DATE|TIME_MINUTES|TIME_SECONDS));
+   string tooltip = "";
+   if(isSteepAngle)
+      tooltip = StringFormat("V-Shape Recovery TRIGGERED & CLAMPED | Equity=$%.2f >= 90%% Target=$%.2f (EMA Angle=%.1f° > 6.0°) | Live SL Locked | Time: %s",
+                             curEq, recTarget, emaAngle, TimeToString(TimeCurrent(), TIME_DATE|TIME_MINUTES|TIME_SECONDS));
+   else
+      tooltip = StringFormat("V-Shape Recovery TRIGGERED & CLAMPED | Equity=$%.2f >= Target=$%.2f | Live SL Locked | Time: %s",
+                             curEq, recTarget, TimeToString(TimeCurrent(), TIME_DATE|TIME_MINUTES|TIME_SECONDS));
    ObjectSetString(0, baseName, OBJPROP_TOOLTIP, tooltip);
 
    // 2. Bold Text Label above the icon
-   string labelText = StringFormat("V-CLAMPED (Eq: $%.0f | Live SL Locked)", curEq);
+   string labelText = "";
+   if(isSteepAngle)
+      labelText = StringFormat("V-CLAMPED (Eq: $%.0f [90%% Tgt | Ang %.1f°] | Live SL Locked)", curEq, emaAngle);
+   else
+      labelText = StringFormat("V-CLAMPED (Eq: $%.0f | Live SL Locked)", curEq);
 
    ObjectCreate(0, txtName, OBJ_TEXT, 0, barTime, labelPrice);
    ObjectSetString(0, txtName, OBJPROP_TEXT, labelText);
@@ -13699,6 +13711,7 @@ void PerformDayTradingResume(string reason)
    g_deepDrawdownCooldownUntil      = 0;
    g_deepDrawdownLiveSlClamped      = false;
    g_deepDrawdownCycleArmed         = false;
+   g_deepDrawdownArmedTarget        = 0.0;
 
    double stepUSD        = DailyEquityTrailStepUSD * balancelomultipler;
    double safetyFloorUSD = (DailyEquitySafetyFloor > 0.0 ? DailyEquitySafetyFloor : DailyEquityTrailStepUSD) * balancelomultipler;
@@ -14134,6 +14147,7 @@ void CheckForNewDay()
       g_deepDrawdownCooldownUntil      = 0;
       g_deepDrawdownLiveSlClamped      = false;
       g_deepDrawdownCycleArmed         = false;
+      g_deepDrawdownArmedTarget        = 0.0;
       g_deepDrawdownCycleStartBalance  = g_dayOpeningBalance;
       g_deepDrawdownCycleLowestEquity  = g_dayOpeningBalance;
       g_dailyEquityIsResumedLeg        = false; // Reset trailing/resumed leg to Phase 1 fresh day target!
@@ -14824,6 +14838,7 @@ void CheckDeepDrawdownRecoveryShield()
       g_deepDrawdownCycleArmed            = false;
       g_deepDrawdownCycleStartBalance     = curBal;
       g_deepDrawdownCycleLowestEquity     = curEq;
+      g_deepDrawdownArmedTarget           = 0.0;
       return;
    }
 
@@ -14851,6 +14866,7 @@ void CheckDeepDrawdownRecoveryShield()
       g_deepDrawdownCycleArmed = true;
       double baseTarget = MathMin(g_deepDrawdownCycleStartBalance, curBal);
       double recTarget  = baseTarget - (InpDeepDrawdownRecoveryBufferUSD * mult);
+      g_deepDrawdownArmedTarget = recTarget;
       string gapTag     = (InpDeepDrawdownMinGapPct > 0.0) ? StringFormat("%.0f%% of Balance", InpDeepDrawdownMinGapPct) : StringFormat("$%.0f", minGapThreshold);
 
       PrintFormat(">>> [DEEP DRAWDOWN SHIELD ARMED] StartBal=$%.2f | LowestEq=$%.2f | Gap=-$%.2f >= Threshold=$%.2f (%s) | Waiting for bounce to $%.2f to clamp Live SL",
@@ -14871,17 +14887,36 @@ void CheckDeepDrawdownRecoveryShield()
    {
       double baseTarget = MathMin(g_deepDrawdownCycleStartBalance, curBal);
       double recTarget  = baseTarget - (InpDeepDrawdownRecoveryBufferUSD * mult);
+      if(g_deepDrawdownArmedTarget <= 0.0)
+         g_deepDrawdownArmedTarget = recTarget;
 
-      if(curEq >= recTarget)
+      double curEmaAng = (GlobalEmaAngle30 != 0.0) ? GlobalEmaAngle30 : GetEmaAngleDegrees(30);
+      double absEmaAng = MathAbs(curEmaAng);
+
+      double effectiveTarget = recTarget;
+      bool   isSteepAngle    = false;
+      if(InpDeepDrawdownSteepAngleDeg > 0.0 && absEmaAng > InpDeepDrawdownSteepAngleDeg)
+      {
+         effectiveTarget = g_deepDrawdownArmedTarget * (InpDeepDrawdownSteepAngleTargetPct / 100.0);
+         isSteepAngle    = true;
+      }
+
+      if(curEq >= effectiveTarget)
       {
          g_deepDrawdownLiveSlClamped = true;
 
-         PrintFormat(">>> [DEEP DRAWDOWN V-SHAPE RECOVERY TRIGGERED!] CurEq=$%.2f >= Target=$%.2f (Base=$%.2f, Max Gap was -$%.2f) | Clamping ALL Open Orders to Live Market SL & Deleting Pendings!",
-                     curEq, recTarget, baseTarget, gap);
+         string reasonDetail = isSteepAngle ?
+            StringFormat("CurEq=$%.2f >= 90%% Target=$%.2f (Armed Target=$%.2f, EMA Angle=%.1f° > %.1f°)",
+                         curEq, effectiveTarget, g_deepDrawdownArmedTarget, curEmaAng, InpDeepDrawdownSteepAngleDeg) :
+            StringFormat("CurEq=$%.2f >= Target=$%.2f (Base=$%.2f, Max Gap was -$%.2f)",
+                         curEq, recTarget, baseTarget, gap);
+
+         PrintFormat(">>> [DEEP DRAWDOWN V-SHAPE RECOVERY TRIGGERED!] %s | Clamping ALL Open Orders to Live Market SL & Deleting Pendings!",
+                     reasonDetail);
 
          LogEAEvent("CRITICAL", "DEEP_DD_SHIELD",
-                    StringFormat("TRIGGERED! CurEq=$%.2f Target=$%.2f Clamping %d orders to Live SL & deleting pendings",
-                                 curEq, recTarget, openMarketOrders));
+                    StringFormat("TRIGGERED! %s Clamping %d orders to Live SL & deleting pendings",
+                                 reasonDetail, openMarketOrders));
 
          // 1. Delete all pending orders so no new counter-risk triggers
          if(InpDeepDrawdownDeletePendings)
@@ -14893,7 +14928,7 @@ void CheckDeepDrawdownRecoveryShield()
          ModifyOpenOrdersToCurrentPriceSL("Deep Drawdown Recovery Shield", true);
 
          // 3. Display chart icon and label to show V-Equity Clamped
-         CreateDeepDrawdownClampedChartIcon(curEq, recTarget);
+         CreateDeepDrawdownClampedChartIcon(curEq, effectiveTarget, curEmaAng, isSteepAngle);
       }
    }
 
@@ -31865,10 +31900,19 @@ void UpdateLeftLiveOrdersDashboard(bool force = false)
         {
          double baseThreshold = MathMin(g_deepDrawdownCycleStartBalance, deqOpenBase);
          double recTarget = baseThreshold - (InpDeepDrawdownRecoveryBufferUSD * deqMult);
+         double curEmaAng = (GlobalEmaAngle30 != 0.0) ? GlobalEmaAngle30 : GetEmaAngleDegrees(30);
+         double effTarget = recTarget;
+         string angTag = "";
+         if(InpDeepDrawdownSteepAngleDeg > 0.0 && MathAbs(curEmaAng) > InpDeepDrawdownSteepAngleDeg)
+           {
+            double armedTgt = (g_deepDrawdownArmedTarget > 0.0) ? g_deepDrawdownArmedTarget : recTarget;
+            effTarget = armedTgt * (InpDeepDrawdownSteepAngleTargetPct / 100.0);
+            angTag = StringFormat(" [90%%Ang:%.1f°]", curEmaAng);
+           }
          deqStatusTxt = "DD-ARMED";
          deqBarClr    = C'45,25,10';
          deqTxtClr    = clrGold;
-         deqRightTxt  = StringFormat("P/L:%s$%.2f  DD ARMED (TGT:$%.0f)", deqSign, deqProfit, recTarget);
+         deqRightTxt  = StringFormat("P/L:%s$%.2f  DD ARMED (TGT:$%.0f%s)", deqSign, deqProfit, effTarget, angTag);
          deqRightClr  = clrGold;
          deqLeftTxt   = StringFormat("DAY: [%s] B:$%.0f  T:$%.0f", deqStatusTxt, deqOpenBase, deqTarget);
         }
