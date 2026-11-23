@@ -42,7 +42,7 @@ CheckBasketProfitClose  Total open basket profit
 */
 
 
-string glbVersion = "VMULTI-1279- Display Chart Icon on V-Equity Armed and Clamped";
+string glbVersion = "VMULTI-1280- Display V-Monitoring Started to V-End Chart Icons";
 
 int AccountMultiplierLOT = 1000;//400;//200;//500; ALWAYS multiples of 1000 is better for best results
 //balance multiplier 
@@ -190,6 +190,8 @@ double   g_deepDrawdownCycleLowestEquity     = 0.0;   // Lowest equity recorded 
 bool     g_deepDrawdownCycleArmed            = false; // True when drawdown gap >= InpDeepDrawdownMinGapUSD * mult
 bool     g_deepDrawdownLiveSlClamped         = false; // True once Live SL clamping has been executed for this basket
 datetime g_deepDrawdownCooldownUntil         = 0;     // Server time until which new orders are blocked after clamped basket exits
+datetime g_deepDrawdownArmedBarTime          = 0;     // Bar time when V-Monitoring Armed was triggered
+double   g_deepDrawdownArmedPrice            = 0.0;   // Price level where V-Monitoring Armed icon was placed
 
 bool EnableBounceBackDetection = false;
 
@@ -594,6 +596,7 @@ void     CreateTradingResumeChartIcon(string reason, double curEq);
 void     DeleteTradingResumeChartIcon();
 void     CreateDeepDrawdownArmedChartIcon(double startBal, double lowestEq, double gap, double recTarget);
 void     CreateDeepDrawdownClampedChartIcon(double curEq, double recTarget);
+void     CreateDeepDrawdownEndChartIcon(double finalBal);
 void     DeleteDeepDrawdownChartIcons();
 void     CreateDashboardButton(string name, string text, int x, int y, int width, int height, color bgColor, color textColor, color borderColor);
 void     UpdateLiquiditySweepDetectorOnChart();
@@ -13484,6 +13487,9 @@ void CreateDeepDrawdownArmedChartIcon(double startBal, double lowestEq, double g
    double markerPrice = Low[0] - (atr * 0.25);
    double labelPrice  = markerPrice - (atr * 0.45);
 
+   g_deepDrawdownArmedBarTime = barTime;
+   g_deepDrawdownArmedPrice   = markerPrice;
+
    static int armedIconSeq = 0;
    armedIconSeq++;
    string baseName = PREFIX + "V_ARMED_" + IntegerToString(TimeCurrent()) + "_" + IntegerToString(armedIconSeq);
@@ -13506,7 +13512,7 @@ void CreateDeepDrawdownArmedChartIcon(double startBal, double lowestEq, double g
    ObjectSetString(0, baseName, OBJPROP_TOOLTIP, tooltip);
 
    // 2. Bold Text Label below the icon
-   string labelText = StringFormat("V-EQ ARMED (Gap -$%.0f | Bounce Tgt: $%.0f)", gap, recTarget);
+   string labelText = StringFormat("V-MONITORING STARTED (Gap -$%.0f | Bounce Tgt: $%.0f)", gap, recTarget);
 
    ObjectCreate(0, txtName, OBJ_TEXT, 0, barTime, labelPrice);
    ObjectSetString(0, txtName, OBJPROP_TEXT, labelText);
@@ -13520,7 +13526,7 @@ void CreateDeepDrawdownArmedChartIcon(double startBal, double lowestEq, double g
 
    ChartRedraw(0);
 
-   PrintFormat(">>> [V-EQ ARMED CHART ICON] Placed '%s' on bar %s (StartBal=$%.2f, LowEq=$%.2f, Gap=-$%.2f)",
+   PrintFormat(">>> [V-MONITORING STARTED CHART ICON] Placed '%s' on bar %s (StartBal=$%.2f, LowEq=$%.2f, Gap=-$%.2f)",
                labelText, TimeToString(barTime, TIME_DATE|TIME_MINUTES), startBal, lowestEq, gap);
 }
 
@@ -13580,8 +13586,79 @@ void CreateDeepDrawdownClampedChartIcon(double curEq, double recTarget)
 }
 
 //+------------------------------------------------------------------+
+//| CreateDeepDrawdownEndChartIcon                                   |
+//| Displays an icon and bold text label on the chart to indicate    |
+//| that V-Shape Recovery has fully ended and capital is saved.       |
+//+------------------------------------------------------------------+
+void CreateDeepDrawdownEndChartIcon(double finalBal)
+{
+   datetime barTime = Time[0];
+   double atr = iATR(Symbol(), Period(), 14, 0);
+   if(atr <= 0.0)
+      atr = 50.0 * Point;
+
+   double markerPrice = High[0] + (atr * 0.35);
+   double labelPrice  = markerPrice + (atr * 0.45);
+
+   static int endIconSeq = 0;
+   endIconSeq++;
+   string baseName = PREFIX + "V_END_" + IntegerToString(TimeCurrent()) + "_" + IntegerToString(endIconSeq);
+   string txtName  = baseName + "_TXT";
+   string lineName = PREFIX + "V_LINE_" + IntegerToString(TimeCurrent()) + "_" + IntegerToString(endIconSeq);
+
+   color iconColor = clrAqua;
+   int   iconCode  = 252; // Wingdings 252 = checkmark
+
+   // 1. Solid Marker Icon on candle
+   ObjectCreate(0, baseName, OBJ_ARROW, 0, barTime, markerPrice);
+   ObjectSetInteger(0, baseName, OBJPROP_ARROWCODE, iconCode);
+   ObjectSetInteger(0, baseName, OBJPROP_COLOR, iconColor);
+   ObjectSetInteger(0, baseName, OBJPROP_WIDTH, 4);
+   ObjectSetInteger(0, baseName, OBJPROP_BACK, false);
+   ObjectSetInteger(0, baseName, OBJPROP_SELECTABLE, false);
+   ObjectSetInteger(0, baseName, OBJPROP_HIDDEN, false);
+
+   string tooltip = StringFormat("V-Shape Recovery ENDED | Final Balance=$%.2f (Capital Saved!) | Time: %s",
+                                 finalBal, TimeToString(TimeCurrent(), TIME_DATE|TIME_MINUTES|TIME_SECONDS));
+   ObjectSetString(0, baseName, OBJPROP_TOOLTIP, tooltip);
+
+   // 2. Bold Text Label above the icon
+   string labelText = StringFormat("V-END (Balance: $%.2f | Capital Protected)", finalBal);
+
+   ObjectCreate(0, txtName, OBJ_TEXT, 0, barTime, labelPrice);
+   ObjectSetString(0, txtName, OBJPROP_TEXT, labelText);
+   ObjectSetString(0, txtName, OBJPROP_FONT, "Arial Black");
+   ObjectSetInteger(0, txtName, OBJPROP_FONTSIZE, 9);
+   ObjectSetInteger(0, txtName, OBJPROP_COLOR, iconColor);
+   ObjectSetInteger(0, txtName, OBJPROP_BACK, false);
+   ObjectSetInteger(0, txtName, OBJPROP_SELECTABLE, false);
+   ObjectSetInteger(0, txtName, OBJPROP_HIDDEN, false);
+   ObjectSetString(0, txtName, OBJPROP_TOOLTIP, tooltip);
+
+   // 3. Connect V-Start to V-End with a trendline showing the complete V-recovery
+   if(g_deepDrawdownArmedBarTime > 0 && g_deepDrawdownArmedPrice > 0.0)
+   {
+      ObjectCreate(0, lineName, OBJ_TREND, 0, g_deepDrawdownArmedBarTime, g_deepDrawdownArmedPrice, barTime, markerPrice);
+      ObjectSetInteger(0, lineName, OBJPROP_COLOR, clrGold);
+      ObjectSetInteger(0, lineName, OBJPROP_STYLE, STYLE_DASH);
+      ObjectSetInteger(0, lineName, OBJPROP_WIDTH, 2);
+      ObjectSetInteger(0, lineName, OBJPROP_RAY, false);
+      ObjectSetInteger(0, lineName, OBJPROP_BACK, false);
+      ObjectSetInteger(0, lineName, OBJPROP_SELECTABLE, false);
+      ObjectSetInteger(0, lineName, OBJPROP_HIDDEN, false);
+      ObjectSetString(0, lineName, OBJPROP_TOOLTIP, StringFormat("V-Recovery Path: Start %s -> End %s",
+                     TimeToString(g_deepDrawdownArmedBarTime, TIME_DATE|TIME_MINUTES), TimeToString(barTime, TIME_DATE|TIME_MINUTES)));
+   }
+
+   ChartRedraw(0);
+
+   PrintFormat(">>> [V-END CHART ICON] Placed '%s' on bar %s (FinalBal=$%.2f)",
+               labelText, TimeToString(barTime, TIME_DATE|TIME_MINUTES), finalBal);
+}
+
+//+------------------------------------------------------------------+
 //| DeleteDeepDrawdownChartIcons                                     |
-//| Removes all V-Equity Armed and Clamped icons from chart.         |
+//| Removes all V-Equity Armed, Clamped, End and Line objects.       |
 //+------------------------------------------------------------------+
 void DeleteDeepDrawdownChartIcons()
 {
@@ -13589,8 +13666,13 @@ void DeleteDeepDrawdownChartIcons()
    for(int i = total - 1; i >= 0; i--)
    {
       string name = ObjectName(0, i, -1, -1);
-      if(StringFind(name, PREFIX + "V_ARMED_", 0) == 0 || StringFind(name, PREFIX + "V_CLAMPED_", 0) == 0)
+      if(StringFind(name, PREFIX + "V_ARMED_", 0) == 0 ||
+         StringFind(name, PREFIX + "V_CLAMPED_", 0) == 0 ||
+         StringFind(name, PREFIX + "V_END_", 0) == 0 ||
+         StringFind(name, PREFIX + "V_LINE_", 0) == 0)
+      {
          ObjectDelete(0, name);
+      }
    }
 }
 
@@ -14742,6 +14824,9 @@ void CheckDeepDrawdownRecoveryShield()
          LogEAEvent("INFO", "DEEP_DD_SHIELD",
                     StringFormat("Basket exited! Capital protected at Balance=$%.2f Cooldown until %s",
                                  curBal, TimeToString(g_deepDrawdownCooldownUntil, TIME_DATE|TIME_MINUTES|TIME_SECONDS)));
+
+         // Display V-END chart icon and connect recovery path
+         CreateDeepDrawdownEndChartIcon(curBal);
       }
 
       // Reset cycle state
