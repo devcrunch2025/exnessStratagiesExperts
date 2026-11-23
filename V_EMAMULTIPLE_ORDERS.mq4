@@ -42,7 +42,7 @@ CheckBasketProfitClose  Total open basket profit
 */
 
 
-string glbVersion = "VMULTI-1290- Disable Dubai Hours 15-17 Block on Horizontal Orders";
+string glbVersion = "VMULTI-1291- Disable Opposite-Line Directional Shield on Horizontal Lines";
 
 int AccountMultiplierLOT = 1000;//400;//200;//500; ALWAYS multiples of 1000 is better for best results
 //balance multiplier 
@@ -354,11 +354,11 @@ double InpLineEndedBreakoutTriggerGapRaw          = 500;//100.0;         // Pric
 double InpLineEndedBreakoutSLOffsetRaw            = 3000;//1000;//200.0;         // StopLoss offset in USD ($200) from ended line price (Red: Line+200, Green: Line-200)
 bool   InpLineEndedBreakoutDeletePending          = true;          // When line-ended breakout triggers: delete pending orders
 bool   InpLineEndedBreakoutDeleteAllPending       = false;         // false = delete breakout side pending (SELL for Red, BUY for Green); true = delete ALL pending
-bool   InpBlockBuyNearActiveRedLine               = true;          // While active Red EQH-R line is running: block BUY orders
-bool   InpBlockSellNearActiveGreenLine            = true;          // While active Green EQH-G line is running: block SELL orders
+bool   InpBlockBuyNearActiveRedLine               = false;// true;          // While active Red EQH-R line is running: block BUY orders (Disabled)
+bool   InpBlockSellNearActiveGreenLine            = false;// true;          // While active Green EQH-G line is running: block SELL orders (Disabled)
 double InpActiveLineOppositeBlockRangeRaw         = 50.0;          // Active Red/Green line opposite-order block distance in raw USD ($50, used if InpBlockAllOppositeWhenLineActive=false)
 bool   InpBlockAllOrdersWhenBothHorizontalLinesActive = true;      // Confusion Block: When BOTH Red (EQH-R) & Green (EQH-G) lines are active, block ALL orders until single line confirms
-bool   InpBlockAllOppositeWhenLineActive          = true;          // Single Active Line: true = block ALL opposite orders at ANY distance (Red blocks all BUY; Green blocks all SELL)
+bool   InpBlockAllOppositeWhenLineActive          = false;// true;          // Single Active Line: true = block ALL opposite orders at ANY distance (Disabled)
 
 // ===== LSD SWEEP (SSLS/BSLS) OPPOSITE-ORDER BLOCK IN SafeOrderSend() =====
 bool   InpEnableSweepOppositeBlock                = true;          // Block opposite orders in SafeOrderSend(): SSLS blocks SELL, BSLS blocks BUY
@@ -18475,7 +18475,8 @@ bool IsBlockedByActiveHorizontalLines(int orderType, double reqPrice, string ord
       return true;
      }
 
-// Rule 2: Single active line -> block opposite-direction orders (at any distance if InpBlockAllOppositeWhenLineActive, else within range)
+// Rule 2: Single active line -> block opposite-direction orders (DISABLED per USER RULE)
+/*
    double lineBlockRange = InpActiveLineOppositeBlockRangeRaw;
    if(!InpBlockAllOppositeWhenLineActive && lineBlockRange <= 0.0)
       return false;
@@ -18524,6 +18525,8 @@ bool IsBlockedByActiveHorizontalLines(int orderType, double reqPrice, string ord
          return true;
         }
      }
+*/
+   return false;
 
    return false;
   }
