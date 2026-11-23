@@ -55,8 +55,8 @@ double DailyEquitySafetyFloor      = 2;//20;//10;//5;//5.0; // Dedicated Safety 
 double DailyEquityRetraceFloorPct  = 50.0; // Baseline retrace floor % (Dynamic Tiered: Peak>$50->50%, >$100->30%, >$200->20%, >$300->10%)
 double DailyEquityMaxLossUSD       = 1000;//200.0; // Adverse Day Protection (): Close all orders & pause trading till next day Dubai 16:00 if day equity drops 
 bool   ResumeDayTradingOnEmaDirectionChange =false;// true; // Auto-resume Day Equity trading when EMAdirection changed
-bool   ResumeDayTradingOnStrongAngleSSL     = false;//true; // Option 5 (Choice A): Auto-resume when EMA Angle >= 3.0 and SSL matches EMA direction
-double ResumeDayTradingMinEmaAngle          = 3;//5;//4;//3;//2;//3.0;  // Minimum MathAbs(GlobalEmaAngle30) for strong trend (Default: 3.0 deg)
+bool   ResumeDayTradingOnStrongAngleSSL     = true;//false;//true; // Option 5 (Choice A): Auto-resume when EMA Angle >= 3.0 and SSL matches EMA direction
+double ResumeDayTradingMinEmaAngle          = 2;//3;//5;//4;//3;//2;//3.0;  // Minimum MathAbs(GlobalEmaAngle30) for strong trend (Default: 3.0 deg)
 int    ResumeDayTradingMinCooldownMin      = 10;   // Minimum cooldown buffer minutes after Retrace Floor Stop (e.g. 10m)
 enum ENUM_RESUME_DAY_MODE
   {
@@ -14068,13 +14068,15 @@ void CloseLosingOrdersAndLiveSLProfitOrders(string reason = "Max Floating Loss R
 //+------------------------------------------------------------------+
 double GetDailyEquityRetraceFloorPct(double peakProfit)
   {
-   if(peakProfit >= 300.0/5)
+   int mult = (balancelomultipler > 0) ? balancelomultipler : 1;
+
+   if(peakProfit >= (200.0 / 5.0) * mult)   // $60 * multiplier
       return 10.0;
-   if(peakProfit >= 200.0/5)
+   if(peakProfit >= (150.0 / 5.0) * mult)   // $40 * multiplier
       return 20.0;
-   if(peakProfit >= 100.0/5)
+   if(peakProfit >= (100.0 / 5.0) * mult)   // $20 * multiplier
       return 30.0;
-   if(peakProfit >= 50.0/5)
+   if(peakProfit >= (50.0 / 5.0) * mult)    // $10 * multiplier
       return 50.0;
 
    return (DailyEquityRetraceFloorPct > 0.0) ? DailyEquityRetraceFloorPct : 50.0;
