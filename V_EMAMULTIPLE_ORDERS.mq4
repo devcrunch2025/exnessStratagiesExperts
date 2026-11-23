@@ -42,7 +42,7 @@ CheckBasketProfitClose  Total open basket profit
 */
 
 
-string glbVersion = "VMULTI-1281- Early V-Equity Recovery Trigger at 90% Target on EMA Angle > 6";
+string glbVersion = "VMULTI-1282- Basket Loss De-Risk and Breakeven Protection at $50 Profit";
 
 int AccountMultiplierLOT = 1000;//400;//200;//500; ALWAYS multiples of 1000 is better for best results
 //balance multiplier 
@@ -84,6 +84,12 @@ input bool   InpDeepDrawdownTrailLiveSL          = true;  // Ratchet/trail SL hi
 input int    InpDeepDrawdownCooldownMinutes      = 30;    // Cooldown pause minutes after clamped basket exits completely
 input double InpDeepDrawdownSteepAngleDeg        = 6.0;   // Minimum MathAbs(EMAangle) to allow 90% early recovery trigger (> 6.0 deg)
 input double InpDeepDrawdownSteepAngleTargetPct  = 90.0;  // Recovery target percentage (90% of armed target) when MathAbs(EMAangle) > threshold
+
+//--- Basket Loss De-Risk & Breakeven Protection ---
+input bool   InpEnableBasketDeRiskOnLoss         = true;  // Enable basket de-risking when basket loss >= $10 * mult
+input double InpBasketDeRiskTriggerLossUSD       = 10.0;  // Basket floating loss threshold ($10 * multiplier) to activate protection
+input double InpBasketDeRiskOrderProfitDistRaw   = 50.0;  // Raw price distance ($50) in profit to move below order SL to openPrice (Option 1)
+input bool   InpBasketDeRiskOlderOrderExitAtBE   = true;  // Exit oldest losing order(s) at openPrice ($0 loss) on bounce
 
 double TargetProfitPerFlipUSD =1000;//50;//;//percentage////1000;//20;//10;//10*2;//10;//5;//20;// 10.0; close all orders at $20Xmultipler
 
@@ -601,6 +607,7 @@ void     CreateDeepDrawdownArmedChartIcon(double startBal, double lowestEq, doub
 void     CreateDeepDrawdownClampedChartIcon(double curEq, double recTarget, double emaAngle = 0.0, bool isSteepAngle = false);
 void     CreateDeepDrawdownEndChartIcon(double finalBal);
 void     DeleteDeepDrawdownChartIcons();
+void     CheckBasketLossDeRiskAndBreakevenProtection();
 void     CreateDashboardButton(string name, string text, int x, int y, int width, int height, color bgColor, color textColor, color borderColor);
 void     UpdateLiquiditySweepDetectorOnChart();
 void     DeleteLiquiditySweepObjects();
@@ -14952,6 +14959,232 @@ void CheckDeepDrawdownRecoveryShield()
 }
 
 //+------------------------------------------------------------------+
+//| CheckBasketLossDeRiskAndBreakevenProtection                      |
+//| USER RULE: When basket floating loss >= $10 * mult:              |
+//| 1. For newer orders opened below (BUY) or above (SELL):          |
+//|    When order moves >= $50 raw distance into profit:             |
+//|    Modify order StopLoss to OrderOpenPrice (Breakeven).          |
+//| 2. For older losing order (#1):                                  |
+//|    Set exit target to OrderOpenPrice ($0 loss on bounce).        |
+//+------------------------------------------------------------------+
+void CheckBasketLossDeRiskAndBreakevenProtection()
+{
+   if(!InpEnableBasketDeRiskOnLoss)
+      return;
+
+   int mult = (balancelomultipler > 0) ? balancelomultipler : 1;
+   double lossThreshold = InpBasketDeRiskTriggerLossUSD * mult;
+
+   // ---------------------------------------------------------------
+   // 1. Gather all open market BUY and SELL orders for this EA
+   // ---------------------------------------------------------------
+   int buyTickets[];
+   datetime buyOpenTimes[];
+   double buyOpenPrices[];
+
+   int sellTickets[];
+   datetime sellOpenTimes[];
+   double sellOpenPrices[];
+
+   int buyCount = 0;
+   int sellCount = 0;
+
+   double buyBasketPL = 0.0;
+   double sellBasketPL = 0.0;
+
+   int total = OrdersTotal();
+   for(int i = 0; i < total; i++)
+   {
+      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
+         continue;
+      if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber)
+         continue;
+
+      int oType = OrderType();
+      if(oType == OP_BUY)
+      {
+         ArrayResize(buyTickets, buyCount + 1);
+         ArrayResize(buyOpenTimes, buyCount + 1);
+         ArrayResize(buyOpenPrices, buyCount + 1);
+
+         buyTickets[buyCount]    = OrderTicket();
+         buyOpenTimes[buyCount]  = OrderOpenTime();
+         buyOpenPrices[buyCount] = OrderOpenPrice();
+         buyCount++;
+
+         buyBasketPL += (OrderProfit() + OrderSwap() + OrderCommission());
+      }
+      else if(oType == OP_SELL)
+      {
+         ArrayResize(sellTickets, sellCount + 1);
+         ArrayResize(sellOpenTimes, sellCount + 1);
+         ArrayResize(sellOpenPrices, sellCount + 1);
+
+         sellTickets[sellCount]    = OrderTicket();
+         sellOpenTimes[sellCount]  = OrderOpenTime();
+         sellOpenPrices[sellCount] = OrderOpenPrice();
+         sellCount++;
+
+         sellBasketPL += (OrderProfit() + OrderSwap() + OrderCommission());
+      }
+   }
+
+   // ---------------------------------------------------------------
+   // 2. PROCESS BUY BASKET: Floating Loss >= $10 * mult
+   // ---------------------------------------------------------------
+   if(buyCount >= 2 && buyBasketPL <= -lossThreshold)
+   {
+      // Find oldest BUY order (Order #1) by earliest open time
+      int oldestBuyIdx = 0;
+      datetime earliestBuyTime = buyOpenTimes[0];
+      for(int b = 1; b < buyCount; b++)
+      {
+         if(buyOpenTimes[b] < earliestBuyTime)
+         {
+            earliestBuyTime = buyOpenTimes[b];
+            oldestBuyIdx = b;
+         }
+      }
+      int oldestBuyTicket = buyTickets[oldestBuyIdx];
+
+      // A. For all other newer BUY orders (#2, #3, etc. opened below #1):
+      for(int b = 0; b < buyCount; b++)
+      {
+         if(b == oldestBuyIdx)
+            continue; // Skip Order #1 for profit BE SL
+
+         int tkt = buyTickets[b];
+         if(!OrderSelect(tkt, SELECT_BY_TICKET, MODE_TRADES))
+            continue;
+
+         double oOpen = OrderOpenPrice();
+         double curSL = NormalizeDouble(OrderStopLoss(), Digits);
+         double curTP = NormalizeDouble(OrderTakeProfit(), Digits);
+
+         // Check if price moved >= InpBasketDeRiskOrderProfitDistRaw ($50 raw distance) in profit
+         if(Bid >= oOpen + InpBasketDeRiskOrderProfitDistRaw)
+         {
+            // If StopLoss is not already at or above open price
+            if(curSL < oOpen || curSL == 0.0)
+            {
+               double beSL = NormalizeDouble(oOpen, Digits);
+               bool modified = SafeOrderModify(tkt, oOpen, beSL, curTP, 0, clrLimeGreen, "BasketDeRisk_BE_SL");
+               if(modified)
+               {
+                  PrintFormat(">>> [BASKET DE-RISK BE SL] BUY Order #%d (+%.1f raw pts profit >= $%.0f) | StopLoss locked at OpenPrice=%.2f (Breakeven)",
+                              tkt, (Bid - oOpen), InpBasketDeRiskOrderProfitDistRaw, beSL);
+               }
+            }
+         }
+      }
+
+      // B. For the oldest losing BUY order (#1):
+      if(InpBasketDeRiskOlderOrderExitAtBE)
+      {
+         if(OrderSelect(oldestBuyTicket, SELECT_BY_TICKET, MODE_TRADES))
+         {
+            double oOpen = OrderOpenPrice();
+            double curTP = NormalizeDouble(OrderTakeProfit(), Digits);
+            double curSL = NormalizeDouble(OrderStopLoss(), Digits);
+
+            // If price bounced back to or above Order #1's open price -> close immediately at breakeven ($0 loss)
+            if(Bid >= oOpen)
+            {
+               PrintFormat(">>> [BASKET DE-RISK OLDER ORDER EXIT] BUY Order #%d bounced back to OpenPrice=%.2f (Bid=%.2f) | Closing at Breakeven ($0 Loss)!",
+                           oldestBuyTicket, oOpen, Bid);
+               SafeOrderCloseMarket(oldestBuyTicket, OrderLots(), Slippage, clrGold);
+            }
+            // Otherwise, set TakeProfit to OpenPrice if not already set and valid
+            else if(oOpen > Ask + (MarketInfo(Symbol(), MODE_STOPLEVEL) * Point))
+            {
+               if(MathAbs(curTP - oOpen) > Point)
+               {
+                  SafeOrderModify(oldestBuyTicket, oOpen, curSL, oOpen, 0, clrGold, "BasketDeRisk_Older_TP");
+               }
+            }
+         }
+      }
+   }
+
+   // ---------------------------------------------------------------
+   // 3. PROCESS SELL BASKET: Floating Loss >= $10 * mult
+   // ---------------------------------------------------------------
+   if(sellCount >= 2 && sellBasketPL <= -lossThreshold)
+   {
+      // Find oldest SELL order (Order #1) by earliest open time
+      int oldestSellIdx = 0;
+      datetime earliestSellTime = sellOpenTimes[0];
+      for(int s = 1; s < sellCount; s++)
+      {
+         if(sellOpenTimes[s] < earliestSellTime)
+         {
+            earliestSellTime = sellOpenTimes[s];
+            oldestSellIdx = s;
+         }
+      }
+      int oldestSellTicket = sellTickets[oldestSellIdx];
+
+      // A. For all other newer SELL orders (#2, #3, etc. opened above #1):
+      for(int s = 0; s < sellCount; s++)
+      {
+         if(s == oldestSellIdx)
+            continue; // Skip Order #1 for profit BE SL
+
+         int tkt = sellTickets[s];
+         if(!OrderSelect(tkt, SELECT_BY_TICKET, MODE_TRADES))
+            continue;
+
+         double oOpen = OrderOpenPrice();
+         double curSL = NormalizeDouble(OrderStopLoss(), Digits);
+         double curTP = NormalizeDouble(OrderTakeProfit(), Digits);
+
+         // Check if price moved >= InpBasketDeRiskOrderProfitDistRaw ($50 raw distance) in profit (Ask <= oOpen - 50)
+         if(Ask <= oOpen - InpBasketDeRiskOrderProfitDistRaw)
+         {
+            // If StopLoss is not already at or below open price
+            if(curSL > oOpen || curSL == 0.0)
+            {
+               double beSL = NormalizeDouble(oOpen, Digits);
+               bool modified = SafeOrderModify(tkt, oOpen, beSL, curTP, 0, clrTomato, "BasketDeRisk_BE_SL");
+               if(modified)
+               {
+                  PrintFormat(">>> [BASKET DE-RISK BE SL] SELL Order #%d (+%.1f raw pts profit >= $%.0f) | StopLoss locked at OpenPrice=%.2f (Breakeven)",
+                              tkt, (oOpen - Ask), InpBasketDeRiskOrderProfitDistRaw, beSL);
+               }
+            }
+         }
+      }
+
+      // B. For the oldest losing SELL order (#1):
+      if(InpBasketDeRiskOlderOrderExitAtBE)
+      {
+         if(OrderSelect(oldestSellTicket, SELECT_BY_TICKET, MODE_TRADES))
+         {
+            double oOpen = OrderOpenPrice();
+            double curTP = NormalizeDouble(OrderTakeProfit(), Digits);
+            double curSL = NormalizeDouble(OrderStopLoss(), Digits);
+
+            // If price bounced back to or below Order #1's open price -> close immediately at breakeven ($0 loss)
+            if(Ask <= oOpen)
+            {
+               PrintFormat(">>> [BASKET DE-RISK OLDER ORDER EXIT] SELL Order #%d bounced back to OpenPrice=%.2f (Ask=%.2f) | Closing at Breakeven ($0 Loss)!",
+                           oldestSellTicket, oOpen, Ask);
+               SafeOrderCloseMarket(oldestSellTicket, OrderLots(), Slippage, clrGold);
+            }
+            // Otherwise, set TakeProfit to OpenPrice if not already set and valid
+            else if(oOpen < Bid - (MarketInfo(Symbol(), MODE_STOPLEVEL) * Point))
+            {
+               if(MathAbs(curTP - oOpen) > Point)
+               {
+                  SafeOrderModify(oldestSellTicket, oOpen, curSL, oOpen, 0, clrGold, "BasketDeRisk_Older_TP");
+               }
+            }
+         }
+      }
+   }
+}
+
+//+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
 void OnTick()
@@ -14970,6 +15203,7 @@ CheckForNewDay();
 CheckAndResumeDayTradingOnEmaDirectionChange();
 CheckAndResumeDayTradingOnStrongAngleAndSSL();
 CheckDeepDrawdownRecoveryShield(); // Choice B: V-Shape Deep Drawdown Recovery Breakeven Shield
+CheckBasketLossDeRiskAndBreakevenProtection(); // Basket Loss >= $10: Below order BE SL at +$50 raw & Older order BE exit
 IsDailyEquityStopReached(); // Check target every tick; sets g_dailyEquityTradingBlocked and closes all orders if hit
 
 bool isTradingPausedOrBlocked = (g_dailyEquityTradingBlocked || g_manualTradingPaused || DayProfitLadderTradingStopped || g_dailyEquityAdverseLossHitToday || TradingHaltedUntilNextFlip);
@@ -19727,7 +19961,7 @@ bool SafeOrderModify(int ticket,double openPrice,double stopLoss,double takeProf
       double oOpen = OrderOpenPrice();
       double oLots = OrderLots();
       double curNetPL = OrderProfit() + OrderSwap() + OrderCommission();
-      bool isMethodCaller = (StringFind(callerName, "Method") >= 0 || callerName == "Emergency90PercentSLCutPlus500SL" || callerName == "Emergency90PercentSLCutDoubleSL");
+      bool isMethodCaller = (StringFind(callerName, "Method") >= 0 || callerName == "Emergency90PercentSLCutPlus500SL" || callerName == "Emergency90PercentSLCutDoubleSL" || callerName == "BasketDeRisk_BE_SL");
 
       // USER RULE (VMULTI-1095 & VMULTI-1105): EMA angle calculation & Breakeven Breathing Floor
       double curEmaAng = GlobalEmaAngle30;
