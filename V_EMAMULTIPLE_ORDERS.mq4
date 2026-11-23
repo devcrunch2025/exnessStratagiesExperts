@@ -42,7 +42,7 @@ CheckBasketProfitClose  Total open basket profit
 */
 
 
-string glbVersion = "VMULTI-1288- Add MOM Identifier to SSL Long and Short Order Comments";
+string glbVersion = "VMULTI-1289- Dynamic Matched Order Gap 50 on Angle >3 and 25 on Angle <=3";
 
 int AccountMultiplierLOT = 1000;//400;//200;//500; ALWAYS multiples of 1000 is better for best results
 //balance multiplier 
@@ -885,6 +885,7 @@ input bool   InpEnablePendingGapDoubleOnLoss     = true;  // Double pending orde
 input double InpPendingGapDoubleLossThresholdUSD = 10.0;  // Basket floating loss threshold ($10 * multiplier) to double pending gap
 input double InpPendingGapLossMultiplier         = 2.0;   // Pending gap multiplier on basket loss threshold (2.0 = double)
 // double MinimumSameOrderGapRawSSLLongShort =50;// 50;
+double BaseMinimumSameOrderGapRawMatched = 50.0; // Base matched order gap ($50.0)
 double MinimumSameOrderGapRawMatched =50;//30;//50;//100;//50;//30;//10;//20;//50;//20;// 50;//SSL long //SSL short
 double MinimumSameOrderGapRawUnmatched =50;//10;//10;//20;// 100;
 
@@ -12828,6 +12829,7 @@ void ResetAllRuntimeVariablesOnFreshStart()
    DeleteOurObjects();
    ClearEMALineObjects();
    DeleteLiquiditySweepObjects();
+   MinimumSameOrderGapRawMatched   = BaseMinimumSameOrderGapRawMatched;
   }
 
 int OnInit()
@@ -15987,6 +15989,13 @@ void OnTickCore()
 // --- UPDATE GLOBAL TICK VARIABLES ---
    GlobalEmaAngle30 = GetEmaAngleDegrees(30);
    GlobalEmaAngle200 = GetEmaAngleDegrees(200);
+
+   // USER RULE (VMULTI-1289): Dynamic Matched Order Gap based on EMA angle:
+   // MinimumSameOrderGapRawMatched = 50 for ema angle > 3, MinimumSameOrderGapRawMatched / 2 when ema angle <= 3
+   if(MathAbs(GlobalEmaAngle30) > 3.0)
+      MinimumSameOrderGapRawMatched = BaseMinimumSameOrderGapRawMatched;
+   else
+      MinimumSameOrderGapRawMatched = BaseMinimumSameOrderGapRawMatched / 2.0;
 
    int currentSSLDirection = GetCurrentSSLDirection();
 
@@ -22351,17 +22360,26 @@ double GetDynamicOrderGapDetails(int orderType, double &rawGapBeforeCap, string 
    double unmatchedGap = (MinimumSameOrderGapRawUnmatched > 0.0) ? MinimumSameOrderGapRawUnmatched : 50.0;
    bool isAdaptive = false;
 
-// Adaptive Grid Gap scaling to current oscillation width (R / 8)
-   if(InpEnableOscillationEngine && InpEnableAdaptiveGridGap)
+   // USER RULE (VMULTI-1289): Dynamic Matched Order Gap based on EMA angle:
+   // MinimumSameOrderGapRawMatched = 50 for ema angle > 3, MinimumSameOrderGapRawMatched / 2 when ema angle <= 3
+   if(MathAbs(GlobalEmaAngle30) <= 3.0)
      {
-      double rH = 0.0, rL = 0.0, rPos = 50.0;
-      double rW = GetCurrentOscillationRange(rH, rL, rPos);
-      if(rW > 0.0)
+      baseGap = (BaseMinimumSameOrderGapRawMatched > 0.0) ? (BaseMinimumSameOrderGapRawMatched / 2.0) : 25.0;
+     }
+   else
+     {
+      // Adaptive Grid Gap scaling to current oscillation width (R / 8) only when angle > 3
+      if(InpEnableOscillationEngine && InpEnableAdaptiveGridGap)
         {
-         double adaptGap = rW / 8.0;
-         adaptGap = MathMax(InpAdaptiveGridGapMin, MathMin(InpAdaptiveGridGapMax, adaptGap));
-         baseGap = adaptGap;
-         isAdaptive = true;
+         double rH = 0.0, rL = 0.0, rPos = 50.0;
+         double rW = GetCurrentOscillationRange(rH, rL, rPos);
+         if(rW > 0.0)
+           {
+            double adaptGap = rW / 8.0;
+            adaptGap = MathMax(InpAdaptiveGridGapMin, MathMin(InpAdaptiveGridGapMax, adaptGap));
+            baseGap = adaptGap;
+            isAdaptive = true;
+           }
         }
      }
 
@@ -22502,7 +22520,7 @@ double GetDynamicOrderGapDetails(int orderType, double &rawGapBeforeCap, string 
    else if(isAdaptive)
       reasonStr = "Adaptive Grid";
    else if(sslMatches)
-      reasonStr = "SSL Matched";
+      reasonStr = (MathAbs(GlobalEmaAngle30) <= 3.0) ? "SSL Matched (Angle<=3 Gap25)" : "SSL Matched (Angle>3 Gap50)";
    else
       reasonStr = "Unmatched Fallback";
 
