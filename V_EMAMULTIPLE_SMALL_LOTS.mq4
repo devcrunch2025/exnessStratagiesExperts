@@ -43,7 +43,7 @@ CheckBasketProfitClose  Total open basket profit
 
 */
 
-string glbVersion = "V-SMALL-1040- Store Highest Account Balance on V-Monitoring Start";
+string glbVersion = "V-SMALL-1041- Set Deep Drawdown Arm Threshold to $50 x Mult Gap";
 
 int AccountMultiplierLOT = 500;//100;//1000;//400;//200;//500; ALWAYS multiples of 1000 is better for best results
 //balance multiplier 
@@ -78,8 +78,8 @@ bool   InpHideVisualsWhenPausedInTesting = true;   // Testing Only: Hide Dashboa
 
 //--- Deep Drawdown Recovery Breakeven Shield (Choice B: Live SL Clamping) ---
 bool   InpEnableDeepDrawdownRecoveryShield = true;  // Enable Deep Drawdown Recovery Breakeven Shield (Choice B)
-double InpDeepDrawdownMinGapPct            = 50.0;  // Minimum equity drawdown % (50% of account balance) to arm shield
-double InpDeepDrawdownMinGapUSD            = 50.0;  // Fallback equity drawdown gap ($50 * multiplier) if Pct <= 0
+double InpDeepDrawdownMinGapUSD            = 50.0;  // Minimum equity drawdown gap ($50 * multiplier)
+double InpDeepDrawdownMinGapPct            = 0.0;   // Minimum equity drawdown % (0 = disabled, use InpDeepDrawdownMinGapUSD)
 double InpDeepDrawdownRecoveryBufferUSD    = 2.0;   // Recovery buffer below balance ($2.0 * multiplier) to trigger Live SL clamp
 bool   InpDeepDrawdownDeletePendings       = true;  // Delete all pending orders on recovery trigger
 bool   InpDeepDrawdownTrailLiveSL          = true;  // Ratchet/trail SL higher if market continues moving into profit
@@ -13526,8 +13526,10 @@ void CreateDeepDrawdownArmedChartIcon(double startBal, double lowestEq, double g
    ObjectSetInteger(0, baseName, OBJPROP_SELECTABLE, false);
    ObjectSetInteger(0, baseName, OBJPROP_HIDDEN, false);
 
-   string tooltip = StringFormat("V-Shape Equity Shield ARMED | PeakBal=$%.2f | LowEq=$%.2f | Gap=-$%.2f (>=50%% Bal) | Bounce Target: $%.2f | Time: %s",
-                                 startBal, lowestEq, gap, recTarget, TimeToString(TimeCurrent(), TIME_DATE|TIME_MINUTES|TIME_SECONDS));
+   int mult = (balancelomultipler > 0) ? balancelomultipler : 1;
+   string reqGapTag = (InpDeepDrawdownMinGapPct > 0.0) ? StringFormat(">=%.0f%% Bal", InpDeepDrawdownMinGapPct) : StringFormat(">=$%.0f Gap", InpDeepDrawdownMinGapUSD * mult);
+   string tooltip = StringFormat("V-Shape Equity Shield ARMED | PeakBal=$%.2f | LowEq=$%.2f | Gap=-$%.2f (%s) | Bounce Target: $%.2f | Time: %s",
+                                 startBal, lowestEq, gap, reqGapTag, recTarget, TimeToString(TimeCurrent(), TIME_DATE|TIME_MINUTES|TIME_SECONDS));
    ObjectSetString(0, baseName, OBJPROP_TOOLTIP, tooltip);
 
    // 2. Bold Text Label below the icon
