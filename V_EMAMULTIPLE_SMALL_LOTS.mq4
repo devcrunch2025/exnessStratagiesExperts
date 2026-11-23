@@ -43,7 +43,7 @@ CheckBasketProfitClose  Total open basket profit
 
 */
 
-string glbVersion = "V-SMALL-1033- Deep Drawdown Recovery Breakeven Shield Choice B Live SL Clamp";
+string glbVersion = "V-SMALL-1034- Set Deep Drawdown Arm Threshold to 50% Account Balance";
 
 int AccountMultiplierLOT = 500;//100;//1000;//400;//200;//500; ALWAYS multiples of 1000 is better for best results
 //balance multiplier 
@@ -78,7 +78,8 @@ bool   InpHideVisualsWhenPausedInTesting = true;   // Testing Only: Hide Dashboa
 
 //--- Deep Drawdown Recovery Breakeven Shield (Choice B: Live SL Clamping) ---
 bool   InpEnableDeepDrawdownRecoveryShield = true;  // Enable Deep Drawdown Recovery Breakeven Shield (Choice B)
-double InpDeepDrawdownMinGapUSD            = 50.0;  // Minimum equity drawdown gap ($50 * multiplier) to arm shield
+double InpDeepDrawdownMinGapPct            = 50.0;  // Minimum equity drawdown % (50% of account balance) to arm shield
+double InpDeepDrawdownMinGapUSD            = 50.0;  // Fallback equity drawdown gap ($50 * multiplier) if Pct <= 0
 double InpDeepDrawdownRecoveryBufferUSD    = 2.0;   // Recovery buffer below balance ($2.0 * multiplier) to trigger Live SL clamp
 bool   InpDeepDrawdownDeletePendings       = true;  // Delete all pending orders on recovery trigger
 bool   InpDeepDrawdownTrailLiveSL          = true;  // Ratchet/trail SL higher if market continues moving into profit
@@ -14622,7 +14623,11 @@ void CheckDeepDrawdownRecoveryShield()
       g_deepDrawdownCycleLowestEquity = curEq;
 
    double gap = g_deepDrawdownCycleStartBalance - g_deepDrawdownCycleLowestEquity;
-   double minGapThreshold = InpDeepDrawdownMinGapUSD * mult;
+   double minGapThreshold = 0.0;
+   if(InpDeepDrawdownMinGapPct > 0.0 && g_deepDrawdownCycleStartBalance > 0.0)
+      minGapThreshold = g_deepDrawdownCycleStartBalance * (InpDeepDrawdownMinGapPct / 100.0);
+   else
+      minGapThreshold = InpDeepDrawdownMinGapUSD * mult;
 
    // -------------------------------------------------------------
    // 3. ARM SHIELD: If drawdown gap exceeds threshold
@@ -14632,13 +14637,14 @@ void CheckDeepDrawdownRecoveryShield()
       g_deepDrawdownCycleArmed = true;
       double baseTarget = MathMin(g_deepDrawdownCycleStartBalance, curBal);
       double recTarget  = baseTarget - (InpDeepDrawdownRecoveryBufferUSD * mult);
+      string gapTag     = (InpDeepDrawdownMinGapPct > 0.0) ? StringFormat("%.0f%% of Balance", InpDeepDrawdownMinGapPct) : StringFormat("$%.0f", minGapThreshold);
 
-      PrintFormat(">>> [DEEP DRAWDOWN SHIELD ARMED] StartBal=$%.2f | LowestEq=$%.2f | Gap=-$%.2f >= Threshold=$%.2f | Waiting for bounce to $%.2f to clamp Live SL",
-                  g_deepDrawdownCycleStartBalance, g_deepDrawdownCycleLowestEquity, gap, minGapThreshold, recTarget);
+      PrintFormat(">>> [DEEP DRAWDOWN SHIELD ARMED] StartBal=$%.2f | LowestEq=$%.2f | Gap=-$%.2f >= Threshold=$%.2f (%s) | Waiting for bounce to $%.2f to clamp Live SL",
+                  g_deepDrawdownCycleStartBalance, g_deepDrawdownCycleLowestEquity, gap, minGapThreshold, gapTag, recTarget);
 
       LogEAEvent("WARN", "DEEP_DD_SHIELD",
-                 StringFormat("ARMED! StartBal=$%.2f LowestEq=$%.2f Gap=-$%.2f Target=$%.2f",
-                              g_deepDrawdownCycleStartBalance, g_deepDrawdownCycleLowestEquity, gap, recTarget));
+                 StringFormat("ARMED! StartBal=$%.2f LowestEq=$%.2f Gap=-$%.2f Threshold=$%.2f (%s) Target=$%.2f",
+                              g_deepDrawdownCycleStartBalance, g_deepDrawdownCycleLowestEquity, gap, minGapThreshold, gapTag, recTarget));
    }
 
    // -------------------------------------------------------------
