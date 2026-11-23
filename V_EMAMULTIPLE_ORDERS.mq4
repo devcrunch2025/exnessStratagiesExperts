@@ -42,7 +42,7 @@ CheckBasketProfitClose  Total open basket profit
 */
 
 
-string glbVersion = "VMULTI-1286- Common Profit Ladder EMA Angle 3 to 8 Range";
+string glbVersion = "VMULTI-1287- Disable EQH Horizontal Orders When EMA Angle Greater Than 6";
 
 int AccountMultiplierLOT = 1000;//400;//200;//500; ALWAYS multiples of 1000 is better for best results
 //balance multiplier 
@@ -15447,17 +15447,14 @@ MinimumSLModifyGapRaw=10;//
    SyncHorizontalLineStartPendingCleanup();
 // ManageLsdSweepLineStopLossProtection(); // DISABLED: LSD Sweep lines only create FlipBasketSupport, DO NOT modify/close orders
 
-if((MathAbs(GlobalEmaAngle30)<=3 && EMADirection==-1  ) || MathAbs(GlobalEmaAngle30)> 6 && EMADirection==1   )
+if(MathAbs(GlobalEmaAngle30) <= 3 && EMADirection == -1)
 {
-
  CheckNewGreenLineCloseSellAndOpenBuy(); // USER RULE: On new EQH-G green line: close SELL if loss < $1*mult & open SSL Long 0.02*mult
 }
 
-if((MathAbs(GlobalEmaAngle30)<=3 && EMADirection==1  ) || MathAbs(GlobalEmaAngle30)> 6 && EMADirection==-1   )
+if(MathAbs(GlobalEmaAngle30) <= 3 && EMADirection == 1)
 {
-
    CheckNewRedLineCloseBuyAndOpenSell();
-  
  }  
    
    if(InpEnableLsdSweepFlipBasketSupport)
