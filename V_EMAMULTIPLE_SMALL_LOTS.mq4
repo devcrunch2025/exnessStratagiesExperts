@@ -43,7 +43,7 @@ CheckBasketProfitClose  Total open basket profit
 
 */
 
-string glbVersion = "V-SMALL-1032- Display Day Reset Session Time 10AM/4PM in Dubai Time Button";
+string glbVersion = "V-SMALL-1033- Deep Drawdown Recovery Breakeven Shield Choice B Live SL Clamp";
 
 int AccountMultiplierLOT = 500;//100;//1000;//400;//200;//500; ALWAYS multiples of 1000 is better for best results
 //balance multiplier 
@@ -75,6 +75,14 @@ bool   InpEnableFloatingLossLiveSL       = false;  // Disabled: do not purely cl
 double InpMaxFloatingLossUSD             = 10.0;   // Obsolete (pure $10 loss close disabled)
 bool   InpPauseOnFloatingLossExit        = false;  // Obsolete (pure $10 loss close disabled)
 bool   InpHideVisualsWhenPausedInTesting = true;   // Testing Only: Hide Dashboard & icons/lines when trading paused (faster backtest)
+
+//--- Deep Drawdown Recovery Breakeven Shield (Choice B: Live SL Clamping) ---
+bool   InpEnableDeepDrawdownRecoveryShield = true;  // Enable Deep Drawdown Recovery Breakeven Shield (Choice B)
+double InpDeepDrawdownMinGapUSD            = 50.0;  // Minimum equity drawdown gap ($50 * multiplier) to arm shield
+double InpDeepDrawdownRecoveryBufferUSD    = 2.0;   // Recovery buffer below balance ($2.0 * multiplier) to trigger Live SL clamp
+bool   InpDeepDrawdownDeletePendings       = true;  // Delete all pending orders on recovery trigger
+bool   InpDeepDrawdownTrailLiveSL          = true;  // Ratchet/trail SL higher if market continues moving into profit
+int    InpDeepDrawdownCooldownMinutes      = 30;    // Cooldown pause minutes after clamped basket exits completely
 
 double TargetProfitPerFlipUSD =1000;//50;//;//percentage////1000;//20;//10;//10*2;//10;//5;//20;// 10.0; close all orders at $20Xmultipler
 
@@ -176,6 +184,13 @@ double   g_dailyEquityResumeSafetyFloor      = 0.0;   // Safety floor prior to S
 datetime g_dayTargetStartTime                = 0;     // Timestamp of active day target cycle start
 bool     g_floatingLossLiveSlTriggered       = false; // Latch flag when >$10*mult loss protection triggered
 bool     g_testerPausedVisualsCleaned        = false; // Testing only: Flag when visuals/icons cleaned during pause
+
+// Deep Drawdown Recovery Shield State Variables
+double   g_deepDrawdownCycleStartBalance     = 0.0;   // Account balance when the active basket cycle began
+double   g_deepDrawdownCycleLowestEquity     = 0.0;   // Lowest equity recorded during this active basket cycle
+bool     g_deepDrawdownCycleArmed            = false; // True when drawdown gap >= InpDeepDrawdownMinGapUSD * mult
+bool     g_deepDrawdownLiveSlClamped         = false; // True once Live SL clamping has been executed for this basket
+datetime g_deepDrawdownCooldownUntil         = 0;     // Server time until which new orders are blocked after clamped basket exits
 
 bool EnableBounceBackDetection = false;
 
@@ -13469,6 +13484,9 @@ void PerformDayTradingResume(string reason)
    g_dailyEquityPauseTime           = 0;
    g_dailyEquityPauseSSLDirection   = 0;
    g_dailyEquityPauseSslFlipped     = false;
+   g_deepDrawdownCooldownUntil      = 0;
+   g_deepDrawdownLiveSlClamped      = false;
+   g_deepDrawdownCycleArmed         = false;
 
    double stepUSD        = DailyEquityTrailStepUSD * balancelomultipler;
    double safetyFloorUSD = (DailyEquitySafetyFloor > 0.0 ? DailyEquitySafetyFloor : DailyEquityTrailStepUSD) * balancelomultipler;
@@ -13901,6 +13919,11 @@ void CheckForNewDay()
       g_dailyEquityPauseTime           = 0;
       g_dailyEquityPauseSSLDirection   = 0;
       g_dailyEquityPauseSslFlipped     = false;
+      g_deepDrawdownCooldownUntil      = 0;
+      g_deepDrawdownLiveSlClamped      = false;
+      g_deepDrawdownCycleArmed         = false;
+      g_deepDrawdownCycleStartBalance  = g_dayOpeningBalance;
+      g_deepDrawdownCycleLowestEquity  = g_dayOpeningBalance;
       g_dailyEquityIsResumedLeg        = false; // Reset trailing/resumed leg to Phase 1 fresh day target!
       g_dailyEquityResumedStepHit      = false;
       g_dailyEquityResumeEquity        = 0.0;
@@ -14037,8 +14060,8 @@ void ModifyOpenOrdersToCurrentPriceSL(string reason = "Daily Equity Target Hit",
          if(proposedSL >= curBid)
             continue;
 
-         // For BUY: Set if no SL (0.0), or move SL forward (higher), or forced clamp
-         if(curSL == 0.0 || (proposedSL > curSL && (proposedSL - curSL) >= Point) || (forceAllOrders && (curSL == 0.0 || MathAbs(proposedSL - curSL) >= Point)))
+         // For BUY: Set if no SL (0.0), or move SL forward (higher)
+         if(curSL == 0.0 || (proposedSL > curSL && (proposedSL - curSL) >= Point))
          {
             shouldModify = true;
          }
@@ -14052,8 +14075,8 @@ void ModifyOpenOrdersToCurrentPriceSL(string reason = "Daily Equity Target Hit",
          if(proposedSL <= curAsk)
             continue;
 
-         // For SELL: Set if no SL (0.0), or move SL forward (lower), or forced clamp
-         if(curSL == 0.0 || (proposedSL < curSL && (curSL - proposedSL) >= Point) || (forceAllOrders && (curSL == 0.0 || MathAbs(proposedSL - curSL) >= Point)))
+         // For SELL: Set if no SL (0.0), or move SL forward (lower)
+         if(curSL == 0.0 || (proposedSL < curSL && (curSL - proposedSL) >= Point))
          {
             shouldModify = true;
          }
@@ -14538,6 +14561,125 @@ bool IsDailyEquityStopReachedAlldays()
 
    return g_dailyEquityTradingBlocked;
   }
+
+//+------------------------------------------------------------------+
+//| CheckDeepDrawdownRecoveryShield                                  |
+//| Choice B: V-Shape Drawdown Recovery Breakeven Shield             |
+//| When an open basket suffers a deep drawdown (gap >= $50 * mult)  |
+//| and then recovers back towards balance (within $2.0 * mult),     |
+//| this function:                                                   |
+//| 1. Arms when drawdown gap >= InpDeepDrawdownMinGapUSD * mult.    |
+//| 2. On recovery, deletes all pending orders (stops new risk).     |
+//| 3. Clamps all open market orders' SL to live market price.       |
+//| 4. Trails SL higher if price continues moving into profit.       |
+//| 5. Initiates cooldown pause once the clamped basket exits.       |
+//+------------------------------------------------------------------+
+void CheckDeepDrawdownRecoveryShield()
+{
+   if(!InpEnableDeepDrawdownRecoveryShield)
+      return;
+
+   // Count open EA market orders
+   int openMarketOrders = CountOrdersByType(OP_BUY) + CountOrdersByType(OP_SELL);
+   int mult = (balancelomultipler > 0) ? balancelomultipler : 1;
+   double curBal = AccountBalance();
+   double curEq  = (AccountEquity() > 0.0) ? AccountEquity() : curBal;
+
+   // -------------------------------------------------------------
+   // 1. NO OPEN MARKET ORDERS: Basket is flat / idle
+   // -------------------------------------------------------------
+   if(openMarketOrders == 0)
+   {
+      // If the clamped basket just finished exiting, start cooldown
+      if(g_deepDrawdownLiveSlClamped)
+      {
+         if(InpDeepDrawdownCooldownMinutes > 0)
+            g_deepDrawdownCooldownUntil = TimeCurrent() + (InpDeepDrawdownCooldownMinutes * 60);
+
+         PrintFormat(">>> [DEEP DRAWDOWN RECOVERY BASKET EXITED] Capital protected at Balance=$%.2f | Cooldown active for %dm until %s.",
+                     curBal, InpDeepDrawdownCooldownMinutes, TimeToString(g_deepDrawdownCooldownUntil, TIME_DATE|TIME_MINUTES|TIME_SECONDS));
+
+         LogEAEvent("INFO", "DEEP_DD_SHIELD",
+                    StringFormat("Basket exited! Capital protected at Balance=$%.2f Cooldown until %s",
+                                 curBal, TimeToString(g_deepDrawdownCooldownUntil, TIME_DATE|TIME_MINUTES|TIME_SECONDS)));
+      }
+
+      // Reset cycle state
+      g_deepDrawdownLiveSlClamped         = false;
+      g_deepDrawdownCycleArmed            = false;
+      g_deepDrawdownCycleStartBalance     = curBal;
+      g_deepDrawdownCycleLowestEquity     = curEq;
+      return;
+   }
+
+   // -------------------------------------------------------------
+   // 2. ACTIVE OPEN BASKET: Track cycle baseline and lowest equity
+   // -------------------------------------------------------------
+   if(g_deepDrawdownCycleStartBalance <= 0.0)
+      g_deepDrawdownCycleStartBalance = curBal;
+
+   if(curEq < g_deepDrawdownCycleLowestEquity || g_deepDrawdownCycleLowestEquity <= 0.0)
+      g_deepDrawdownCycleLowestEquity = curEq;
+
+   double gap = g_deepDrawdownCycleStartBalance - g_deepDrawdownCycleLowestEquity;
+   double minGapThreshold = InpDeepDrawdownMinGapUSD * mult;
+
+   // -------------------------------------------------------------
+   // 3. ARM SHIELD: If drawdown gap exceeds threshold
+   // -------------------------------------------------------------
+   if(!g_deepDrawdownCycleArmed && gap >= minGapThreshold)
+   {
+      g_deepDrawdownCycleArmed = true;
+      double baseTarget = MathMin(g_deepDrawdownCycleStartBalance, curBal);
+      double recTarget  = baseTarget - (InpDeepDrawdownRecoveryBufferUSD * mult);
+
+      PrintFormat(">>> [DEEP DRAWDOWN SHIELD ARMED] StartBal=$%.2f | LowestEq=$%.2f | Gap=-$%.2f >= Threshold=$%.2f | Waiting for bounce to $%.2f to clamp Live SL",
+                  g_deepDrawdownCycleStartBalance, g_deepDrawdownCycleLowestEquity, gap, minGapThreshold, recTarget);
+
+      LogEAEvent("WARN", "DEEP_DD_SHIELD",
+                 StringFormat("ARMED! StartBal=$%.2f LowestEq=$%.2f Gap=-$%.2f Target=$%.2f",
+                              g_deepDrawdownCycleStartBalance, g_deepDrawdownCycleLowestEquity, gap, recTarget));
+   }
+
+   // -------------------------------------------------------------
+   // 4. RECOVERY TRIGGER: When armed and equity recovers near balance
+   // -------------------------------------------------------------
+   if(g_deepDrawdownCycleArmed && !g_deepDrawdownLiveSlClamped)
+   {
+      double baseTarget = MathMin(g_deepDrawdownCycleStartBalance, curBal);
+      double recTarget  = baseTarget - (InpDeepDrawdownRecoveryBufferUSD * mult);
+
+      if(curEq >= recTarget)
+      {
+         g_deepDrawdownLiveSlClamped = true;
+
+         PrintFormat(">>> [DEEP DRAWDOWN V-SHAPE RECOVERY TRIGGERED!] CurEq=$%.2f >= Target=$%.2f (Base=$%.2f, Max Gap was -$%.2f) | Clamping ALL Open Orders to Live Market SL & Deleting Pendings!",
+                     curEq, recTarget, baseTarget, gap);
+
+         LogEAEvent("CRITICAL", "DEEP_DD_SHIELD",
+                    StringFormat("TRIGGERED! CurEq=$%.2f Target=$%.2f Clamping %d orders to Live SL & deleting pendings",
+                                 curEq, recTarget, openMarketOrders));
+
+         // 1. Delete all pending orders so no new counter-risk triggers
+         if(InpDeepDrawdownDeletePendings)
+         {
+            DeleteAllPendingEAOrders();
+         }
+
+         // 2. Clamp ALL open market orders to Live Market SL (forceAllOrders = true)
+         ModifyOpenOrdersToCurrentPriceSL("Deep Drawdown Recovery Shield", true);
+      }
+   }
+
+   // -------------------------------------------------------------
+   // 5. TRAIL CLAMPED SL: If price continues running into profit
+   // -------------------------------------------------------------
+   if(g_deepDrawdownLiveSlClamped && InpDeepDrawdownTrailLiveSL)
+   {
+      ModifyOpenOrdersToCurrentPriceSL("Deep Drawdown Recovery Trailing", true);
+   }
+}
+
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
@@ -14556,6 +14698,7 @@ void OnTick()
 CheckForNewDay();
 CheckAndResumeDayTradingOnEmaDirectionChange();
 CheckAndResumeDayTradingOnStrongAngleAndSSL();
+CheckDeepDrawdownRecoveryShield(); // Choice B: V-Shape Deep Drawdown Recovery Breakeven Shield
 IsDailyEquityStopReached(); // Check target every tick; sets g_dailyEquityTradingBlocked and closes all orders if hit
 
 bool isTradingPausedOrBlocked = (g_dailyEquityTradingBlocked || g_manualTradingPaused || DayProfitLadderTradingStopped || g_dailyEquityAdverseLossHitToday || TradingHaltedUntilNextFlip);
@@ -18134,6 +18277,19 @@ int SafeOrderSend(string symbol,int orderType,double lots,double price,int slipp
 
    if(g_dailyEquityTradingBlocked)
       return -1;
+
+   if(g_deepDrawdownLiveSlClamped)
+     {
+      Print("SAFEORDERSEND BLOCKED [Deep DD Recovery Shield]: Live SL Clamping is active. No new orders allowed until basket exits.");
+      return -1;
+     }
+
+   if(g_deepDrawdownCooldownUntil > 0 && TimeCurrent() < g_deepDrawdownCooldownUntil)
+     {
+      PrintFormat("SAFEORDERSEND BLOCKED [Deep DD Recovery Cooldown]: Cooldown active until %s. No new orders allowed.",
+                  TimeToString(g_deepDrawdownCooldownUntil, TIME_DATE|TIME_MINUTES|TIME_SECONDS));
+      return -1;
+     }
 
 
    if(TradeOperationFailedThisTick)
@@ -31459,6 +31615,36 @@ void UpdateLeftLiveOrdersDashboard(bool force = false)
          string pauseMultTag = (deqMult > 1) ? StringFormat(" [%dX]", (int)deqMult) : "";
          deqLeftTxt  = StringFormat("DAY: [%s] B:$%.0f  T:$%.0f (+$%.0f%s)",
                                     deqStatusTxt, pauseBaseUSD, pauseTgtUSD, DailyEquityStopUSD * deqMult, pauseMultTag);
+        }
+      else if(g_deepDrawdownLiveSlClamped)
+        {
+         deqStatusTxt = "DD-CLAMP";
+         deqBarClr    = C'20,45,20';
+         deqTxtClr    = clrLime;
+         deqRightTxt  = StringFormat("P/L:%s$%.2f  DD RECOVERY CLAMPED (TRAIL SL)", deqSign, deqProfit);
+         deqRightClr  = clrLime;
+         deqLeftTxt   = StringFormat("DAY: [%s] B:$%.0f  T:$%.0f", deqStatusTxt, deqOpenBase, deqTarget);
+        }
+      else if(g_deepDrawdownCooldownUntil > 0 && TimeCurrent() < g_deepDrawdownCooldownUntil)
+        {
+         int remainMin = (int)((g_deepDrawdownCooldownUntil - TimeCurrent()) / 60) + 1;
+         deqStatusTxt = "DD-PAUSE";
+         deqBarClr    = C'40,30,10';
+         deqTxtClr    = clrYellow;
+         deqRightTxt  = StringFormat("P/L:%s$%.2f  DD COOLDOWN (%dm REMAINING)", deqSign, deqProfit, remainMin);
+         deqRightClr  = clrGold;
+         deqLeftTxt   = StringFormat("DAY: [%s] B:$%.0f  T:$%.0f", deqStatusTxt, deqOpenBase, deqTarget);
+        }
+      else if(g_deepDrawdownCycleArmed)
+        {
+         double baseThreshold = MathMin(g_deepDrawdownCycleStartBalance, deqOpenBase);
+         double recTarget = baseThreshold - (InpDeepDrawdownRecoveryBufferUSD * deqMult);
+         deqStatusTxt = "DD-ARMED";
+         deqBarClr    = C'45,25,10';
+         deqTxtClr    = clrGold;
+         deqRightTxt  = StringFormat("P/L:%s$%.2f  DD ARMED (TGT:$%.0f)", deqSign, deqProfit, recTarget);
+         deqRightClr  = clrGold;
+         deqLeftTxt   = StringFormat("DAY: [%s] B:$%.0f  T:$%.0f", deqStatusTxt, deqOpenBase, deqTarget);
         }
       else if(g_dailyEquityIsResumedLeg && InpResumeDayTradingTargetMode == RESUME_MODE_TRAIL_STEP)
         {
