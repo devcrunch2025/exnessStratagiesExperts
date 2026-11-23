@@ -43,7 +43,7 @@ CheckBasketProfitClose  Total open basket profit
 
 */
 
-string glbVersion = "V-SMALL-1048- Allow Horizontal Orders on All Angles if EMA is Weak";
+string glbVersion = "V-SMALL-1044- Add MOM Identifier to SSL Long and Short Order Comments";
 
 int AccountMultiplierLOT = 500;//100;//1000;//400;//200;//500; ALWAYS multiples of 1000 is better for best results
 //balance multiplier
@@ -356,11 +356,11 @@ double InpLineEndedBreakoutTriggerGapRaw          = 500;//100.0;         // Pric
 double InpLineEndedBreakoutSLOffsetRaw            = 3000;//1000;//200.0;         // StopLoss offset in USD ($200) from ended line price (Red: Line+200, Green: Line-200)
 bool   InpLineEndedBreakoutDeletePending          = true;          // When line-ended breakout triggers: delete pending orders
 bool   InpLineEndedBreakoutDeleteAllPending       = false;         // false = delete breakout side pending (SELL for Red, BUY for Green); true = delete ALL pending
-bool   InpBlockBuyNearActiveRedLine               = false;// true;          // While active Red EQH-R line is running: block BUY orders (Disabled)
-bool   InpBlockSellNearActiveGreenLine            = false;// true;          // While active Green EQH-G line is running: block SELL orders (Disabled)
+bool   InpBlockBuyNearActiveRedLine               = true;          // While active Red EQH-R line is running: block BUY orders
+bool   InpBlockSellNearActiveGreenLine            = true;          // While active Green EQH-G line is running: block SELL orders
 double InpActiveLineOppositeBlockRangeRaw         = 50.0;          // Active Red/Green line opposite-order block distance in raw USD ($50, used if InpBlockAllOppositeWhenLineActive=false)
 bool   InpBlockAllOrdersWhenBothHorizontalLinesActive = true;      // Confusion Block: When BOTH Red (EQH-R) & Green (EQH-G) lines are active, block ALL orders until single line confirms
-bool   InpBlockAllOppositeWhenLineActive          = false;// true;          // Single Active Line: true = block ALL opposite orders at ANY distance (Disabled)
+bool   InpBlockAllOppositeWhenLineActive          = true;          // Single Active Line: true = block ALL opposite orders at ANY distance (Red blocks all BUY; Green blocks all SELL)
 
 // ===== LSD SWEEP (SSLS/BSLS) OPPOSITE-ORDER BLOCK IN SafeOrderSend() =====
 bool   InpEnableSweepOppositeBlock                = true;          // Block opposite orders in SafeOrderSend(): SSLS blocks SELL, BSLS blocks BUY
@@ -910,7 +910,6 @@ bool   InpEnablePendingGapDoubleOnLoss     = true;  // Double pending order gap 
 double InpPendingGapDoubleLossThresholdUSD = 30;//10.0;  // Basket floating loss threshold ($10 * multiplier) to double pending gap
 double InpPendingGapLossMultiplier         = 2.0;   // Pending gap multiplier on basket loss threshold (2.0 = double)
 // double MinimumSameOrderGapRawSSLLongShort =50;// 50;
-double BaseMinimumSameOrderGapRawMatched = 50.0; // Base matched order gap ($50.0)
 double MinimumSameOrderGapRawMatched =50;//30;//50;//100;//50;//30;//10;//20;//50;//20;// 50;//SSL long //SSL short
 double MinimumSameOrderGapRawUnmatched =50;//10;//10;//20;// 100;
 
@@ -12882,7 +12881,6 @@ void ResetAllRuntimeVariablesOnFreshStart()
    DeleteOurObjects();
    ClearEMALineObjects();
    DeleteLiquiditySweepObjects();
-   MinimumSameOrderGapRawMatched   = BaseMinimumSameOrderGapRawMatched;
   }
 
 //+------------------------------------------------------------------+
@@ -15519,14 +15517,12 @@ void OnTick()
    SyncHorizontalLineStartPendingCleanup();
 // ManageLsdSweepLineStopLossProtection(); // DISABLED: LSD Sweep lines only create FlipBasketSupport, DO NOT modify/close orders
 
-   bool isEmaWeakH = IsEmaWEAKDistanceReduced50PercentFromPeak();
-
-   if((MathAbs(GlobalEmaAngle30) <= 3.0 || isEmaWeakH) && EMADirection == -1)
+   if(MathAbs(GlobalEmaAngle30) <= 3 && EMADirection == -1)
      {
       CheckNewGreenLineCloseSellAndOpenBuy(); // USER RULE: On new EQH-G green line: close SELL if loss < $1*mult & open SSL Long 0.02*mult
      }
 
-   if((MathAbs(GlobalEmaAngle30) <= 3.0 || isEmaWeakH) && EMADirection == 1)
+   if(MathAbs(GlobalEmaAngle30) <= 3 && EMADirection == 1)
      {
       CheckNewRedLineCloseBuyAndOpenSell();
      }
@@ -16061,13 +16057,6 @@ void OnTickCore()
 // --- UPDATE GLOBAL TICK VARIABLES ---
    GlobalEmaAngle30 = GetEmaAngleDegrees(30);
    GlobalEmaAngle200 = GetEmaAngleDegrees(200);
-
-   // USER RULE (V-SMALL-1045): Dynamic Matched Order Gap based on EMA angle:
-   // MinimumSameOrderGapRawMatched = 50 for ema angle > 3, MinimumSameOrderGapRawMatched / 2 when ema angle <= 3
-   if(MathAbs(GlobalEmaAngle30) > 3.0)
-      MinimumSameOrderGapRawMatched = BaseMinimumSameOrderGapRawMatched;
-   else
-      MinimumSameOrderGapRawMatched = BaseMinimumSameOrderGapRawMatched / 2.0;
 
    int currentSSLDirection = GetCurrentSSLDirection();
 
@@ -18547,8 +18536,7 @@ bool IsBlockedByActiveHorizontalLines(int orderType, double reqPrice, string ord
       return true;
      }
 
-// Rule 2: Single active line -> block opposite-direction orders (DISABLED per USER RULE)
-/*
+// Rule 2: Single active line -> block opposite-direction orders (at any distance if InpBlockAllOppositeWhenLineActive, else within range)
    double lineBlockRange = InpActiveLineOppositeBlockRangeRaw;
    if(!InpBlockAllOppositeWhenLineActive && lineBlockRange <= 0.0)
       return false;
@@ -18597,8 +18585,6 @@ bool IsBlockedByActiveHorizontalLines(int orderType, double reqPrice, string ord
          return true;
         }
      }
-*/
-   return false;
 
    return false;
   }
@@ -22450,26 +22436,17 @@ double GetDynamicOrderGapDetails(int orderType, double &rawGapBeforeCap, string 
    double unmatchedGap = (MinimumSameOrderGapRawUnmatched > 0.0) ? MinimumSameOrderGapRawUnmatched : 50.0;
    bool isAdaptive = false;
 
-   // USER RULE (V-SMALL-1045): Dynamic Matched Order Gap based on EMA angle:
-   // MinimumSameOrderGapRawMatched = 50 for ema angle > 3, MinimumSameOrderGapRawMatched / 2 when ema angle <= 3
-   if(MathAbs(GlobalEmaAngle30) <= 3.0)
+// Adaptive Grid Gap scaling to current oscillation width (R / 8)
+   if(InpEnableOscillationEngine && InpEnableAdaptiveGridGap)
      {
-      baseGap = (BaseMinimumSameOrderGapRawMatched > 0.0) ? (BaseMinimumSameOrderGapRawMatched / 2.0) : 25.0;
-     }
-   else
-     {
-      // Adaptive Grid Gap scaling to current oscillation width (R / 8) only when angle > 3
-      if(InpEnableOscillationEngine && InpEnableAdaptiveGridGap)
+      double rH = 0.0, rL = 0.0, rPos = 50.0;
+      double rW = GetCurrentOscillationRange(rH, rL, rPos);
+      if(rW > 0.0)
         {
-         double rH = 0.0, rL = 0.0, rPos = 50.0;
-         double rW = GetCurrentOscillationRange(rH, rL, rPos);
-         if(rW > 0.0)
-           {
-            double adaptGap = rW / 8.0;
-            adaptGap = MathMax(InpAdaptiveGridGapMin, MathMin(InpAdaptiveGridGapMax, adaptGap));
-            baseGap = adaptGap;
-            isAdaptive = true;
-           }
+         double adaptGap = rW / 8.0;
+         adaptGap = MathMax(InpAdaptiveGridGapMin, MathMin(InpAdaptiveGridGapMax, adaptGap));
+         baseGap = adaptGap;
+         isAdaptive = true;
         }
      }
 
@@ -22614,7 +22591,7 @@ double GetDynamicOrderGapDetails(int orderType, double &rawGapBeforeCap, string 
                reasonStr = "Adaptive Grid";
             else
                if(sslMatches)
-                  reasonStr = (MathAbs(GlobalEmaAngle30) <= 3.0) ? "SSL Matched (Angle<=3 Gap25)" : "SSL Matched (Angle>3 Gap50)";
+                  reasonStr = "SSL Matched";
                else
                   reasonStr = "Unmatched Fallback";
 
@@ -34258,11 +34235,19 @@ void CheckNewRedLineCloseBuyAndOpenSell()
    if(!InpCloseBuyOnNewEqhRedLine)
       return;
 
-   // DISABLED: Dubai Time-of-Day Block (Hours 15, 16, 17)
-   // datetime dubaiTime1 = TimeCurrent() + (ServerToDubaiOffsetHours * 3600);
-   // int currentHour1 = TimeHour(dubaiTime1);
-   // if(currentHour1==15 || currentHour1==16 || currentHour1==17)
-   //    return;
+
+
+
+   datetime dubaiTime1 = TimeCurrent() + (ServerToDubaiOffsetHours * 3600);
+   int currentHour1 = TimeHour(dubaiTime1);
+
+
+
+
+   if(currentHour1==15 || currentHour1==16 || currentHour1==17)
+
+      return;
+
 
    if(!EAStartupComplete)
       return;
@@ -34622,11 +34607,16 @@ void CheckNewGreenLineCloseSellAndOpenBuy()
    if(!EAStartupComplete)
       return;
 
-   // DISABLED: Dubai Time-of-Day Block (Hours 15, 16, 17)
-   // datetime dubaiTime1 = TimeCurrent() + (ServerToDubaiOffsetHours * 3600);
-   // int currentHour1 = TimeHour(dubaiTime1);
-   // if(currentHour1==15 || currentHour1==16 || currentHour1==17)
-   //    return;
+
+   datetime dubaiTime1 = TimeCurrent() + (ServerToDubaiOffsetHours * 3600);
+   int currentHour1 = TimeHour(dubaiTime1);
+
+
+
+
+   if(currentHour1==15 || currentHour1==16 || currentHour1==17)
+
+      return;
 
    SyncHorizontalLineActivationTimers();
 
