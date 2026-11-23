@@ -43,7 +43,7 @@ CheckBasketProfitClose  Total open basket profit
 
 */
 
-string glbVersion = "V-SMALL-1039- Double Pending Order Gap on Basket Floating Loss <= -$10";
+string glbVersion = "V-SMALL-1040- Store Highest Account Balance on V-Monitoring Start";
 
 int AccountMultiplierLOT = 500;//100;//1000;//400;//200;//500; ALWAYS multiples of 1000 is better for best results
 //balance multiplier 
@@ -12782,9 +12782,15 @@ void ResetAllRuntimeVariablesOnFreshStart()
    ResetTradeErrorRetryGuards();
    ResetTradeRequestBudget();
 
-   // 10. Drawdown Relief Stats
+   // 10. Drawdown Relief Stats & Deep Drawdown Recovery Shield
    g_drawdownReliefAppliedCount    = 0;
    g_drawdownReliefHitSuccessCount = 0;
+   g_deepDrawdownCooldownUntil     = 0;
+   g_deepDrawdownLiveSlClamped     = false;
+   g_deepDrawdownCycleArmed        = false;
+   g_deepDrawdownArmedTarget       = 0.0;
+   g_deepDrawdownCycleStartBalance = (AccountBalance() > 0.0) ? AccountBalance() : 0.0;
+   g_deepDrawdownCycleLowestEquity = g_deepDrawdownCycleStartBalance;
 
    // 11. Chart Visual Objects Clean-up
    g_testerPausedVisualsCleaned    = false;
@@ -13520,7 +13526,7 @@ void CreateDeepDrawdownArmedChartIcon(double startBal, double lowestEq, double g
    ObjectSetInteger(0, baseName, OBJPROP_SELECTABLE, false);
    ObjectSetInteger(0, baseName, OBJPROP_HIDDEN, false);
 
-   string tooltip = StringFormat("V-Shape Equity Shield ARMED | StartBal=$%.2f | LowEq=$%.2f | Gap=-$%.2f (>=50%% Bal) | Bounce Target: $%.2f | Time: %s",
+   string tooltip = StringFormat("V-Shape Equity Shield ARMED | PeakBal=$%.2f | LowEq=$%.2f | Gap=-$%.2f (>=50%% Bal) | Bounce Target: $%.2f | Time: %s",
                                  startBal, lowestEq, gap, recTarget, TimeToString(TimeCurrent(), TIME_DATE|TIME_MINUTES|TIME_SECONDS));
    ObjectSetString(0, baseName, OBJPROP_TOOLTIP, tooltip);
 
@@ -13539,7 +13545,7 @@ void CreateDeepDrawdownArmedChartIcon(double startBal, double lowestEq, double g
 
    ChartRedraw(0);
 
-   PrintFormat(">>> [V-MONITORING STARTED CHART ICON] Placed '%s' on bar %s (StartBal=$%.2f, LowEq=$%.2f, Gap=-$%.2f)",
+   PrintFormat(">>> [V-MONITORING STARTED CHART ICON] Placed '%s' on bar %s (PeakBal=$%.2f, LowEq=$%.2f, Gap=-$%.2f)",
                labelText, TimeToString(barTime, TIME_DATE|TIME_MINUTES), startBal, lowestEq, gap);
 }
 
@@ -14845,10 +14851,36 @@ void CheckDeepDrawdownRecoveryShield()
       }
 
       // Reset cycle state
+      if(g_deepDrawdownLiveSlClamped)
+      {
+         if(InpDeepDrawdownCooldownMinutes > 0)
+            g_deepDrawdownCooldownUntil = TimeCurrent() + (InpDeepDrawdownCooldownMinutes * 60);
+
+         PrintFormat(">>> [DEEP DRAWDOWN RECOVERY BASKET EXITED] Capital protected at Balance=$%.2f | Cooldown active for %dm until %s.",
+                     curBal, InpDeepDrawdownCooldownMinutes, TimeToString(g_deepDrawdownCooldownUntil, TIME_DATE|TIME_MINUTES|TIME_SECONDS));
+
+         LogEAEvent("INFO", "DEEP_DD_SHIELD",
+                    StringFormat("Basket exited! Capital protected at Balance=$%.2f Cooldown until %s",
+                                 curBal, TimeToString(g_deepDrawdownCooldownUntil, TIME_DATE|TIME_MINUTES|TIME_SECONDS)));
+
+         // Display V-END chart icon and connect recovery path
+         CreateDeepDrawdownEndChartIcon(curBal);
+
+         // Clamped recovery complete -> Reset baseline to new protected balance
+         g_deepDrawdownCycleStartBalance     = curBal;
+         g_deepDrawdownCycleLowestEquity     = curEq;
+      }
+      else
+      {
+         // Orders closed without recovery clamping (e.g. partial closes or stop losses)
+         // Retain highest account balance; only advance if balance reached a NEW HIGH
+         if(curBal > g_deepDrawdownCycleStartBalance || g_deepDrawdownCycleStartBalance <= 0.0)
+            g_deepDrawdownCycleStartBalance = curBal;
+         g_deepDrawdownCycleLowestEquity     = curEq;
+      }
+
       g_deepDrawdownLiveSlClamped         = false;
       g_deepDrawdownCycleArmed            = false;
-      g_deepDrawdownCycleStartBalance     = curBal;
-      g_deepDrawdownCycleLowestEquity     = curEq;
       g_deepDrawdownArmedTarget           = 0.0;
       return;
    }
@@ -14856,7 +14888,8 @@ void CheckDeepDrawdownRecoveryShield()
    // -------------------------------------------------------------
    // 2. ACTIVE OPEN BASKET: Track cycle baseline and lowest equity
    // -------------------------------------------------------------
-   if(g_deepDrawdownCycleStartBalance <= 0.0)
+   // Always store the highest account balance reached (never decrease if orders close at a loss)
+   if(curBal > g_deepDrawdownCycleStartBalance || g_deepDrawdownCycleStartBalance <= 0.0)
       g_deepDrawdownCycleStartBalance = curBal;
 
    if(curEq < g_deepDrawdownCycleLowestEquity || g_deepDrawdownCycleLowestEquity <= 0.0)
@@ -14875,16 +14908,20 @@ void CheckDeepDrawdownRecoveryShield()
    if(!g_deepDrawdownCycleArmed && gap >= minGapThreshold)
    {
       g_deepDrawdownCycleArmed = true;
-      double baseTarget = MathMin(g_deepDrawdownCycleStartBalance, curBal);
+      if(curBal > g_deepDrawdownCycleStartBalance)
+         g_deepDrawdownCycleStartBalance = curBal;
+
+      // Base recovery target is pegged to HIGHEST account balance (stored balance does not reduce when orders close)
+      double baseTarget = g_deepDrawdownCycleStartBalance;
       double recTarget  = baseTarget - (InpDeepDrawdownRecoveryBufferUSD * mult);
       g_deepDrawdownArmedTarget = recTarget;
       string gapTag     = (InpDeepDrawdownMinGapPct > 0.0) ? StringFormat("%.0f%% of Balance", InpDeepDrawdownMinGapPct) : StringFormat("$%.0f", minGapThreshold);
 
-      PrintFormat(">>> [DEEP DRAWDOWN SHIELD ARMED] StartBal=$%.2f | LowestEq=$%.2f | Gap=-$%.2f >= Threshold=$%.2f (%s) | Waiting for bounce to $%.2f to clamp Live SL",
+      PrintFormat(">>> [DEEP DRAWDOWN SHIELD ARMED] HighestBal=$%.2f | LowestEq=$%.2f | Gap=-$%.2f >= Threshold=$%.2f (%s) | Waiting for bounce to $%.2f to clamp Live SL",
                   g_deepDrawdownCycleStartBalance, g_deepDrawdownCycleLowestEquity, gap, minGapThreshold, gapTag, recTarget);
 
       LogEAEvent("WARN", "DEEP_DD_SHIELD",
-                 StringFormat("ARMED! StartBal=$%.2f LowestEq=$%.2f Gap=-$%.2f Threshold=$%.2f (%s) Target=$%.2f",
+                 StringFormat("ARMED! HighestBal=$%.2f LowestEq=$%.2f Gap=-$%.2f Threshold=$%.2f (%s) Target=$%.2f",
                               g_deepDrawdownCycleStartBalance, g_deepDrawdownCycleLowestEquity, gap, minGapThreshold, gapTag, recTarget));
 
       // Display chart icon and label to clearly show V-Equity Armed on chart
@@ -14896,8 +14933,9 @@ void CheckDeepDrawdownRecoveryShield()
    // -------------------------------------------------------------
    if(g_deepDrawdownCycleArmed && !g_deepDrawdownLiveSlClamped)
    {
-      double baseTarget = MathMin(g_deepDrawdownCycleStartBalance, curBal);
-      double recTarget  = baseTarget - (InpDeepDrawdownRecoveryBufferUSD * mult);
+      // Target remains pegged to armed highest account balance (never drops if curBal reduced due to closed orders)
+      double baseTarget = g_deepDrawdownCycleStartBalance;
+      double recTarget  = (g_deepDrawdownArmedTarget > 0.0) ? g_deepDrawdownArmedTarget : (baseTarget - (InpDeepDrawdownRecoveryBufferUSD * mult));
       if(g_deepDrawdownArmedTarget <= 0.0)
          g_deepDrawdownArmedTarget = recTarget;
 
@@ -32187,8 +32225,8 @@ void UpdateLeftLiveOrdersDashboard(bool force = false)
         }
       else if(g_deepDrawdownCycleArmed)
         {
-         double baseThreshold = MathMin(g_deepDrawdownCycleStartBalance, deqOpenBase);
-         double recTarget = baseThreshold - (InpDeepDrawdownRecoveryBufferUSD * deqMult);
+         double baseThreshold = (g_deepDrawdownCycleStartBalance > 0.0) ? g_deepDrawdownCycleStartBalance : deqOpenBase;
+         double recTarget = (g_deepDrawdownArmedTarget > 0.0) ? g_deepDrawdownArmedTarget : (baseThreshold - (InpDeepDrawdownRecoveryBufferUSD * deqMult));
          double curEmaAng = (GlobalEmaAngle30 != 0.0) ? GlobalEmaAngle30 : GetEmaAngleDegrees(30);
          double effTarget = recTarget;
          string angTag = "";
@@ -32203,7 +32241,7 @@ void UpdateLeftLiveOrdersDashboard(bool force = false)
          deqTxtClr    = clrGold;
          deqRightTxt  = StringFormat("P/L:%s$%.2f  DD ARMED (TGT:$%.0f%s)", deqSign, deqProfit, effTarget, angTag);
          deqRightClr  = clrGold;
-         deqLeftTxt   = StringFormat("DAY: [%s] B:$%.0f  T:$%.0f", deqStatusTxt, deqOpenBase, deqTarget);
+         deqLeftTxt   = StringFormat("DAY: [%s] B:$%.0f  T:$%.0f", deqStatusTxt, baseThreshold, effTarget);
         }
       else if(g_dailyEquityIsResumedLeg && InpResumeDayTradingTargetMode == RESUME_MODE_TRAIL_STEP)
         {
