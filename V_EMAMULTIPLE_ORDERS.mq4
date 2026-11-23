@@ -42,7 +42,7 @@ CheckBasketProfitClose  Total open basket profit
 */
 
 
-string glbVersion = "VMULTI-1274- Dual Day Start Sessions: 16:00 for Acct 289059721, 10:00 London for Other, Both in Tester";
+string glbVersion = "VMULTI-1275- Method 6: Close Winner at Market & Create Pending Order with Regular SSL Gap";
 
 int AccountMultiplierLOT = 1000;//400;//200;//500; ALWAYS multiples of 1000 is better for best results
 //balance multiplier 
@@ -7672,7 +7672,7 @@ bool   InpMethod6EnablePartialLotCombination= true;   // Method 6: Allow partial
 bool   InpMethod6PartialCloseWinnerAtMarket = true;   // Method 6: Close winning order at market (true) or tighten SL to live price (false)
 bool   InpMethod6PartialHalfCloseWinner     = true;   // Method 6 partial combo: if winner > 0.01L close half lot; if 0.01L full close
 bool   InpMethod6CreatePendingOnWinnerClose = true;   // Method 6: Create new pending order (SSL Long/Short) in same direction after closing profit order (only when open order count == 0)
-bool   InpMethod6CloseWinnerAtMarket        = false;  // Method 6 full combo: false = modify SL to live price; true = close winner at market
+bool   InpMethod6CloseWinnerAtMarket        = true;   // Method 6 full combo: true = close winner at market and create pending with regular SSL gap; false = modify SL to live price
 bool   InpMethod6PrioritizeOppositeLosers   = true;   // Method 6: 1st Priority = Close opposite-type losers, 2nd Priority = Close same-type losers
 double InpMethod6PartialMaxCutLots          = 0.0;    // Method 6: Max partial lots to cut from loser per trigger (0.0 = auto max safe)
 double InpMethod6SteepAngleDegrees          = 4.0;    // Method 6: EMA angle threshold in degrees (if MathAbs > 4: threshold is doubled)
@@ -9482,6 +9482,9 @@ void ExecuteMethod6CombinationAction(int &comboIndices[], int comboCount, double
    if(minStopDist < 20.0)
       minStopDist = 20.0;
 
+   int closedWinType  = -1;
+   int closedWinCount = 0;
+
    for(int c = 0; c < comboCount; c++)
      {
       int idx = comboIndices[c];
@@ -9506,10 +9509,8 @@ void ExecuteMethod6CombinationAction(int &comboIndices[], int comboCount, double
                      " (", (oType == OP_BUY ? "BUY " : "SELL "), DoubleToString(candLots[idx], 2), "L)",
                      " closed at ", DoubleToString(curClosePrice, Digits),
                      " | Realized Profit = +$", DoubleToString(winUSD, 2));
-               if(InpMethod6CreatePendingOnWinnerClose)
-                 {
-                  CreateMethod6PendingOrderAfterClose(oType);
-                 }
+               closedWinType = oType;
+               closedWinCount++;
               }
             isProcessed[idx] = true;
             continue;
@@ -9546,6 +9547,12 @@ void ExecuteMethod6CombinationAction(int &comboIndices[], int comboCount, double
            }
          isProcessed[idx] = true;
         }
+     }
+
+   // After all combo winners are closed at market, create the new pending order with regular SSL gap
+   if(InpMethod6CloseWinnerAtMarket && InpMethod6CreatePendingOnWinnerClose && closedWinCount > 0 && closedWinType >= 0)
+     {
+      CreateMethod6PendingOrderAfterClose(closedWinType);
      }
 
 // Draw chart icon
@@ -9591,9 +9598,18 @@ void CreateMethod6PendingOrderAfterClose(int winType)
 
    if(pendingCountSameDir > 0)
      {
-      Print(">>> [METHOD 6 PENDING SKIPPED] Pending order ", (winType == OP_BUY ? "BUY STOP (SSL Long)" : "SELL STOP (SSL Short)"),
-            " already exists (count=", pendingCountSameDir, "). Duplicate skipped.");
-      return;
+      // If a pending order already exists in same direction, delete it to ensure the fresh pending order #3 has regular SSL gap!
+      for(int p_i = OrdersTotal() - 1; p_i >= 0; p_i--)
+        {
+         if(!OrderSelect(p_i, SELECT_BY_POS, MODE_TRADES))
+            continue;
+         if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber)
+            continue;
+         if(OrderType() == expectedPendingType)
+           {
+            SafeOrderDelete(OrderTicket(), clrGray);
+           }
+        }
      }
 
    RefreshRates();
