@@ -42,7 +42,7 @@ CheckBasketProfitClose  Total open basket profit
 */
 
 
-string glbVersion = "VMULTI-1287- Disable EQH Horizontal Orders When EMA Angle Greater Than 6";
+string glbVersion = "VMULTI-1288- Add MOM Identifier to SSL Long and Short Order Comments";
 
 int AccountMultiplierLOT = 1000;//400;//200;//500; ALWAYS multiples of 1000 is better for best results
 //balance multiplier 
@@ -26698,12 +26698,13 @@ void OpenBuy(string MOMorder="")
    if(DeleteOppositePendingOnSignal)
       DeleteOppositePendingOrders(OP_BUY);
 
-   int ticket = SafeOrderSend(Symbol(), OP_BUYSTOP, Lots, entryPrice, Slippage, stopLoss, takeProfit, "SSL Long", MagicNumber, BuyColor);
+   string buyComment = (MOMorder == "MOM_BUY" || isMOMOrder) ? "SSL Long MOM" : "SSL Long";
+   int ticket = SafeOrderSend(Symbol(), OP_BUYSTOP, Lots, entryPrice, Slippage, stopLoss, takeProfit, buyComment, MagicNumber, BuyColor);
    if(ticket > 0)
      {
       OrderCreatedThisCandle = true;
       LastOrderCandleTime = Time[0];
-      Print("SSL LONG PENDING ORDER CREATED: BUY STOP Ticket #", ticket, " Lots=", DoubleToString(Lots, 2),
+      Print(buyComment, " PENDING ORDER CREATED: BUY STOP Ticket #", ticket, " Lots=", DoubleToString(Lots, 2),
             " Entry=", DoubleToString(entryPrice, Digits), " (Ask+", DoubleToString(pendingGap, 2), ")",
             " SL=", DoubleToString(stopLoss, Digits), " TP=", DoubleToString(takeProfit, Digits));
      }
@@ -26775,12 +26776,13 @@ void OpenSell(string MOMorder="")
    if(DeleteOppositePendingOnSignal)
       DeleteOppositePendingOrders(OP_SELL);
 
-   int ticket = SafeOrderSend(Symbol(), OP_SELLSTOP, Lots, entryPrice, Slippage, stopLoss, takeProfit, "SSL Short", MagicNumber, SellColor);
+   string sellComment = (MOMorder == "MOM_SELL" || isMOMOrder) ? "SSL Short MOM" : "SSL Short";
+   int ticket = SafeOrderSend(Symbol(), OP_SELLSTOP, Lots, entryPrice, Slippage, stopLoss, takeProfit, sellComment, MagicNumber, SellColor);
    if(ticket > 0)
      {
       OrderCreatedThisCandle = true;
       LastOrderCandleTime = Time[0];
-      Print("SSL SHORT PENDING ORDER CREATED: SELL STOP Ticket #", ticket, " Lots=", DoubleToString(Lots, 2),
+      Print(sellComment, " PENDING ORDER CREATED: SELL STOP Ticket #", ticket, " Lots=", DoubleToString(Lots, 2),
             " Entry=", DoubleToString(entryPrice, Digits), " (Bid-", DoubleToString(pendingGap, 2), ")",
             " SL=", DoubleToString(stopLoss, Digits), " TP=", DoubleToString(takeProfit, Digits));
      }

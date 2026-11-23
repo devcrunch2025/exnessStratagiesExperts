@@ -43,7 +43,7 @@ CheckBasketProfitClose  Total open basket profit
 
 */
 
-string glbVersion = "V-SMALL-1043- Disable EQH Horizontal Orders When EMA Angle Greater Than 6";
+string glbVersion = "V-SMALL-1044- Add MOM Identifier to SSL Long and Short Order Comments";
 
 int AccountMultiplierLOT = 500;//100;//1000;//400;//200;//500; ALWAYS multiples of 1000 is better for best results
 //balance multiplier
@@ -57,7 +57,7 @@ double DailyEquityMaxLossUSD       = 1000;//200.0; // Adverse Day Protection ():
 bool   ResumeDayTradingOnEmaDirectionChange =false;// true; // Auto-resume Day Equity trading when EMAdirection changed
 bool   ResumeDayTradingOnStrongAngleSSL     = true;//false;//true; // Option 5 (Choice A): Auto-resume when EMA Angle >= 3.0 and SSL matches EMA direction
 double ResumeDayTradingMinEmaAngle          = 2;//3;//2;//3;//5;//4;//3;//2;//3.0;  // Minimum MathAbs(GlobalEmaAngle30) for strong trend (Default: 3.0 deg)
-int    ResumeDayTradingMinCooldownMin      = 10;   // Minimum cooldown buffer minutes after Retrace Floor Stop (e.g. 10m)
+int    ResumeDayTradingMinCooldownMin      = 30;//10;   // Minimum cooldown buffer minutes after Retrace Floor Stop (e.g. 10m)
 enum ENUM_RESUME_DAY_MODE
   {
    RESUME_MODE_TRAIL_STEP   = 0, // Continue from DailyEquityTrailStepUSD (Step-by-step profit mode) [Recommended]
@@ -19013,7 +19013,14 @@ int SafeOrderSend(string symbol,int orderType,double lots,double price,int slipp
 
      }
 
+  if(IsEmaWEAKDistanceReduced50PercentFromPeak(orderType) && EMADirection== requestedDirection && MathAbs(GlobalEmaAngle30)>4 )//weak
+    {
+    Print("TRADE BLOCKED | IsEmaWEAKDistanceReduced50PercentFromPeak");
 
+    return -1;;
+
+
+   }
 
    //if(GetTotalSellOrders()==0 && EMADirection==1 && requestedDirection==-1 && MathAbs(GlobalEmaAngle30)>3)
      // return -1;
@@ -26781,12 +26788,13 @@ void OpenBuy(string MOMorder="")
    if(DeleteOppositePendingOnSignal)
       DeleteOppositePendingOrders(OP_BUY);
 
-   int ticket = SafeOrderSend(Symbol(), OP_BUYSTOP, Lots, entryPrice, Slippage, stopLoss, takeProfit, "SSL Long", MagicNumber, BuyColor);
+   string buyComment = (MOMorder == "MOM_BUY" || isMOMOrder) ? "SSL Long MOM" : "SSL Long";
+   int ticket = SafeOrderSend(Symbol(), OP_BUYSTOP, Lots, entryPrice, Slippage, stopLoss, takeProfit, buyComment, MagicNumber, BuyColor);
    if(ticket > 0)
      {
       OrderCreatedThisCandle = true;
       LastOrderCandleTime = Time[0];
-      Print("SSL LONG PENDING ORDER CREATED: BUY STOP Ticket #", ticket, " Lots=", DoubleToString(Lots, 2),
+      Print(buyComment, " PENDING ORDER CREATED: BUY STOP Ticket #", ticket, " Lots=", DoubleToString(Lots, 2),
             " Entry=", DoubleToString(entryPrice, Digits), " (Ask+", DoubleToString(pendingGap, 2), ")",
             " SL=", DoubleToString(stopLoss, Digits), " TP=", DoubleToString(takeProfit, Digits));
      }
@@ -26858,12 +26866,13 @@ void OpenSell(string MOMorder="")
    if(DeleteOppositePendingOnSignal)
       DeleteOppositePendingOrders(OP_SELL);
 
-   int ticket = SafeOrderSend(Symbol(), OP_SELLSTOP, Lots, entryPrice, Slippage, stopLoss, takeProfit, "SSL Short", MagicNumber, SellColor);
+   string sellComment = (MOMorder == "MOM_SELL" || isMOMOrder) ? "SSL Short MOM" : "SSL Short";
+   int ticket = SafeOrderSend(Symbol(), OP_SELLSTOP, Lots, entryPrice, Slippage, stopLoss, takeProfit, sellComment, MagicNumber, SellColor);
    if(ticket > 0)
      {
       OrderCreatedThisCandle = true;
       LastOrderCandleTime = Time[0];
-      Print("SSL SHORT PENDING ORDER CREATED: SELL STOP Ticket #", ticket, " Lots=", DoubleToString(Lots, 2),
+      Print(sellComment, " PENDING ORDER CREATED: SELL STOP Ticket #", ticket, " Lots=", DoubleToString(Lots, 2),
             " Entry=", DoubleToString(entryPrice, Digits), " (Bid-", DoubleToString(pendingGap, 2), ")",
             " SL=", DoubleToString(stopLoss, Digits), " TP=", DoubleToString(takeProfit, Digits));
      }
