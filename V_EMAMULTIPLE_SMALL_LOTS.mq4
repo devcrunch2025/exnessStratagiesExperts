@@ -43,7 +43,7 @@ CheckBasketProfitClose  Total open basket profit
 
 */
 
-string glbVersion = "V-SMALL-1041- Set Deep Drawdown Arm Threshold to $50 x Mult Gap";
+string glbVersion = "V-SMALL-1042- Common Profit Ladder EMA Angle 3 to 8 Range";
 
 int AccountMultiplierLOT = 500;//100;//1000;//400;//200;//500; ALWAYS multiples of 1000 is better for best results
 //balance multiplier 
@@ -99,13 +99,17 @@ double protectgapOnOrderclose=31;//30;//101;//1000;//303;//11111111111111
 
 
 //Chance 1 - Universal Common Profit Ladder (ALL Lots)
-double SecureOneDollarProfitPerOrder=5;//1.0*10; // 1X set modify order at profit $1(any lot)
-double InpLadderStepExtraMoveRaw         = 25.0; // Extra raw BTC price move added to ladder thresholds when angle >= 4 ($100 -> $125)
-double InpLadderStepExtraSLRaw           = 25.0; // Initial raw BTC price locked on Level 1 SL (openPrice +/- 25)
-double InpLadderStepIncrementRaw         = 50.0; // Next every step move and SL lock increment ($50 raw price gap)
-double InpLadderSteepAngleThreshold       = 4.0;  // Minimum MathAbs(GlobalEmaAngle30) for steep trend ($125 trigger move)
-bool   InpEnableSteepAngleLadderHalfClose = true; // Half-close order (>0.01L) after every ladder SL modify from Level 1+ (any EMA angle)
-int    InpSteepAngleLadderHalfCloseStartLevel = 1; // Starting ladder level for half-close (1 = Level 1+)
+double SecureOneDollarProfitPerOrder         = 5;    // 1X set modify order at profit $1(any lot)
+double InpLadderStepExtraMoveRaw             = 25.0; // Extra raw BTC price move added to ladder thresholds when angle >= 4 ($100 -> $125)
+double InpLadderStepExtraSLRaw               = 25.0; // Initial raw BTC price locked on Level 1 SL (openPrice +/- 25)
+double InpLadderStepIncrementRaw             = 50.0; // Next every step move and SL lock increment ($50 raw price gap)
+double InpLadderSteepAngleThreshold          = 4.0;  // Minimum MathAbs(GlobalEmaAngle30) for steep trend ($125 trigger move)
+double InpLadderAngleRangeMin                = 3.0;  // Minimum EMA angle for breathing ladder mode (User Rule: angle 3 to 8)
+double InpLadderAngleRangeMax                = 8.0;  // Maximum EMA angle for breathing ladder mode (User Rule: angle 3 to 8)
+double InpLadderAngleRangeLevel1MoveRaw      = 200.0;// Level 1 trigger move ($200 raw) when EMA angle between 3 to 8
+double InpLadderAngleRangeStepIncrementRaw   = 150.0;// Step move and SL increment ($150 raw) when EMA angle between 3 to 8 (L2: $350, L3: $500...)
+bool   InpEnableSteepAngleLadderHalfClose    = true; // Half-close order (>0.01L) after every ladder SL modify from Level 1+ (any EMA angle)
+int    InpSteepAngleLadderHalfCloseStartLevel = 1;   // Starting ladder level for half-close (1 = Level 1+)
 
 //chance 2
 int partialClose01in05IndividualPercentage=0;//20;//10;//2*2;//per lot 0.01// DISABLED: individual order partial close percentage
@@ -11155,12 +11159,27 @@ double CalculateProportionalLadderSLWithLevel(int orderType, double openPrice, d
       stopLevel = 10.0;
 
    double curAngle = (GlobalEmaAngle30 != 0.0) ? GlobalEmaAngle30 : GetEmaAngleDegrees(30);
-   bool isSteepAngle = (MathAbs(curAngle) >= InpLadderSteepAngleThreshold); // 4.0 deg
+   double absAngle = MathAbs(curAngle);
 
-   // Universal parameters for ALL lots:
-   double level1TriggerMove = isSteepAngle ? (100.0 + InpLadderStepExtraMoveRaw) : 100.0; // Angle >= 4: $125 | Angle < 4: $100
-   double stepPriceGap      = InpLadderStepIncrementRaw;                                   // Next every step $50 move
-   double baseLockSL        = InpLadderStepExtraSLRaw;                                     // Level 1 locks +$25
+   // User Rule: When EMA angle between 3 to 8: Level 1 -> $200, Level 2 -> $350, Level 3 -> $500, every step +150
+   bool isAngle3to8 = (absAngle >= InpLadderAngleRangeMin && absAngle <= InpLadderAngleRangeMax);
+
+   double level1TriggerMove = 100.0;
+   double stepPriceGap      = InpLadderStepIncrementRaw; // 50.0
+   double baseLockSL        = InpLadderStepExtraSLRaw;   // 25.0
+
+   if(isAngle3to8)
+     {
+      level1TriggerMove = InpLadderAngleRangeLevel1MoveRaw;       // 200.0
+      stepPriceGap      = InpLadderAngleRangeStepIncrementRaw;    // 150.0
+      baseLockSL        = InpLadderStepExtraSLRaw;                // 25.0
+     }
+   else if(absAngle >= InpLadderSteepAngleThreshold) // Angle >= 4.0 fallback if outside 3 to 8
+     {
+      level1TriggerMove = 100.0 + InpLadderStepExtraMoveRaw;      // 125.0
+      stepPriceGap      = InpLadderStepIncrementRaw;              // 50.0
+      baseLockSL        = InpLadderStepExtraSLRaw;                // 25.0
+     }
 
    // Calculate maximum distance price has traveled into profit beyond broker buffer
    double maxLockableDistance = 0.0;
@@ -11271,12 +11290,18 @@ void SecureOneDollarProfit()
                actualSL = OrderStopLoss();
             if(currentSL == 0.0 || MathAbs(actualSL - currentSL) >= Point * 0.5)
               {
+               double curAngLog = (GlobalEmaAngle30 != 0.0) ? GlobalEmaAngle30 : GetEmaAngleDegrees(30);
+               string angModeStr = (MathAbs(curAngLog) >= InpLadderAngleRangeMin && MathAbs(curAngLog) <= InpLadderAngleRangeMax) ?
+                                   StringFormat(" [EMA Ang:%.1f° (3-8 Range: L1=$200, Step=$150)]", curAngLog) :
+                                   StringFormat(" [EMA Ang:%.1f°]", curAngLog);
+
                Print("Secured Common Profit Ladder | Level=", ladderLevel,
                      " | Ticket=", ticket,
                      " | Lots=", DoubleToString(orderLots, 2),
                      " | Type=", (type == OP_BUY ? "BUY" : "SELL"),
                      " | P/L=$", DoubleToString(curPL, 2), " >= $", DoubleToString(minProfitUSD, 2),
-                     " | New SL=", DoubleToString(actualSL, Digits));
+                     " | New SL=", DoubleToString(actualSL, Digits),
+                     angModeStr);
 
                // USER RULE (VMULTI-1241): Half-close order (>0.01L) after every ladder SL modify from Level 1+ (any EMA angle)
                if(InpEnableSteepAngleLadderHalfClose && ladderLevel >= InpSteepAngleLadderHalfCloseStartLevel)
