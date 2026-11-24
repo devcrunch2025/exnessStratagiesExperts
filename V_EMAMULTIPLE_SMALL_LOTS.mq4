@@ -43,7 +43,7 @@ CheckBasketProfitClose  Total open basket profit
 
 */
 
-string glbVersion = "V-SMALL-1044- Add MOM Identifier to SSL Long and Short Order Comments";
+string glbVersion = "V-SMALL-1049- Basket Loss Exceeds 30 USD Lots Boost to 0.02";
 
 int AccountMultiplierLOT = 500;//100;//1000;//400;//200;//500; ALWAYS multiples of 1000 is better for best results
 //balance multiplier
@@ -23187,7 +23187,18 @@ void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep,s
 
 
 
+   double buyOpenPL  = GetOpenPL(OP_BUY);
+   double sellOpenPL = GetOpenPL(OP_SELL);
+   int bMult = (balancelomultipler > 0) ? balancelomultipler : 1;
 
+   if((buyOpenPL + sellOpenPL) <= -30.0 * bMult && Lots <= 0.01)
+     {
+      Lots = 0.02;
+      Print(">>> [CHANGE_LOTS BOOST] Basket loss <= -$", DoubleToString(30.0 * bMult, 2),
+            " (BuyPL: ", DoubleToString(buyOpenPL, 2), ", SellPL: ", DoubleToString(sellOpenPL, 2),
+            ", TotalPL: ", DoubleToString(buyOpenPL + sellOpenPL, 2),
+            ") -> Lots boosted to 0.02 (pre-multiplier) | Type: ", orderType, " | Reason: ", reason);
+     } 
 
 
 
