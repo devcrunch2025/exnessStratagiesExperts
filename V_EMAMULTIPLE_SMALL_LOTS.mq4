@@ -43,7 +43,7 @@ CheckBasketProfitClose  Total open basket profit
 
 */
 
-string glbVersion = "V-SMALL-1073- Unconditional Spike Order Creation";
+string glbVersion = "V-SMALL-1074- Spike Orders Follow EMA Direction Ignore SSL";
 
 int AccountMultiplierLOT = 500;//100;//1000;//400;//200;//500; ALWAYS multiples of 1000 is better for best results
 //balance multiplier
@@ -1068,6 +1068,7 @@ double InpPendingGapLossMultiplier         = 2.0;   // Pending gap multiplier on
  double InpSpikeOrderMinGapUSD                 = 10.0; // Spike Orders: Minimal gap between consecutive spike orders ($10 USD, or 0 = none)
  bool   InpSpikeBypassHorizontalLineBlock      = true; // Spike Orders: Bypass active opposite horizontal line block (EQH-R/EQH-G)
  bool   InpSpikeBypassSweepBlock               = true; // Spike Orders: Bypass active liquidity sweep block (SSLS/BSLS)
+ bool   InpFollowEmaIgnoreSsl                  = true; // Trade Direction: Follow EMADirection (Bull=BUY, Bear=SELL) & Ignore SSL Signal
 double MinimumSameOrderGapRawMatched =50;//30;//50;//100;//50;//30;//10;//20;//50;//20;// 50;//SSL long //SSL short
 double MinimumSameOrderGapRawUnmatched =50;//10;//10;//20;// 100;
 
@@ -1522,10 +1523,44 @@ bool PassesUserRules(int orderType)
    bool isBullishSpikeOrder = (InpEnableSpikeOrderCreation && requestedDirection == 1 && EMADirection == 1 && emaAngle < 0.0);
    bool isBearishSpikeOrder = (InpEnableSpikeOrderCreation && requestedDirection == -1 && EMADirection == -1 && emaAngle > 0.0);
 
-   if(!isBullishSpikeOrder && !isBearishSpikeOrder && currentSSL != requestedDirection)
+   if(InpFollowEmaIgnoreSsl)
      {
-      Print("TRADE BLOCKED | SSL does not match requested direction  "+currentSSL+" :  "+requestedDirection);
-      return false;
+      // USER RULE: "if EMAdirection is bullush create buy order, if EMAdirection bearish create sell order ignore SSL signal"
+      if(EMADirection == 1)
+        {
+         if(requestedDirection != 1)
+           {
+            Print("TRADE BLOCKED | EMADirection is Bullish (+1) -> Counter-EMA Sell order blocked");
+            return false;
+           }
+         // Bullish EMA: Buy order allowed, SSL signal is completely IGNORED
+        }
+      else if(EMADirection == -1)
+        {
+         if(requestedDirection != -1)
+           {
+            Print("TRADE BLOCKED | EMADirection is Bearish (-1) -> Counter-EMA Buy order blocked");
+            return false;
+           }
+         // Bearish EMA: Sell order allowed, SSL signal is completely IGNORED
+        }
+      else
+        {
+         // Flat EMA (0): Fall back to standard SSL matching
+         if(!isBullishSpikeOrder && !isBearishSpikeOrder && currentSSL != requestedDirection)
+           {
+            Print("TRADE BLOCKED | SSL does not match requested direction  "+currentSSL+" :  "+requestedDirection);
+            return false;
+           }
+        }
+     }
+   else
+     {
+      if(!isBullishSpikeOrder && !isBearishSpikeOrder && currentSSL != requestedDirection)
+        {
+         Print("TRADE BLOCKED | SSL does not match requested direction  "+currentSSL+" :  "+requestedDirection);
+         return false;
+        }
      }
 
 // if(currentSSL != requestedDirection && (emaAngle < 6))
@@ -16574,8 +16609,36 @@ void OnTickCore()
    bool sellSignal = IsLiveSellSignal();
 
    int currentTrend = GlobalSSLDirection;
+   if(InpFollowEmaIgnoreSsl)
+     {
+      if(EMADirection == 1)
+        {
+         currentTrend = 1;
+         sellSignal   = false;
+        }
+      else if(EMADirection == -1)
+        {
+         currentTrend = -1;
+         buySignal    = false;
+        }
+     }
+
    bool missingBuyOrder = (currentTrend == 1 && CountDirectionOrders(OP_BUY) == 0 && CountDirectionOrders(OP_BUYSTOP) == 0);
    bool missingSellOrder = (currentTrend == -1 && CountDirectionOrders(OP_SELL) == 0 && CountDirectionOrders(OP_SELLSTOP) == 0);
+
+   if(InpFollowEmaIgnoreSsl)
+     {
+      if(EMADirection == 1)
+        {
+         sellSignal       = false;
+         missingSellOrder = false;
+        }
+      else if(EMADirection == -1)
+        {
+         buySignal        = false;
+         missingBuyOrder  = false;
+        }
+     }
 
    // USER RULE: Unconditional Spike Order Creation
    // "create spike orders without any condition"
@@ -27046,14 +27109,20 @@ void CheckForProfitableClosedOrder(DailyProtectionState &state)
       int currentSSL = GlobalSSLDirection;
       int closedDirection = (latestType == OP_BUY) ? 1 : -1;
 
-      if(currentSSL != 0 && currentSSL != closedDirection)
-         return;
+      if(InpFollowEmaIgnoreSsl)
+        {
+         // USER RULE: Follow EMADirection, ignore SSL signal
+         if(EMADirection != 0 && closedDirection != EMADirection)
+            return;
+        }
+      else
+        {
+         if(currentSSL != 0 && currentSSL != closedDirection)
+            return;
 
-      // if(GlobalSSLDirection != EMADirection && !IsEmaWEAKDistanceReduced50PercentFromPeak())
-      // return ;
-
-      if(!EnableReEntryNOnMatchingSignal && GlobalSSLDirection != EMADirection)
-         return ;
+         if(!EnableReEntryNOnMatchingSignal && GlobalSSLDirection != EMADirection)
+            return ;
+        }
 
 
       int orderDurationSeconds = (int)(latestCloseTime - latestOpenTime);
@@ -29563,14 +29632,21 @@ void DrawMomentumMarkers()
          // USER RULE (VMULTI-1232): Trigger MOM BUY order only for the newly closed bar (i == 1) when marker is fresh
          if(i == 1 && isNew)
            {
-            GlobalSSLDirection     = 1;
-            g_momOverrideDirection = 1;
-            g_momOverrideBarTime   = Time[0];
+            if(InpFollowEmaIgnoreSsl && EMADirection == -1)
+              {
+               Print(">>> [MOM BUY SUPPRESSED] Green MOM marker on Bar ", TimeToString(Time[1]), " but EMADirection is Bearish (-1) -> Ignored");
+              }
+            else
+              {
+               GlobalSSLDirection     = 1;
+               g_momOverrideDirection = 1;
+               g_momOverrideBarTime   = Time[0];
 
-            isMOMOrder = true;
-            Print(">>> [MOM BUY TRIGGER] Green MOM marker on Bar ", TimeToString(Time[1]), " -> GlobalSSLDirection set to BUY (+1)");
-            OpenBuy("MOM_BUY");
-            isMOMOrder = false;
+               isMOMOrder = true;
+               Print(">>> [MOM BUY TRIGGER] Green MOM marker on Bar ", TimeToString(Time[1]), " -> GlobalSSLDirection set to BUY (+1)");
+               OpenBuy("MOM_BUY");
+               isMOMOrder = false;
+              }
            }
         }
       else
@@ -29588,14 +29664,21 @@ void DrawMomentumMarkers()
             // USER RULE (VMULTI-1232): Trigger MOM SELL order only for the newly closed bar (i == 1) when marker is fresh
             if(i == 1 && isNew)
               {
-               GlobalSSLDirection     = -1;
-               g_momOverrideDirection = -1;
-               g_momOverrideBarTime   = Time[0];
+               if(InpFollowEmaIgnoreSsl && EMADirection == 1)
+                 {
+                  Print(">>> [MOM SELL SUPPRESSED] Red MOM marker on Bar ", TimeToString(Time[1]), " but EMADirection is Bullish (+1) -> Ignored");
+                 }
+               else
+                 {
+                  GlobalSSLDirection     = -1;
+                  g_momOverrideDirection = -1;
+                  g_momOverrideBarTime   = Time[0];
 
-               isMOMOrder = true;
-               Print(">>> [MOM SELL TRIGGER] Red MOM marker on Bar ", TimeToString(Time[1]), " -> GlobalSSLDirection set to SELL (-1)");
-               OpenSell("MOM_SELL");
-               isMOMOrder = false;
+                  isMOMOrder = true;
+                  Print(">>> [MOM SELL TRIGGER] Red MOM marker on Bar ", TimeToString(Time[1]), " -> GlobalSSLDirection set to SELL (-1)");
+                  OpenSell("MOM_SELL");
+                  isMOMOrder = false;
+                 }
               }
            }
      }
@@ -30264,6 +30347,8 @@ void UpdateDashboard(DailyProtectionState &state)
    string emaStrength = isEmaWeak ? "WEAK" : "STRONG";
    string spikeTag = (EMADirection == 1 && GlobalEmaAngle30 < 0.0) ? ", SPIKE BULL" : ((EMADirection == -1 && GlobalEmaAngle30 > 0.0) ? ", SPIKE BEAR" : "");
    string sslShortDir = (currentSSLDirection > 0) ? "BUY (+1)" : (currentSSLDirection < 0 ? "SELL (-1)" : "NONE");
+   if(InpFollowEmaIgnoreSsl && ((EMADirection == 1 && currentSSLDirection < 0) || (EMADirection == -1 && currentSSLDirection > 0)))
+      sslShortDir += " (IGNORED)";
    color trendColor = (EMADirection == 1) ? clrLime : (EMADirection == -1 ? clrTomato : clrGold);
    string trendStr = StringFormat("TREND & SSL : EMA: %s [%s, %+.1f deg%s] | SSL: %s", emaShortDir, emaStrength, GlobalEmaAngle30, spikeTag, sslShortDir);
    CreateDashboardLabel(DASH_PREFIX+"TREND", trendStr, tx, y+238, 8, trendColor);
