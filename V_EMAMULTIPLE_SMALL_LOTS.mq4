@@ -43,7 +43,7 @@ CheckBasketProfitClose  Total open basket profit
 
 */
 
-string glbVersion = "V-SMALL-1064- Fix Directional Sign Tracking in ManageEmaAngleOppositeClose";
+string glbVersion = "V-SMALL-1065- Change Dubai Day Reset Time From 16 to 20";
 
 int AccountMultiplierLOT = 500;//100;//1000;//400;//200;//500; ALWAYS multiples of 1000 is better for best results
 //balance multiplier
@@ -53,7 +53,7 @@ double DailyEquityStopUSD          = 20/5;//20;//20;//10;//50;//  $50 /10;//10%;
 double DailyEquityTrailStepUSD     = 2;//5/5;//1;//5.0;  // Collect $5 step profit step-by-step after DailyEquityStopUSD hit
 double DailyEquitySafetyFloor      = 2;//20;//10;//5;//5.0; // Dedicated Safety Floor buffer below resume equity ($5.0 * multiplier)
 double DailyEquityRetraceFloorPct  = 50.0; // Baseline retrace floor % (Dynamic Tiered: Peak>$50->50%, >$100->30%, >$200->20%, >$300->10%)
-double DailyEquityMaxLossUSD       = 1000;//200.0; // Adverse Day Protection (): Close all orders & pause trading till next day Dubai 16:00 if day equity drops
+double DailyEquityMaxLossUSD       = 1000;//200.0; // Adverse Day Protection (): Close all orders & pause trading till next day Dubai reset (20:00) if day equity drops
 bool   ResumeDayTradingOnEmaDirectionChange =false;// true; // Auto-resume Day Equity trading when EMAdirection changed
 bool   ResumeDayTradingOnStrongAngleSSL     = true;//false;//true; // Option 5 (Choice A): Auto-resume when EMA Angle >= 3.0 and SSL matches EMA direction
 double ResumeDayTradingMinEmaAngle          = 2;//3;//2;//3;//5;//4;//3;//2;//3.0;  // Minimum MathAbs(GlobalEmaAngle30) for strong trend (Default: 3.0 deg)
@@ -183,7 +183,7 @@ double   g_dayOpeningBalance = 0.0;
 bool     g_dailyEquityTradingBlocked         = false;
 bool     g_manualTradingPaused               = false; // Manual Pause Trading state triggered via chart button
 bool     g_dailyEquityTargetHitToday         = false; // Target equity reached today; trailing $5 steps active
-bool     g_dailyEquityAdverseLossHitToday    = false; // Adverse Day Protection hit today ($200 loss); trading paused till Dubai 16:00
+bool     g_dailyEquityAdverseLossHitToday    = false; // Adverse Day Protection hit today ($200 loss); trading paused till Dubai reset (20:00)
 double   g_dailyEquityPeakEquity             = 0.0;   // Peak equity reached after target hit
 double   g_dailyEquityNextStepTarget    = 0.0;   // Next $5 step profit equity milestone
 int      g_dailyEquityStepCount         = 0;     // Number of $5 steps hit today
@@ -680,13 +680,15 @@ double InpMinEmaAngleDegrees     = 1.0;
 // ===== DUBAI TIMEZONE SETTINGS =====
 enum ENUM_DAY_START_SESSION_MODE
   {
-   DAY_START_AUTO             = 0, // Auto (Acct 289059721: 16:00 | Other: 10:00 | Tester: Both 10:00 & 16:00)
-   DAY_START_DUBAI_1600       = 1, // Dubai 16:00 Only (4:00 PM US/Dubai Session)
-   DAY_START_DUBAI_1000       = 2, // Dubai 10:00 Only (10:00 AM London Session)
-   DAY_START_BOTH_1000_1600   = 3  // Both Sessions (Reset at 10:00 AM & 16:00 PM)
+   DAY_START_AUTO             = 0, // Auto (Live & Tester: Dubai 20:00 Clean Trend Session)
+   DAY_START_DUBAI_2000       = 1, // Dubai 20:00 Only (8:00 PM US Clean Trend Session, avoids 16:00-20:00 spikes)
+   DAY_START_DUBAI_1600       = 2, // Dubai 16:00 Only (4:00 PM US/Dubai Session)
+   DAY_START_DUBAI_1000       = 3, // Dubai 10:00 Only (10:00 AM London Session)
+   DAY_START_BOTH_1000_2000   = 4, // Both Sessions (Reset at 10:00 AM & 20:00 PM)
+   DAY_START_BOTH_1000_1600   = 5  // Both Sessions (Reset at 10:00 AM & 16:00 PM)
   };
 
-ENUM_DAY_START_SESSION_MODE InpDayStartSessionMode = DAY_START_AUTO; // Day Starting Session Mode
+ENUM_DAY_START_SESSION_MODE InpDayStartSessionMode = DAY_START_DUBAI_2000; // Day Starting Session Mode (Default: Dubai 20:00)
 
 //+------------------------------------------------------------------+
 //|                                                                  |
@@ -696,14 +698,7 @@ int GetEffectiveDayStartSessionMode()
    if(InpDayStartSessionMode != DAY_START_AUTO)
       return (int)InpDayStartSessionMode;
 
-   if(IsTesting() || IsOptimization())
-      return (int)DAY_START_BOTH_1000_1600; // In Tester: reset both sessions (10:00 AM & 16:00 PM)
-
-   int acct = AccountNumber();
-   if(acct == 289059721)
-      return (int)DAY_START_DUBAI_1600; // Account 289059721 -> Dubai 16:00 (4PM)
-
-   return (int)DAY_START_DUBAI_1000;    // Other accounts -> Dubai 10:00 (10AM London Open)
+   return (int)DAY_START_DUBAI_2000; // Default: Dubai 20:00 Clean Trend Session
   }
 
 //+------------------------------------------------------------------+
@@ -712,13 +707,17 @@ int GetEffectiveDayStartSessionMode()
 string GetDayStartSessionModeName()
   {
    int mode = GetEffectiveDayStartSessionMode();
+   if(mode == DAY_START_DUBAI_2000)
+      return "Dubai 20:00 (8:00 PM Clean Trend)";
    if(mode == DAY_START_DUBAI_1600)
       return "Dubai 16:00 (4:00 PM)";
    if(mode == DAY_START_DUBAI_1000)
       return "Dubai 10:00 (10:00 AM London)";
+   if(mode == DAY_START_BOTH_1000_2000)
+      return "Both Sessions (10:00 & 20:00)";
    if(mode == DAY_START_BOTH_1000_1600)
       return "Both Sessions (10:00 & 16:00)";
-   return "Dubai 16:00";
+   return "Dubai 20:00";
   }
 
 //+------------------------------------------------------------------+
@@ -727,13 +726,17 @@ string GetDayStartSessionModeName()
 string GetDayStartSessionShortTag()
   {
    int mode = GetEffectiveDayStartSessionMode();
+   if(mode == DAY_START_DUBAI_2000)
+      return "8PM";
    if(mode == DAY_START_DUBAI_1600)
       return "4PM";
    if(mode == DAY_START_DUBAI_1000)
       return "10AM";
+   if(mode == DAY_START_BOTH_1000_2000)
+      return "10AM/8PM";
    if(mode == DAY_START_BOTH_1000_1600)
       return "10AM/4PM";
-   return "4PM";
+   return "8PM";
   }
 
 //+------------------------------------------------------------------+
@@ -742,11 +745,19 @@ string GetDayStartSessionShortTag()
 string GetActiveSessionResumeReason(datetime dubaiTime)
   {
    int mode = GetEffectiveDayStartSessionMode();
+   if(mode == DAY_START_DUBAI_2000)
+      return "DUBAI 20:00 CLEAN TREND DAY START";
    if(mode == DAY_START_DUBAI_1600)
       return "DUBAI 16:00 FRESH DAY START";
    if(mode == DAY_START_DUBAI_1000)
       return "DUBAI 10:00 LONDON FRESH DAY START";
    int hr = TimeHour(dubaiTime);
+   if(mode == DAY_START_BOTH_1000_2000)
+     {
+      if(hr >= 10 && hr < 20)
+         return "DUBAI 10:00 LONDON SESSION START";
+      return "DUBAI 20:00 US CLEAN TREND SESSION START";
+     }
    if(hr >= 10 && hr < 16)
       return "DUBAI 10:00 LONDON SESSION START";
    return "DUBAI 16:00 US SESSION START";
@@ -758,6 +769,8 @@ string GetActiveSessionResumeReason(datetime dubaiTime)
 string GetNextSessionWaitHourStr(datetime dubaiTime = 0)
   {
    int mode = GetEffectiveDayStartSessionMode();
+   if(mode == DAY_START_DUBAI_2000)
+      return "20:00";
    if(mode == DAY_START_DUBAI_1600)
       return "16:00";
    if(mode == DAY_START_DUBAI_1000)
@@ -765,6 +778,12 @@ string GetNextSessionWaitHourStr(datetime dubaiTime = 0)
    if(dubaiTime <= 0)
       dubaiTime = TimeCurrent() + (ServerToDubaiOffsetHours * 3600);
    int hr = TimeHour(dubaiTime);
+   if(mode == DAY_START_BOTH_1000_2000)
+     {
+      if(hr >= 10 && hr < 20)
+         return "20:00";
+      return "10:00";
+     }
    if(hr >= 10 && hr < 16)
       return "16:00";
    return "10:00";
@@ -789,6 +808,8 @@ int GetEffectiveDubaiNightCloseEndHour()
    int mode = GetEffectiveDayStartSessionMode();
    if(mode == DAY_START_DUBAI_1000)
       return 10; // Ends at 10:00 AM when new London session starts
+   if(mode == DAY_START_DUBAI_2000 || mode == DAY_START_BOTH_1000_2000)
+      return 20; // Ends at 20:00 (8:00 PM) when new clean trend session starts
    return InpDubaiNightCloseEndHour; // Default 16
   }
 
@@ -3078,9 +3099,11 @@ int ResolveNextEqDdTier(int curTier, int doneTier, double &nextThreshOut)
 //+------------------------------------------------------------------+
 //| GetDubai16TradingDayKey                                          |
 //| Computes unified trading session key for active day start mode:  |
-//| - Mode 1 (16:00 Only): Runs 16:00 to 15:59:59 next day           |
-//| - Mode 2 (10:00 Only): Runs 10:00 to 09:59:59 next day (London)  |
-//| - Mode 3 (Both): Session 1: 10:00-15:59, Session 2: 16:00-09:59  |
+//| - Mode 1 (20:00 Only): Runs 20:00 to 19:59:59 next day (Clean)   |
+//| - Mode 2 (16:00 Only): Runs 16:00 to 15:59:59 next day (US)      |
+//| - Mode 3 (10:00 Only): Runs 10:00 to 09:59:59 next day (London)  |
+//| - Mode 4 (Both): Session 1: 10:00-19:59, Session 2: 20:00-09:59  |
+//| - Mode 5 (Both): Session 1: 10:00-15:59, Session 2: 16:00-09:59  |
 //+------------------------------------------------------------------+
 int GetDubai16TradingDayKey(datetime dubaiTime)
   {
@@ -3089,14 +3112,40 @@ int GetDubai16TradingDayKey(datetime dubaiTime)
 
    int mode = GetEffectiveDayStartSessionMode();
 
-// Mode 2: Dubai 10:00 AM Only (London Session)
+// Mode 1: Dubai 20:00 Only (8:00 PM US Clean Trend Session)
+   if(mode == DAY_START_DUBAI_2000)
+     {
+      datetime tradingDayStart = dubaiTime - (20 * 3600);
+      return (TimeYear(tradingDayStart) * 10000 + TimeMonth(tradingDayStart) * 100 + TimeDay(tradingDayStart));
+     }
+
+// Mode 3: Dubai 10:00 AM Only (London Session)
    if(mode == DAY_START_DUBAI_1000)
      {
       datetime tradingDayStart = dubaiTime - (10 * 3600);
       return (TimeYear(tradingDayStart) * 10000 + TimeMonth(tradingDayStart) * 100 + TimeDay(tradingDayStart));
      }
 
-// Mode 3: Both Sessions (10:00 AM & 16:00 PM) - Used in Tester or when selected
+// Mode 4: Both Sessions (10:00 AM & 20:00 PM)
+   if(mode == DAY_START_BOTH_1000_2000)
+     {
+      int hr = TimeHour(dubaiTime);
+      if(hr >= 10 && hr < 20)
+        {
+         // Session 1: 10:00 AM to 19:59:59 Dubai
+         int calDate = TimeYear(dubaiTime) * 10000 + TimeMonth(dubaiTime) * 100 + TimeDay(dubaiTime);
+         return (calDate * 10 + 1);
+        }
+      else
+        {
+         // Session 2: 20:00 PM to 09:59:59 Dubai next day
+         datetime sessionStart = (hr >= 20) ? dubaiTime : (dubaiTime - (24 * 3600));
+         int calDate = TimeYear(sessionStart) * 10000 + TimeMonth(sessionStart) * 100 + TimeDay(sessionStart);
+         return (calDate * 10 + 2);
+        }
+     }
+
+// Mode 5: Both Sessions (10:00 AM & 16:00 PM) - Used when selected
    if(mode == DAY_START_BOTH_1000_1600)
      {
       int hr = TimeHour(dubaiTime);
@@ -3115,7 +3164,7 @@ int GetDubai16TradingDayKey(datetime dubaiTime)
         }
      }
 
-// Mode 1 (Default): Dubai 16:00 Only (4:00 PM US/Dubai Session)
+// Mode 2: Dubai 16:00 Only (4:00 PM US/Dubai Session)
    datetime tradingDayStart = dubaiTime - (16 * 3600);
    return (TimeYear(tradingDayStart) * 10000 + TimeMonth(tradingDayStart) * 100 + TimeDay(tradingDayStart));
   }
@@ -3690,7 +3739,7 @@ void ManageEquityDrawdownForSide(int sideType)
 //| Wipes all EQ-DD state, per-ticket/ancestor locks, session peaks, |
 //| cut counters & chronological history for a fresh Dubai day start.|
 //+------------------------------------------------------------------+
-void ExecuteEqDdFreshDayReset(datetime nowServer, datetime dubaiTime, int dubaiDayKey, bool isTestRun, string triggerReason = "Dubai 16:00 Rollover")
+void ExecuteEqDdFreshDayReset(datetime nowServer, datetime dubaiTime, int dubaiDayKey, bool isTestRun, string triggerReason = "Dubai Day Rollover")
   {
    g_eqDdPriorDayCuts    = g_eqDdTotalPartialCuts + g_eqDdTotalCloseAllOrders;
    g_eqDdPriorDayPeakPct = g_eqDdSessionPeakPct;
@@ -3982,7 +4031,8 @@ void SyncDubaiDayOpeningState(datetime nowServer = 0)
          g_hourlyPlanDHighestHitPct    = 0.0;
          g_hourlyPlanDDoneHourSlot     = -1;
 
-         PrintFormat(">>> [DUBAI 16:00 DAY START] Next Day Rollover | DubaiTime=%s (DayKey=%d) | Day Opening Balance=$%.2f | Plans A/B/C/D Base Updated | PrevDone=%s (Cuts=%d) -> Status RESET",
+         PrintFormat(">>> [DUBAI %s DAY START] Next Day Rollover | DubaiTime=%s (DayKey=%d) | Day Opening Balance=$%.2f | Plans A/B/C/D Base Updated | PrevDone=%s (Cuts=%d) -> Status RESET",
+                     GetNextSessionWaitHourStr(dubaiTime),
                      TimeToString(dubaiTime, TIME_DATE|TIME_MINUTES|TIME_SECONDS),
                      dubaiDayKey, g_dayOpeningBalance, (wasDoneYesterday ? "YES" : "NO"), prevCuts);
         }
@@ -12958,7 +13008,7 @@ int OnInit()
    Print(">>> [EA ONINIT] Fresh Start Initializing | Resetting all runtime variables & cleaning chart objects...");
    PrintFormat(">>> [DAY START CONFIG] Account=%d | Session Mode=%s | Configuration=%s",
                AccountNumber(), GetDayStartSessionModeName(),
-               (InpDayStartSessionMode == DAY_START_AUTO ? "AUTO (289059721->16:00, Other->10:00, Tester->Both 10:00 & 16:00)" : "MANUAL OVERRIDE"));
+               (InpDayStartSessionMode == DAY_START_AUTO ? "AUTO (Dubai 20:00 Clean Trend)" : "MANUAL OVERRIDE"));
    ResetAllRuntimeVariablesOnFreshStart();
    CheckForNewDay();
 // Check minimum opening balance condition (.00)
@@ -14269,7 +14319,7 @@ void CheckForNewDay()
 
    if(today != g_dayNumber)
      {
-      // NEW TRADING DAY (DUBAI 16:00 - FRESH START IN ANY SITUATION)
+      // NEW TRADING DAY (DUBAI 20:00 - FRESH START IN ANY SITUATION)
       bool isFirstStart               = (g_dayNumber == -1);
       bool wasTargetHitYesterday      = g_dailyEquityTargetHitToday;
       bool wasAdverseLossHitYesterday = g_dailyEquityAdverseLossHitToday;
@@ -14277,8 +14327,8 @@ void CheckForNewDay()
       g_dayNumber                     = today;
 
       double prevBase                 = g_dayOpeningBalance;
-      // User Rule (V-SMALL-1025 / VMULTI-1270):
-      // Start trading freshly at Dubai trading time (16:00) in ANY situation!
+      // User Rule (V-SMALL-1065):
+      // Start trading freshly at Dubai trading time (20:00) in ANY situation!
       // Always reset day opening base to current available balance/equity:
       double freshBase = (curBal > 0.0) ? curBal : ((AccountEquity() > 0.0) ? AccountEquity() : prevBase);
       g_dayOpeningBalance     = freshBase;
@@ -14784,10 +14834,10 @@ bool IsDailyEquityStopReached()
          g_dailyEquityPauseSSLDirection   = GetCurrentSSLDirection();
          g_dailyEquityPauseSslFlipped     = false;
 
-         PrintFormat(">>> [ADVERSE DAY EQUITY PROTECTION HIT (-$%.2f)] Dubai=%s (DayKey=%d) | OpenBal=$%.2f | CurEquity=$%.2f | DayLoss=-$%.2f >= $%.2f | Closing ALL orders and pausing trading until next day Dubai 16:00.",
+         PrintFormat(">>> [ADVERSE DAY EQUITY PROTECTION HIT (-$%.2f)] Dubai=%s (DayKey=%d) | OpenBal=$%.2f | CurEquity=$%.2f | DayLoss=-$%.2f >= $%.2f | Closing ALL orders and pausing trading until next day Dubai reset (%s).",
                      maxLossUSD, TimeToString(dubaiTime, TIME_DATE|TIME_MINUTES|TIME_SECONDS),
                      GetDubai16TradingDayKey(dubaiTime), g_dayOpeningBalance, curEquity,
-                     (g_dayOpeningBalance - curEquity), maxLossUSD);
+                     (g_dayOpeningBalance - curEquity), maxLossUSD, GetNextSessionWaitHourStr(dubaiTime));
 
          CloseAndDeleteAllEAOrdersOnTradingStop();
 
@@ -14860,8 +14910,8 @@ bool IsDailyEquityStopReached()
          g_dailyEquityPauseSSLDirection = GetCurrentSSLDirection();
          g_dailyEquityPauseSslFlipped   = false;
 
-         PrintFormat(">>> [DAILY EQUITY RETRACE STOP (RESUMED LEG)] Maximum peak profit collected was $%.2f (%d steps). Equity dropped to floor ($%.2f <= $%.2f). Closing all orders and pausing until next day Dubai 16:00.",
-                     profitInResumedLeg, g_dailyEquityStepCount, curEquity, resumedFloorEquity);
+         PrintFormat(">>> [DAILY EQUITY RETRACE STOP (RESUMED LEG)] Maximum peak profit collected was $%.2f (%d steps). Equity dropped to floor ($%.2f <= $%.2f). Closing all orders and pausing until next day Dubai reset (%s).",
+                     profitInResumedLeg, g_dailyEquityStepCount, curEquity, resumedFloorEquity, GetNextSessionWaitHourStr(dubaiTime));
 
          CloseAndDeleteAllEAOrdersOnTradingStop();
 
@@ -14934,8 +14984,8 @@ bool IsDailyEquityStopReached()
             g_dailyEquityPauseSSLDirection = GetCurrentSSLDirection();
             g_dailyEquityPauseSslFlipped   = false;
 
-            Print(StringFormat("[DAILY EQUITY RETRACE STOP] Maximum peak profit collected was $%.2f (Daily target + %d x $5 steps). Equity dropped to %.0f%% floor ($%.2f <= $%.2f). Closing all orders and pausing until next day Dubai 16:00.",
-                               totalPeakProfit, g_dailyEquityStepCount, currentFloorPct, curEquity, floorEquity));
+            Print(StringFormat("[DAILY EQUITY RETRACE STOP] Maximum peak profit collected was $%.2f (Daily target + %d x $5 steps). Equity dropped to %.0f%% floor ($%.2f <= $%.2f). Closing all orders and pausing until next day Dubai reset (%s).",
+                               totalPeakProfit, g_dailyEquityStepCount, currentFloorPct, curEquity, floorEquity, GetNextSessionWaitHourStr(dubaiTime)));
 
             CloseAndDeleteAllEAOrdersOnTradingStop();
 
@@ -30395,9 +30445,9 @@ void UpdateDashboard(DailyProtectionState &state)
          string hitClock = (g_dubaiNightCloseLastHitTime > 0)
                            ? TimeToString(g_dubaiNightCloseLastHitTime + (ServerToDubaiOffsetHours * 3600), TIME_MINUTES)
                            : "--:--";
-         dubaiCloseTxt = StringFormat("DUBAI %02d-%02d : DONE @ %s (EqDay:%s%.1f%% | Reset 16:00)",
+         dubaiCloseTxt = StringFormat("DUBAI %02d-%02d : DONE @ %s (EqDay:%s%.1f%% | Reset %s)",
                                       InpDubaiNightCloseStartHour, InpDubaiNightCloseEndHour,
-                                      hitClock, dashDayEqSign, dashDayEqPct);
+                                      hitClock, dashDayEqSign, dashDayEqPct, GetNextSessionWaitHourStr(dashDubaiTime));
          dubaiCloseClr = clrGold;
         }
       else
