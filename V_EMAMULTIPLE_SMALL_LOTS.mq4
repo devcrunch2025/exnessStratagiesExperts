@@ -43,7 +43,7 @@ CheckBasketProfitClose  Total open basket profit
 
 */
 
-string glbVersion = "V-SMALL-1076- Spike Orders Pending With 50 Gap";
+string glbVersion = "V-SMALL-1077- Spike Basket Profit Ladder 50Pct Protect";
 
 int AccountMultiplierLOT = 500;//100;//1000;//400;//200;//500; ALWAYS multiples of 1000 is better for best results
 //balance multiplier
@@ -1065,12 +1065,20 @@ double InpPendingGapLossMultiplier         = 2.0;   // Pending gap multiplier on
  int    InpSpikeOrderCooldownSec               = 5;    // Spike Orders: Cooldown seconds between consecutive spike order attempts (default 5s)
  int    InpMaxSpikePendingOrders               = 1;    // Spike Orders: Max simultaneous pending stop orders (default 1)
  bool   InpSpikeOrderBypassSameTypeGap         = true; // Spike Orders: Bypass wide same-type minimum gap during sudden spike momentum
- double InpSpikeOrderPendingGapUSD             = 10;//0;//50.0; // Spike Orders: Pending stop entry gap from live price ($50 USD)
- double InpSpikeOrderMinGapUSD                 = 50.0; // Spike Orders: Minimal gap between consecutive spike orders ($50 USD)
+ double InpSpikeOrderPendingGapUSD             = 50.0;  // Spike Orders: Pending stop entry gap from live price ($50 USD)
+ double InpSpikeOrderMinGapUSD                 = 50.0;  // Spike Orders: Minimal gap between consecutive spike orders ($50 USD)
  double InpSpikeOrderStaleCleanupDistUSD       = 100.0; // Spike Orders: Distance to delete stale pending spike order ($100 USD)
- bool   InpSpikeBypassHorizontalLineBlock      = true; // Spike Orders: Bypass active opposite horizontal line block (EQH-R/EQH-G)
- bool   InpSpikeBypassSweepBlock               = true; // Spike Orders: Bypass active liquidity sweep block (SSLS/BSLS)
- bool   InpFollowEmaIgnoreSsl                  = true; // Trade Direction: Follow EMADirection (Bull=BUY, Bear=SELL) & Ignore SSL Signal
+ bool   InpSpikeBypassHorizontalLineBlock      = true;  // Spike Orders: Bypass active opposite horizontal line block (EQH-R/EQH-G)
+ bool   InpSpikeBypassSweepBlock               = true;  // Spike Orders: Bypass active liquidity sweep block (SSLS/BSLS)
+ bool   InpFollowEmaIgnoreSsl                  = true;  // Trade Direction: Follow EMADirection (Bull=BUY, Bear=SELL) & Ignore SSL Signal
+ bool   InpEnableSpikeProfitLadder             = true;  // Spike Ladder: Enable $5 Step Profit Ladder with 50% Protection
+ double InpSpikeLadderStepUSD                  = 5.0;   // Spike Ladder: Step size in USD ($5.00)
+ double InpSpikeLadderProtectPct               = 50.0;  // Spike Ladder: Protected profit % on market reversal (50%)
+
+double g_spikeBuyBucketPeakPL                  = 0.0;   // Peak floating profit reached by open BUY spike bucket
+double g_spikeSellBucketPeakPL                 = 0.0;   // Peak floating profit reached by open SELL spike bucket
+int    g_spikeBuyBucketLadderLevel             = 0;     // Current ladder level reached by open BUY spike bucket
+int    g_spikeSellBucketLadderLevel            = 0;     // Current ladder level reached by open SELL spike bucket
 double MinimumSameOrderGapRawMatched =50;//30;//50;//100;//50;//30;//10;//20;//50;//20;// 50;//SSL long //SSL short
 double MinimumSameOrderGapRawUnmatched =50;//10;//10;//20;// 100;
 
@@ -8073,6 +8081,8 @@ void   ExecuteMethod6PartialLotAction(int winIdx, int lossIdx, double partialLot
                                       double &candProfits[], bool &isProcessed[]);
 void   CloseAllOpenBuyOrders(string reason = "");
 void   CloseAllOpenSellOrders(string reason = "");
+void   CloseAllOpenSpikeOrders(int orderType, string reason = "");
+void   ManageSpikeProfitLadder();
 void   CloseProfitableOrderCombinations();
 void   ModifyPairProfitWithStopLoss();
 void   EquityProfitLadder5();
@@ -15826,6 +15836,9 @@ void OnTick()
    if(InpEnableBasketProfitClose)
       CheckBasketProfitClose();
 
+   // USER RULE: Spike Profit Ladder ($5 step ladder, live SL trail & 50% profit protection)
+   ManageSpikeProfitLadder();
+
    if(InpCancelPendingReEntryOnLoss)
       CancelPendingReEntryOnLoss(0);
 
@@ -20654,7 +20667,7 @@ bool SafeOrderModify(int ticket,double openPrice,double stopLoss,double takeProf
       double oOpen = OrderOpenPrice();
       double oLots = OrderLots();
       double curNetPL = OrderProfit() + OrderSwap() + OrderCommission();
-      bool isMethodCaller = (StringFind(callerName, "Method") >= 0 || callerName == "Emergency90PercentSLCutPlus500SL" || callerName == "Emergency90PercentSLCutDoubleSL" || callerName == "BasketDeRisk_BE_SL");
+      bool isMethodCaller = (StringFind(callerName, "Method") >= 0 || callerName == "Emergency90PercentSLCutPlus500SL" || callerName == "Emergency90PercentSLCutDoubleSL" || callerName == "BasketDeRisk_BE_SL" || StringFind(callerName, "Spike") >= 0);
 
       // USER RULE (VMULTI-1095 & VMULTI-1105): EMA angle calculation & Breakeven Breathing Floor
       double curEmaAng = GlobalEmaAngle30;
@@ -22094,6 +22107,261 @@ void CloseAllOpenSellOrders(string reason = "")
 
    InvalidateTotalEAOrdersCache();
    InitializeFLIPBasketSupportTracking();
+  }
+
+//+------------------------------------------------------------------+
+//| CloseAllOpenSpikeOrders: Closes open market Spike orders         |
+//+------------------------------------------------------------------+
+void CloseAllOpenSpikeOrders(int orderType, string reason = "")
+  {
+   RefreshRates();
+   for(int i = OrdersTotal() - 1; i >= 0; i--)
+     {
+      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
+         continue;
+      if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber)
+         continue;
+      if(OrderType() != orderType)
+         continue;
+
+      string cmt = OrderComment();
+      if(StringFind(cmt, "SPIKE") < 0)
+         continue;
+
+      RecordOrderCloseReason(OrderTicket(), (reason != "" ? reason : "SPIKE_LADDER_50PCT_CLOSE"));
+      SafeOrderCloseMarket(OrderTicket(), OrderLots(), Slippage, (orderType == OP_BUY ? clrLimeGreen : clrTomato));
+     }
+   InvalidateTotalEAOrdersCache();
+  }
+
+//+------------------------------------------------------------------+
+//| ManageSpikeProfitLadder: $5 Step Profit Ladder with 50% Protect  |
+//| - Tracks peak floating profit for Spike BUY and SELL buckets     |
+//| - When peak profit >= $5.00 (InpSpikeLadderStepUSD):             |
+//|   a) Protects 50% of peak profit (InpSpikeLadderProtectPct)      |
+//|   b) Modifies all spike orders' StopLoss forward with live price |
+//|   c) Closes spike orders immediately if profit retraces to 50%   |
+//+------------------------------------------------------------------+
+void ManageSpikeProfitLadder()
+  {
+   if(!InpEnableSpikeProfitLadder)
+      return;
+
+   RefreshRates();
+
+   int    spikeBuyCount     = 0;
+   double spikeBuyLots      = 0.0;
+   double spikeBuyPL        = 0.0;
+   int    spikeBuyTickets[];
+   double spikeBuyOpenPrices[];
+   double spikeBuyLotsArr[];
+   double spikeBuySLs[];
+   double spikeBuyTPs[];
+
+   int    spikeSellCount    = 0;
+   double spikeSellLots     = 0.0;
+   double spikeSellPL       = 0.0;
+   int    spikeSellTickets[];
+   double spikeSellOpenPrices[];
+   double spikeSellLotsArr[];
+   double spikeSellSLs[];
+   double spikeSellTPs[];
+
+   for(int i = OrdersTotal() - 1; i >= 0; i--)
+     {
+      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
+         continue;
+      if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber)
+         continue;
+
+      string cmt = OrderComment();
+      if(StringFind(cmt, "SPIKE") < 0)
+         continue;
+
+      int oType = OrderType();
+      double netPL = OrderProfit() + OrderSwap() + OrderCommission();
+
+      if(oType == OP_BUY)
+        {
+         int idx = ArraySize(spikeBuyTickets);
+         ArrayResize(spikeBuyTickets, idx + 1);
+         ArrayResize(spikeBuyOpenPrices, idx + 1);
+         ArrayResize(spikeBuyLotsArr, idx + 1);
+         ArrayResize(spikeBuySLs, idx + 1);
+         ArrayResize(spikeBuyTPs, idx + 1);
+
+         spikeBuyTickets[idx]    = OrderTicket();
+         spikeBuyOpenPrices[idx] = OrderOpenPrice();
+         spikeBuyLotsArr[idx]    = OrderLots();
+         spikeBuySLs[idx]        = OrderStopLoss();
+         spikeBuyTPs[idx]        = OrderTakeProfit();
+
+         spikeBuyCount++;
+         spikeBuyLots += OrderLots();
+         spikeBuyPL   += netPL;
+        }
+      else if(oType == OP_SELL)
+        {
+         int idx = ArraySize(spikeSellTickets);
+         ArrayResize(spikeSellTickets, idx + 1);
+         ArrayResize(spikeSellOpenPrices, idx + 1);
+         ArrayResize(spikeSellLotsArr, idx + 1);
+         ArrayResize(spikeSellSLs, idx + 1);
+         ArrayResize(spikeSellTPs, idx + 1);
+
+         spikeSellTickets[idx]    = OrderTicket();
+         spikeSellOpenPrices[idx] = OrderOpenPrice();
+         spikeSellLotsArr[idx]    = OrderLots();
+         spikeSellSLs[idx]        = OrderStopLoss();
+         spikeSellTPs[idx]        = OrderTakeProfit();
+
+         spikeSellCount++;
+         spikeSellLots += OrderLots();
+         spikeSellPL   += netPL;
+        }
+     }
+
+   // 1. Manage BUY Spike Bucket
+   if(spikeBuyCount == 0 || spikeBuyPL <= 0.0)
+     {
+      g_spikeBuyBucketPeakPL      = 0.0;
+      g_spikeBuyBucketLadderLevel = 0;
+     }
+   else
+     {
+      if(spikeBuyPL > g_spikeBuyBucketPeakPL)
+         g_spikeBuyBucketPeakPL = spikeBuyPL;
+
+      if(g_spikeBuyBucketPeakPL >= InpSpikeLadderStepUSD)
+        {
+         int curLevel = (int)MathFloor(g_spikeBuyBucketPeakPL / InpSpikeLadderStepUSD);
+         if(curLevel > g_spikeBuyBucketLadderLevel)
+           {
+            g_spikeBuyBucketLadderLevel = curLevel;
+            PrintFormat(">>> [SPIKE BUY LADDER LEVEL %d] Peak=$%.2f >= Step $%.2f | Floating PL=$%.2f (Lots=%.2fL, Orders=%d)",
+                        curLevel, g_spikeBuyBucketPeakPL, curLevel * InpSpikeLadderStepUSD, spikeBuyPL, spikeBuyLots, spikeBuyCount);
+           }
+
+         double protectFloorPL = g_spikeBuyBucketPeakPL * (InpSpikeLadderProtectPct / 100.0);
+
+         // A. REVERSAL CLOSE: Close spike orders if profit retraced to or below 50% floor
+         if(spikeBuyPL <= protectFloorPL)
+           {
+            string closeReason = StringFormat("Spike BUY Ladder 50%% Retrace Hit: Peak=$%.2f, Closed=$%.2f <= Floor=$%.2f (Lvl %d)",
+                                              g_spikeBuyBucketPeakPL, spikeBuyPL, protectFloorPL, curLevel);
+            Print(">>> [SPIKE BUCKET CLOSE - BUY] ", closeReason);
+            CloseAllOpenSpikeOrders(OP_BUY, closeReason);
+            CleanupStaleSpikePendingOrders(OP_BUYSTOP, 0.0);
+            g_spikeBuyBucketPeakPL      = 0.0;
+            g_spikeBuyBucketLadderLevel = 0;
+           }
+         // B. LIVE TRAILING SL: Adjust StopLoss forward based on live price
+         else
+           {
+            double tickVal = MarketInfo(Symbol(), MODE_TICKVALUE);
+            double tickSz  = MarketInfo(Symbol(), MODE_TICKSIZE);
+            double pointPerDollar = 1.0;
+            if(tickVal > 0.0 && tickSz > 0.0)
+               pointPerDollar = tickVal / tickSz;
+
+            double dollarPerUnit = spikeBuyLots * pointPerDollar;
+            if(dollarPerUnit > 0.0)
+              {
+               double priceBuffer = (spikeBuyPL - protectFloorPL) / dollarPerUnit;
+               double targetSL = NormalizeDouble(Bid - priceBuffer, Digits);
+               double minStop = GetRequiredStopDistance();
+               if(targetSL > Bid - minStop)
+                  targetSL = NormalizeDouble(Bid - minStop, Digits);
+
+               double minModGap = GetEffectiveMinSLModifyGap();
+
+               for(int b = 0; b < spikeBuyCount; b++)
+                 {
+                  int tkt = spikeBuyTickets[b];
+                  double curSL = spikeBuySLs[b];
+                  double oOpen = spikeBuyOpenPrices[b];
+                  double curTP = spikeBuyTPs[b];
+
+                  if(targetSL > 0.0 && (curSL == 0.0 || targetSL >= curSL + minModGap))
+                    {
+                     SafeOrderModify(tkt, oOpen, targetSL, curTP, 0, clrLimeGreen, "SpikeLadder50PctSL");
+                    }
+                 }
+              }
+           }
+        }
+     }
+
+   // 2. Manage SELL Spike Bucket
+   if(spikeSellCount == 0 || spikeSellPL <= 0.0)
+     {
+      g_spikeSellBucketPeakPL      = 0.0;
+      g_spikeSellBucketLadderLevel = 0;
+     }
+   else
+     {
+      if(spikeSellPL > g_spikeSellBucketPeakPL)
+         g_spikeSellBucketPeakPL = spikeSellPL;
+
+      if(g_spikeSellBucketPeakPL >= InpSpikeLadderStepUSD)
+        {
+         int curLevel = (int)MathFloor(g_spikeSellBucketPeakPL / InpSpikeLadderStepUSD);
+         if(curLevel > g_spikeSellBucketLadderLevel)
+           {
+            g_spikeSellBucketLadderLevel = curLevel;
+            PrintFormat(">>> [SPIKE SELL LADDER LEVEL %d] Peak=$%.2f >= Step $%.2f | Floating PL=$%.2f (Lots=%.2fL, Orders=%d)",
+                        curLevel, g_spikeSellBucketPeakPL, curLevel * InpSpikeLadderStepUSD, spikeSellPL, spikeSellLots, spikeSellCount);
+           }
+
+         double protectFloorPL = g_spikeSellBucketPeakPL * (InpSpikeLadderProtectPct / 100.0);
+
+         // A. REVERSAL CLOSE: Close spike orders if profit retraced to or below 50% floor
+         if(spikeSellPL <= protectFloorPL)
+           {
+            string closeReason = StringFormat("Spike SELL Ladder 50%% Retrace Hit: Peak=$%.2f, Closed=$%.2f <= Floor=$%.2f (Lvl %d)",
+                                              g_spikeSellBucketPeakPL, spikeSellPL, protectFloorPL, curLevel);
+            Print(">>> [SPIKE BUCKET CLOSE - SELL] ", closeReason);
+            CloseAllOpenSpikeOrders(OP_SELL, closeReason);
+            CleanupStaleSpikePendingOrders(OP_SELLSTOP, 0.0);
+            g_spikeSellBucketPeakPL      = 0.0;
+            g_spikeSellBucketLadderLevel = 0;
+           }
+         // B. LIVE TRAILING SL: Adjust StopLoss forward based on live price
+         else
+           {
+            double tickVal = MarketInfo(Symbol(), MODE_TICKVALUE);
+            double tickSz  = MarketInfo(Symbol(), MODE_TICKSIZE);
+            double pointPerDollar = 1.0;
+            if(tickVal > 0.0 && tickSz > 0.0)
+               pointPerDollar = tickVal / tickSz;
+
+            double dollarPerUnit = spikeSellLots * pointPerDollar;
+            if(dollarPerUnit > 0.0)
+              {
+               double priceBuffer = (spikeSellPL - protectFloorPL) / dollarPerUnit;
+               double targetSL = NormalizeDouble(Ask + priceBuffer, Digits);
+               double minStop = GetRequiredStopDistance();
+               if(targetSL < Ask + minStop)
+                  targetSL = NormalizeDouble(Ask + minStop, Digits);
+
+               double minModGap = GetEffectiveMinSLModifyGap();
+
+               for(int s = 0; s < spikeSellCount; s++)
+                 {
+                  int tkt = spikeSellTickets[s];
+                  double curSL = spikeSellSLs[s];
+                  double oOpen = spikeSellOpenPrices[s];
+                  double curTP = spikeSellTPs[s];
+
+                  if(targetSL > 0.0 && (curSL == 0.0 || targetSL <= curSL - minModGap))
+                    {
+                     SafeOrderModify(tkt, oOpen, targetSL, curTP, 0, clrTomato, "SpikeLadder50PctSL");
+                    }
+                 }
+              }
+           }
+        }
+     }
   }
 
 //+------------------------------------------------------------------+
@@ -30344,6 +30612,13 @@ void UpdateDashboard(DailyProtectionState &state)
    bool isEmaWeak = IsEmaWEAKDistanceReduced50PercentFromPeak();
    string emaStrength = isEmaWeak ? "WEAK" : "STRONG";
    string spikeTag = (EMADirection == 1 && GlobalEmaAngle30 < 0.0) ? ", SPIKE BULL" : ((EMADirection == -1 && GlobalEmaAngle30 > 0.0) ? ", SPIKE BEAR" : "");
+   if(InpEnableSpikeProfitLadder)
+     {
+      if(g_spikeBuyBucketPeakPL >= InpSpikeLadderStepUSD)
+         spikeTag += StringFormat(" [LAD: B Pk=$%.1f Flr=$%.1f]", g_spikeBuyBucketPeakPL, g_spikeBuyBucketPeakPL * (InpSpikeLadderProtectPct / 100.0));
+      if(g_spikeSellBucketPeakPL >= InpSpikeLadderStepUSD)
+         spikeTag += StringFormat(" [LAD: S Pk=$%.1f Flr=$%.1f]", g_spikeSellBucketPeakPL, g_spikeSellBucketPeakPL * (InpSpikeLadderProtectPct / 100.0));
+     }
    string sslShortDir = (currentSSLDirection > 0) ? "BUY (+1)" : (currentSSLDirection < 0 ? "SELL (-1)" : "NONE");
    if(InpFollowEmaIgnoreSsl && ((EMADirection == 1 && currentSSLDirection < 0) || (EMADirection == -1 && currentSSLDirection > 0)))
       sslShortDir += " (IGNORED)";
