@@ -27715,6 +27715,13 @@ void OpenBuy(string MOMorder="")
    reEntryCounter=0;
    SaveReEntryCounter();
    ChangeLots(GlobalSellPL,"SSL Long",OP_BUY,0,MOMorder);
+   
+   
+    if(isSpikeOrder)
+   StopLossRawPriceGap=100;
+    else
+   StopLossRawPriceGap=3000;//
+   
    double slDistance = (StopLossRawPriceGap > 0.0) ? StopLossRawPriceGap : 3000.0;
    double tpDistance = (TakeProfitRawPriceGap > 0.0) ? TakeProfitRawPriceGap : 500.0;
 
@@ -27725,6 +27732,9 @@ void OpenBuy(string MOMorder="")
       DeleteOppositePendingOrders(OP_BUY);
 
    string buyComment = isSpikeOrder ? "SSL Long SPIKE" : ((MOMorder == "MOM_BUY" || isMOMOrder) ? "SSL Long MOM" : "SSL Long");
+   
+  
+   
    int ticket = 0;
    if(isSpikeMarketOrder)
      {
@@ -27823,6 +27833,12 @@ void OpenSell(string MOMorder="")
    reEntryCounter=0;
    SaveReEntryCounter();
    ChangeLots(GlobalBuyPL,"SSL Short",OP_SELL,0,MOMorder);
+   
+    if(isSpikeOrder)
+   StopLossRawPriceGap=100;
+   else
+   StopLossRawPriceGap=3000;//
+   
    double slDistance = (StopLossRawPriceGap > 0.0) ? StopLossRawPriceGap : 3000.0;
    double tpDistance = (TakeProfitRawPriceGap > 0.0) ? TakeProfitRawPriceGap : 500.0;
 
