@@ -42,7 +42,7 @@ CheckBasketProfitClose  Total open basket profit
 */
 
 
-string glbVersion = "VMULTI-1304- Both Horizontal Lines Block Gate Angle 4 Plus";
+string glbVersion = "VMULTI-1305- Disable Spread Spike Gate";
 
 int AccountMultiplierLOT = 1000;//400;//200;//500; ALWAYS multiples of 1000 is better for best results
 //balance multiplier 
@@ -807,6 +807,7 @@ int      InpDubaiNightIconFontSize           = 10;    // Chart icon text font si
 
 
 // ===== SPREAD & RISK SETTINGS =====
+input bool InpEnableSpreadFilter = false; // Spread Spike Filter: Block trades when current spread > MaxAllowedSpreadUSD (false = DISABLED)
 double MaxAllowedSpreadUSD = 35.0;
 double OriginalStopLossUSD = 30;//0;//6;//4;
 double StopLossRawPriceGap =3000;// 2000.0;   // Raw price gap ($2000 BTC price points) for StopLoss
@@ -19308,7 +19309,7 @@ return -1;
 // --- PHYSICAL SAFETY BLOCKS (APPLIES TO ALL ORDERS) ---
    RefreshRates();
    double currentSpreadUSD = Ask - Bid;
-   if(currentSpreadUSD > MaxAllowedSpreadUSD)
+   if(InpEnableSpreadFilter && currentSpreadUSD > MaxAllowedSpreadUSD)
      {
       Print("TRADE BLOCKED | Spread too high: $", DoubleToString(currentSpreadUSD, 2), " | Max allowed: $", DoubleToString(MaxAllowedSpreadUSD, 2));
       return -1;
