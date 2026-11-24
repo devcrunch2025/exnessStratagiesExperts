@@ -42,7 +42,7 @@ CheckBasketProfitClose  Total open basket profit
 */
 
 
-string glbVersion = "VMULTI-1300- Method 6 Trend Aligned Orders Multiplier 2X";
+string glbVersion = "VMULTI-1301- Disable DD and Sweep Gap Multipliers When EMA Unmatched on Angle 4 Plus";
 
 int AccountMultiplierLOT = 1000;//400;//200;//500; ALWAYS multiples of 1000 is better for best results
 //balance multiplier 
@@ -890,6 +890,7 @@ input double InpPendingGapDoubleLossThresholdUSD = 10.0;  // Basket floating los
 input double InpPendingGapLossMultiplier         = 2.0;   // Pending gap multiplier on basket loss threshold (2.0 = double)
 // double MinimumSameOrderGapRawSSLLongShort =50;// 50;
 input double InpDynamicGapAngleThreshold        = 4.0;   // Dynamic Order Gap: EMA angle boundary (if MathAbs(EMA Angle) < 4.0: Required Gap = Base Gap; if >= 4.0: Base Gap * Drawdown Mult * Sweep Mult)
+input bool   InpDisableDDAndSweepGapWhenEmaUnmatched = true; // Dynamic Order Gap: Disable DD Scaling & Sweep Guard when MathAbs(EMA Angle) >= 4.0 and OrderType != EMADirection
 double BaseMinimumSameOrderGapRawMatched = 50.0; // Base matched order gap ($50.0)
 double MinimumSameOrderGapRawMatched =50;//30;//50;//100;//50;//30;//10;//20;//50;//20;// 50;//SSL long //SSL short
 double MinimumSameOrderGapRawUnmatched =50;//10;//10;//20;// 100;
@@ -22473,6 +22474,10 @@ double GetDynamicOrderGapDetails(int orderType, double &rawGapBeforeCap, string 
    double angleThreshold = (InpDynamicGapAngleThreshold > 0.0) ? InpDynamicGapAngleThreshold : 4.0;
    bool isAngleSteepForGap = (absEmaAng >= angleThreshold);
 
+   // Check if orderType matches EMADirection (+1 Bullish matches BUY, -1 Bearish matches SELL)
+   bool isEmaDirMatched = (emaDir == 1 && (orderType == OP_BUY || orderType == OP_BUYSTOP || orderType == OP_BUYLIMIT)) ||
+                          (emaDir == -1 && (orderType == OP_SELL || orderType == OP_SELLSTOP || orderType == OP_SELLLIMIT));
+
    // Base multipliers
    int multiplier = 1;
    double sweepMult = 1.0;
@@ -22480,99 +22485,110 @@ double GetDynamicOrderGapDetails(int orderType, double &rawGapBeforeCap, string 
 
    if(isAngleSteepForGap)
      {
-      // 1. Evaluate indicators alignment and risk conditions (Angle >= 4.0)
-      bool isWeak = IsEmaWEAKDistanceReduced50PercentFromPeak(orderType);
-      bool isConflicted = (sslDir != 0 && emaDir != 0 && sslDir != emaDir);
-
-      if(isWeak)
-         multiplier = MathMax(multiplier, 2);
-      else if(isConflicted)
-         multiplier = MathMax(multiplier, 2);
-
-      // 2. Floating loss scaling: progressively widen gap on drawdown (Angle >= 4.0)
-      double pl = GetOpenPL(orderType);
-      if(pl < 0.0)
+      // USER RULE (VMULTI-1301): When EMA angle >= 4.0 and orderType does NOT match EMADirection,
+      // disable Drawdown Scaling and Sweep Guard (gap remains at Base Gap instead of scaling to 4X/2X).
+      if(!isEmaDirMatched && InpDisableDDAndSweepGapWhenEmaUnmatched)
         {
-         double lossStep = 3.0 * (balancelomultipler > 0 ? balancelomultipler : 1);
-         int lossMultiplier = 1 + (int)MathFloor(MathAbs(pl) / lossStep);
-         lossMultiplier = MathMin(lossMultiplier, 4); // Cap to safe maximum 4X
-         multiplier = MathMax(multiplier, lossMultiplier);
+         multiplier = 1;
+         sweepMult = 1.0;
+         sweepName = "";
         }
-
-      // 2B. Aging Reversal Gap Reduction: Stagnant basket (>=30 min) turning with momentum
-      if(InpEnableAgingGapReduction && pl < 0.0)
+      else
         {
-         datetime latestTime = GetNewestOpenOrderTime(orderType);
-         int minElapsedSec = (InpAgingGapElapsedMinutes > 0 ? InpAgingGapElapsedMinutes : 30) * 60;
-         if(latestTime > 0 && (TimeCurrent() - latestTime) >= minElapsedSec)
+         // 1. Evaluate indicators alignment and risk conditions (Angle >= 4.0)
+         bool isWeak = IsEmaWEAKDistanceReduced50PercentFromPeak(orderType);
+         bool isConflicted = (sslDir != 0 && emaDir != 0 && sslDir != emaDir);
+
+         if(isWeak)
+            multiplier = MathMax(multiplier, 2);
+         else if(isConflicted)
+            multiplier = MathMax(multiplier, 2);
+
+         // 2. Floating loss scaling: progressively widen gap on drawdown (Angle >= 4.0)
+         double pl = GetOpenPL(orderType);
+         if(pl < 0.0)
            {
-            bool trendConfirmed = true;
-            if(InpAgingGapRequireTrendConfirmation)
-              {
-               if(orderType == OP_BUY || orderType == OP_BUYSTOP || orderType == OP_BUYLIMIT)
-                  trendConfirmed = (sslDir == 1 && (Close[0] >= Open[0] || Bid >= Close[1]));
-               else if(orderType == OP_SELL || orderType == OP_SELLSTOP || orderType == OP_SELLLIMIT)
-                  trendConfirmed = (sslDir == -1 && (Close[0] <= Open[0] || Ask <= Close[1]));
-               else
-                  trendConfirmed = false;
-              }
+            double lossStep = 3.0 * (balancelomultipler > 0 ? balancelomultipler : 1);
+            int lossMultiplier = 1 + (int)MathFloor(MathAbs(pl) / lossStep);
+            lossMultiplier = MathMin(lossMultiplier, 4); // Cap to safe maximum 4X
+            multiplier = MathMax(multiplier, lossMultiplier);
+           }
 
-            if(trendConfirmed)
+         // 2B. Aging Reversal Gap Reduction: Stagnant basket (>=30 min) turning with momentum
+         if(InpEnableAgingGapReduction && pl < 0.0)
+           {
+            datetime latestTime = GetNewestOpenOrderTime(orderType);
+            int minElapsedSec = (InpAgingGapElapsedMinutes > 0 ? InpAgingGapElapsedMinutes : 30) * 60;
+            if(latestTime > 0 && (TimeCurrent() - latestTime) >= minElapsedSec)
               {
-               double mult = (InpAgingGapReductionMultiplier > 0.0) ? InpAgingGapReductionMultiplier : 0.5;
-               double reducedGap = baseGap * mult;
-               if(reducedGap < 20.0)
-                  reducedGap = 20.0; // Enforce safe minimum separation
-
-               if(logMessages)
+               bool trendConfirmed = true;
+               if(InpAgingGapRequireTrendConfirmation)
                  {
-                  static datetime lastAgingLog = 0;
-                  if(TimeCurrent() - lastAgingLog >= 60)
-                    {
-                     lastAgingLog = TimeCurrent();
-                     Print(">>> [AGING REVERSAL GAP REDUCTION] Direction=", (orderType == OP_BUY ? "BUY" : "SELL"),
-                           " | LatestOrderAge=", (int)((TimeCurrent() - latestTime) / 60), "m >= ", InpAgingGapElapsedMinutes, "m",
-                           " | Basket PL=$", DoubleToString(pl, 2),
-                           " | Overriding Drawdown Gap $", DoubleToString(baseGap * multiplier, 2),
-                           " -> Halved Gap $", DoubleToString(reducedGap, 2));
-                    }
+                  if(orderType == OP_BUY || orderType == OP_BUYSTOP || orderType == OP_BUYLIMIT)
+                     trendConfirmed = (sslDir == 1 && (Close[0] >= Open[0] || Bid >= Close[1]));
+                  else if(orderType == OP_SELL || orderType == OP_SELLSTOP || orderType == OP_SELLLIMIT)
+                     trendConfirmed = (sslDir == -1 && (Close[0] <= Open[0] || Ask <= Close[1]));
+                  else
+                     trendConfirmed = false;
                  }
-               rawGapBeforeCap = reducedGap;
-               reasonStr = "Aging Halved";
-               return reducedGap;
-              }
-           }
-        }
 
-      // 3. LSD SWEEP GAP EXPANSION (BSLS doubles BUY gap, SSLS doubles SELL gap) (Angle >= 4.0)
-      int sweepSig = GetActiveLsdSweepSignalForGap();
-      if(sweepSig == -1 && (orderType == OP_BUY || orderType == OP_BUYSTOP || orderType == OP_BUYLIMIT))
-        {
-         sweepMult = (InpLsdAdverseSweepGapMultiplier > 0.0) ? InpLsdAdverseSweepGapMultiplier : 2.0;
-         sweepName = "BSLS 2X";
-         if(logMessages)
-           {
-            static datetime lastBslsGapLog = 0;
-            if(TimeCurrent() - lastBslsGapLog >= 60)
-              {
-               lastBslsGapLog = TimeCurrent();
-               Print(">>> [LSD BSLS DUMP GUARD] BSLS active -> BUY order gap DOUBLED (", DoubleToString(sweepMult, 1),
-                     "X) to protect against dump!");
+               if(trendConfirmed)
+                 {
+                  double mult = (InpAgingGapReductionMultiplier > 0.0) ? InpAgingGapReductionMultiplier : 0.5;
+                  double reducedGap = baseGap * mult;
+                  if(reducedGap < 20.0)
+                     reducedGap = 20.0; // Enforce safe minimum separation
+
+                  if(logMessages)
+                    {
+                     static datetime lastAgingLog = 0;
+                     if(TimeCurrent() - lastAgingLog >= 60)
+                       {
+                        lastAgingLog = TimeCurrent();
+                        Print(">>> [AGING REVERSAL GAP REDUCTION] Direction=", (orderType == OP_BUY ? "BUY" : "SELL"),
+                              " | LatestOrderAge=", (int)((TimeCurrent() - latestTime) / 60), "m >= ", InpAgingGapElapsedMinutes, "m",
+                              " | Basket PL=$", DoubleToString(pl, 2),
+                              " | Overriding Drawdown Gap $", DoubleToString(baseGap * multiplier, 2),
+                              " -> Halved Gap $", DoubleToString(reducedGap, 2));
+                       }
+                    }
+                  rawGapBeforeCap = reducedGap;
+                  reasonStr = "Aging Halved";
+                  return reducedGap;
+                 }
               }
            }
-        }
-      else if(sweepSig == 1 && (orderType == OP_SELL || orderType == OP_SELLSTOP || orderType == OP_SELLLIMIT))
-        {
-         sweepMult = (InpLsdAdverseSweepGapMultiplier > 0.0) ? InpLsdAdverseSweepGapMultiplier : 2.0;
-         sweepName = "SSLS 2X";
-         if(logMessages)
+
+         // 3. LSD SWEEP GAP EXPANSION (BSLS doubles BUY gap, SSLS doubles SELL gap) (Angle >= 4.0)
+         int sweepSig = GetActiveLsdSweepSignalForGap();
+         if(sweepSig == -1 && (orderType == OP_BUY || orderType == OP_BUYSTOP || orderType == OP_BUYLIMIT))
            {
-            static datetime lastSslsGapLog = 0;
-            if(TimeCurrent() - lastSslsGapLog >= 60)
+            sweepMult = (InpLsdAdverseSweepGapMultiplier > 0.0) ? InpLsdAdverseSweepGapMultiplier : 2.0;
+            sweepName = "BSLS 2X";
+            if(logMessages)
               {
-               lastSslsGapLog = TimeCurrent();
-               Print(">>> [LSD SSLS SQUEEZE GUARD] SSLS active -> SELL order gap DOUBLED (", DoubleToString(sweepMult, 1),
-                     "X) to protect against pump squeeze!");
+               static datetime lastBslsGapLog = 0;
+               if(TimeCurrent() - lastBslsGapLog >= 60)
+                 {
+                  lastBslsGapLog = TimeCurrent();
+                  Print(">>> [LSD BSLS DUMP GUARD] BSLS active -> BUY order gap DOUBLED (", DoubleToString(sweepMult, 1),
+                        "X) to protect against dump!");
+                 }
+              }
+           }
+         else if(sweepSig == 1 && (orderType == OP_SELL || orderType == OP_SELLSTOP || orderType == OP_SELLLIMIT))
+           {
+            sweepMult = (InpLsdAdverseSweepGapMultiplier > 0.0) ? InpLsdAdverseSweepGapMultiplier : 2.0;
+            sweepName = "SSLS 2X";
+            if(logMessages)
+              {
+               static datetime lastSslsGapLog = 0;
+               if(TimeCurrent() - lastSslsGapLog >= 60)
+                 {
+                  lastSslsGapLog = TimeCurrent();
+                  Print(">>> [LSD SSLS SQUEEZE GUARD] SSLS active -> SELL order gap DOUBLED (", DoubleToString(sweepMult, 1),
+                        "X) to protect against pump squeeze!");
+                 }
               }
            }
         }
@@ -22603,7 +22619,9 @@ double GetDynamicOrderGapDetails(int orderType, double &rawGapBeforeCap, string 
         }
 
       // Build descriptive reason string
-      if(multiplier > 1 && sweepMult > 1.0)
+      if(!isEmaDirMatched && InpDisableDDAndSweepGapWhenEmaUnmatched)
+         reasonStr = StringFormat("EMA Unmatched (Ang %.1f>=%.1f: DD & Sweep Disabled)", absEmaAng, angleThreshold);
+      else if(multiplier > 1 && sweepMult > 1.0)
          reasonStr = StringFormat("DD %dX * %s (Ang %.1f>=%.1f)", multiplier, sweepName, absEmaAng, angleThreshold);
       else if(sweepMult > 1.0)
          reasonStr = StringFormat("%s (Ang %.1f>=%.1f)", sweepName, absEmaAng, angleThreshold);
