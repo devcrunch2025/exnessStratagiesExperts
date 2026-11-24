@@ -43,7 +43,7 @@ CheckBasketProfitClose  Total open basket profit
 
 */
 
-string glbVersion = "V-SMALL-1067- Dual Day Reset Morning Dubai 8AM and Night 8PM";
+string glbVersion = "V-SMALL-1068- Multi-Account Configurable Dubai Day Reset Timings";
 
 int AccountMultiplierLOT = 500;//100;//1000;//400;//200;//500; ALWAYS multiples of 1000 is better for best results
 //balance multiplier
@@ -680,134 +680,221 @@ double InpMinEmaAngleDegrees     = 1.0;
 // ===== DUBAI TIMEZONE SETTINGS =====
 enum ENUM_DAY_START_SESSION_MODE
   {
-   DAY_START_AUTO             = 0, // Auto (Live & Tester: Dubai 8:00 AM & 8:00 PM Dual Session)
-   DAY_START_BOTH_0800_2000   = 1, // Both Sessions (Reset at 08:00 AM & 20:00 PM Dubai)
-   DAY_START_DUBAI_2000       = 2, // Dubai 20:00 Only (8:00 PM US Clean Trend Session, avoids 16:00-20:00 spikes)
-   DAY_START_DUBAI_1600       = 3, // Dubai 16:00 Only (4:00 PM US/Dubai Session)
-   DAY_START_DUBAI_1000       = 4, // Dubai 10:00 Only (10:00 AM London Session)
-   DAY_START_BOTH_1000_2000   = 5, // Both Sessions (Reset at 10:00 AM & 20:00 PM)
-   DAY_START_BOTH_1000_1600   = 6  // Both Sessions (Reset at 10:00 AM & 16:00 PM)
+   DAY_START_AUTO             = 0, // Auto / Account-Based (Default: Dubai 8:00 AM & 8:00 PM Dual Session)
+   DAY_START_BOTH_0800_2000   = 1, // Force Both Sessions (Reset at 08:00 AM & 20:00 PM Dubai)
+   DAY_START_DUBAI_2000       = 2, // Force Dubai 20:00 Only (8:00 PM US Clean Trend Session)
+   DAY_START_DUBAI_1600       = 3, // Force Dubai 16:00 Only (4:00 PM US/Dubai Session)
+   DAY_START_DUBAI_1000       = 4, // Force Dubai 10:00 Only (10:00 AM London Session)
+   DAY_START_BOTH_1000_2000   = 5, // Force Both Sessions (10:00 AM & 20:00 PM)
+   DAY_START_BOTH_1000_1600   = 6  // Force Both Sessions (10:00 AM & 16:00 PM)
   };
 
-ENUM_DAY_START_SESSION_MODE InpDayStartSessionMode = DAY_START_BOTH_0800_2000; // Day Starting Session Mode (Default: Dubai 8:00 AM & 8:00 PM Dual Session)
+ENUM_DAY_START_SESSION_MODE InpDayStartSessionMode = DAY_START_AUTO; // Day Starting Session Mode (Default: Auto - Account-Based / Dubai 8AM & 8PM)
+
+// ==================================================================
+// MULTI-ACCOUNT DUBAI DAY RESET CONFIGURATION
+// By default: Dubai 8:00 AM (08:00) & 8:00 PM (20:00) Dual Reset.
+// In future, simply add your account numbers and custom hours below!
+// ==================================================================
+void GetAccountDubaiResetHours(int acct, int &resetHr1, int &resetHr2, string &sessionDesc)
+  {
+   // --- DEFAULT FOR ALL ACCOUNTS: Dubai 8:00 AM & 8:00 PM Dual Reset ---
+   resetHr1    = 8;   // Morning reset hour (08:00 Dubai)
+   resetHr2    = 20;  // Night reset hour (20:00 Dubai)
+   sessionDesc = "Both Sessions (Dubai 8:00 AM & 8:00 PM)";
+
+   // ===============================================================
+   // FUTURE ACCOUNT CUSTOMIZATIONS: Add Account Numbers Below
+   // ===============================================================
+   //
+   // Example 1: Account 12345678 -> Dual Reset at 10:00 AM and 16:00 PM (4:00 PM)
+   // if(acct == 12345678)
+   //   {
+   //    resetHr1    = 10;
+   //    resetHr2    = 16;
+   //    sessionDesc = "Account 12345678 (Dubai 10:00 AM & 4:00 PM)";
+   //    return;
+   //   }
+   //
+   // Example 2: Account 23456789 -> Single Reset at 20:00 PM (8:00 PM Clean Trend)
+   // if(acct == 23456789)
+   //   {
+   //    resetHr1    = 20;
+   //    resetHr2    = -1; // -1 means single reset per day
+   //    sessionDesc = "Account 23456789 (Dubai 8:00 PM Only)";
+   //    return;
+   //   }
+   //
+   // Example 3: Account 34567890 -> Single Reset at 16:00 PM (4:00 PM US Session)
+   // if(acct == 34567890)
+   //   {
+   //    resetHr1    = 16;
+   //    resetHr2    = -1;
+   //    sessionDesc = "Account 34567890 (Dubai 4:00 PM Only)";
+   //    return;
+   //   }
+  }
 
 //+------------------------------------------------------------------+
-//|                                                                  |
+//| GetEffectiveDayStartSessionMode                                  |
 //+------------------------------------------------------------------+
 int GetEffectiveDayStartSessionMode()
   {
    if(InpDayStartSessionMode != DAY_START_AUTO)
       return (int)InpDayStartSessionMode;
 
-   return (int)DAY_START_BOTH_0800_2000; // Default: Dubai 8:00 AM & 8:00 PM Dual Session
+   int hr1 = 8, hr2 = 20;
+   string desc = "";
+   GetAccountDubaiResetHours(AccountNumber(), hr1, hr2, desc);
+
+   if(hr2 >= 0)
+     {
+      if(hr1 == 8 && hr2 == 20)  return (int)DAY_START_BOTH_0800_2000;
+      if(hr1 == 10 && hr2 == 20) return (int)DAY_START_BOTH_1000_2000;
+      if(hr1 == 10 && hr2 == 16) return (int)DAY_START_BOTH_1000_1600;
+      return (int)DAY_START_BOTH_0800_2000;
+     }
+   else
+     {
+      if(hr1 == 20) return (int)DAY_START_DUBAI_2000;
+      if(hr1 == 16) return (int)DAY_START_DUBAI_1600;
+      if(hr1 == 10) return (int)DAY_START_DUBAI_1000;
+      return (int)DAY_START_DUBAI_2000;
+     }
   }
 
 //+------------------------------------------------------------------+
-//|                                                                  |
+//| GetDayStartSessionModeName                                       |
 //+------------------------------------------------------------------+
 string GetDayStartSessionModeName()
   {
-   int mode = GetEffectiveDayStartSessionMode();
-   if(mode == DAY_START_BOTH_0800_2000)
-      return "Both Sessions (Dubai 8:00 AM & 8:00 PM)";
-   if(mode == DAY_START_DUBAI_2000)
-      return "Dubai 20:00 (8:00 PM Clean Trend)";
-   if(mode == DAY_START_DUBAI_1600)
-      return "Dubai 16:00 (4:00 PM)";
-   if(mode == DAY_START_DUBAI_1000)
-      return "Dubai 10:00 (10:00 AM London)";
-   if(mode == DAY_START_BOTH_1000_2000)
-      return "Both Sessions (10:00 & 20:00)";
-   if(mode == DAY_START_BOTH_1000_1600)
-      return "Both Sessions (10:00 & 16:00)";
-   return "Dubai 8AM/8PM";
+   int hr1 = 8, hr2 = 20;
+   string desc = "";
+   GetAccountDubaiResetHours(AccountNumber(), hr1, hr2, desc);
+
+   int mode = (int)InpDayStartSessionMode;
+   if(mode != DAY_START_AUTO)
+     {
+      if(mode == DAY_START_BOTH_0800_2000) return "Both Sessions (Dubai 8:00 AM & 8:00 PM)";
+      if(mode == DAY_START_DUBAI_2000)     return "Dubai 20:00 (8:00 PM Clean Trend)";
+      if(mode == DAY_START_DUBAI_1600)     return "Dubai 16:00 (4:00 PM)";
+      if(mode == DAY_START_DUBAI_1000)     return "Dubai 10:00 (10:00 AM London)";
+      if(mode == DAY_START_BOTH_1000_2000) return "Both Sessions (10:00 & 20:00)";
+      if(mode == DAY_START_BOTH_1000_1600) return "Both Sessions (10:00 & 16:00)";
+     }
+
+   return desc;
   }
 
 //+------------------------------------------------------------------+
-//|                                                                  |
+//| GetDayStartSessionShortTag                                       |
 //+------------------------------------------------------------------+
 string GetDayStartSessionShortTag()
   {
-   int mode = GetEffectiveDayStartSessionMode();
-   if(mode == DAY_START_BOTH_0800_2000)
-      return "8AM/8PM";
-   if(mode == DAY_START_DUBAI_2000)
-      return "8PM";
-   if(mode == DAY_START_DUBAI_1600)
-      return "4PM";
-   if(mode == DAY_START_DUBAI_1000)
-      return "10AM";
-   if(mode == DAY_START_BOTH_1000_2000)
-      return "10AM/8PM";
-   if(mode == DAY_START_BOTH_1000_1600)
-      return "10AM/4PM";
-   return "8AM/8PM";
+   int hr1 = 8, hr2 = 20;
+   string desc = "";
+   GetAccountDubaiResetHours(AccountNumber(), hr1, hr2, desc);
+
+   int mode = (int)InpDayStartSessionMode;
+   if(mode != DAY_START_AUTO)
+     {
+      if(mode == DAY_START_BOTH_0800_2000) return "8AM/8PM";
+      if(mode == DAY_START_DUBAI_2000)     return "8PM";
+      if(mode == DAY_START_DUBAI_1600)     return "4PM";
+      if(mode == DAY_START_DUBAI_1000)     return "10AM";
+      if(mode == DAY_START_BOTH_1000_2000) return "10AM/8PM";
+      if(mode == DAY_START_BOTH_1000_1600) return "10AM/4PM";
+     }
+
+   if(hr2 >= 0)
+      return StringFormat("%02d:00/%02d:00", hr1, hr2);
+   return StringFormat("%02d:00", hr1);
   }
 
 //+------------------------------------------------------------------+
-//|                                                                  |
+//| GetActiveSessionResumeReason                                     |
 //+------------------------------------------------------------------+
 string GetActiveSessionResumeReason(datetime dubaiTime)
   {
-   int mode = GetEffectiveDayStartSessionMode();
+   int hr1 = 8, hr2 = 20;
+   string desc = "";
+   GetAccountDubaiResetHours(AccountNumber(), hr1, hr2, desc);
+
+   int mode = (int)InpDayStartSessionMode;
+   if(mode != DAY_START_AUTO)
+     {
+      if(mode == DAY_START_BOTH_0800_2000)
+        {
+         int h = TimeHour(dubaiTime);
+         if(h >= 8 && h < 20) return "DUBAI 08:00 MORNING SESSION START";
+         return "DUBAI 20:00 NIGHT SESSION START";
+        }
+      if(mode == DAY_START_DUBAI_2000) return "DUBAI 20:00 CLEAN TREND DAY START";
+      if(mode == DAY_START_DUBAI_1600) return "DUBAI 16:00 FRESH DAY START";
+      if(mode == DAY_START_DUBAI_1000) return "DUBAI 10:00 LONDON FRESH DAY START";
+      if(mode == DAY_START_BOTH_1000_2000)
+        {
+         int h = TimeHour(dubaiTime);
+         if(h >= 10 && h < 20) return "DUBAI 10:00 LONDON SESSION START";
+         return "DUBAI 20:00 US CLEAN TREND SESSION START";
+        }
+      if(mode == DAY_START_BOTH_1000_1600)
+        {
+         int h = TimeHour(dubaiTime);
+         if(h >= 10 && h < 16) return "DUBAI 10:00 LONDON SESSION START";
+         return "DUBAI 16:00 US SESSION START";
+        }
+     }
+
    int hr = TimeHour(dubaiTime);
-   if(mode == DAY_START_BOTH_0800_2000)
+   if(hr2 >= 0)
      {
-      if(hr >= 8 && hr < 20)
-         return "DUBAI 08:00 MORNING SESSION START";
-      return "DUBAI 20:00 NIGHT SESSION START";
+      int startHr = MathMin(hr1, hr2);
+      int endHr   = MathMax(hr1, hr2);
+      if(hr >= startHr && hr < endHr)
+         return StringFormat("DUBAI %02d:00 MORNING SESSION START", startHr);
+      return StringFormat("DUBAI %02d:00 NIGHT SESSION START", endHr);
      }
-   if(mode == DAY_START_DUBAI_2000)
-      return "DUBAI 20:00 CLEAN TREND DAY START";
-   if(mode == DAY_START_DUBAI_1600)
-      return "DUBAI 16:00 FRESH DAY START";
-   if(mode == DAY_START_DUBAI_1000)
-      return "DUBAI 10:00 LONDON FRESH DAY START";
-   if(mode == DAY_START_BOTH_1000_2000)
-     {
-      if(hr >= 10 && hr < 20)
-         return "DUBAI 10:00 LONDON SESSION START";
-      return "DUBAI 20:00 US CLEAN TREND SESSION START";
-     }
-   if(hr >= 10 && hr < 16)
-      return "DUBAI 10:00 LONDON SESSION START";
-   return "DUBAI 16:00 US SESSION START";
+   return StringFormat("DUBAI %02d:00 FRESH DAY START", hr1);
   }
 
 //+------------------------------------------------------------------+
-//|                                                                  |
+//| GetNextSessionWaitHourStr                                        |
 //+------------------------------------------------------------------+
 string GetNextSessionWaitHourStr(datetime dubaiTime = 0)
   {
-   int mode = GetEffectiveDayStartSessionMode();
    if(dubaiTime <= 0)
       dubaiTime = TimeCurrent() + (ServerToDubaiOffsetHours * 3600);
    int hr = TimeHour(dubaiTime);
-   if(mode == DAY_START_BOTH_0800_2000)
+
+   int hr1 = 8, hr2 = 20;
+   string desc = "";
+   GetAccountDubaiResetHours(AccountNumber(), hr1, hr2, desc);
+
+   int mode = (int)InpDayStartSessionMode;
+   if(mode != DAY_START_AUTO)
      {
-      if(hr >= 8 && hr < 20)
-         return "20:00";
-      return "08:00";
+      if(mode == DAY_START_BOTH_0800_2000) return (hr >= 8 && hr < 20) ? "20:00" : "08:00";
+      if(mode == DAY_START_DUBAI_2000)     return "20:00";
+      if(mode == DAY_START_DUBAI_1600)     return "16:00";
+      if(mode == DAY_START_DUBAI_1000)     return "10:00";
+      if(mode == DAY_START_BOTH_1000_2000) return (hr >= 10 && hr < 20) ? "20:00" : "10:00";
+      if(mode == DAY_START_BOTH_1000_1600) return (hr >= 10 && hr < 16) ? "16:00" : "10:00";
      }
-   if(mode == DAY_START_DUBAI_2000)
-      return "20:00";
-   if(mode == DAY_START_DUBAI_1600)
-      return "16:00";
-   if(mode == DAY_START_DUBAI_1000)
-      return "10:00";
-   if(mode == DAY_START_BOTH_1000_2000)
+
+   if(hr2 >= 0)
      {
-      if(hr >= 10 && hr < 20)
-         return "20:00";
-      return "10:00";
+      int startHr = MathMin(hr1, hr2);
+      int endHr   = MathMax(hr1, hr2);
+      if(hr >= startHr && hr < endHr)
+         return StringFormat("%02d:00", endHr);
+      return StringFormat("%02d:00", startHr);
      }
-   if(hr >= 10 && hr < 16)
-      return "16:00";
-   return "10:00";
+   return StringFormat("%02d:00", hr1);
   }
 
 //+------------------------------------------------------------------+
-//|                                                                  |
+//| GetEffectiveDubaiNightCloseStartHour                             |
 //+------------------------------------------------------------------+
 int GetEffectiveDubaiNightCloseStartHour()
   {
@@ -818,16 +905,27 @@ int GetEffectiveDubaiNightCloseStartHour()
   }
 
 //+------------------------------------------------------------------+
-//|                                                                  |
+//| GetEffectiveDubaiNightCloseEndHour                               |
 //+------------------------------------------------------------------+
 int GetEffectiveDubaiNightCloseEndHour()
   {
-   int mode = GetEffectiveDayStartSessionMode();
-   if(mode == DAY_START_DUBAI_1000)
-      return 10; // Ends at 10:00 AM when new London session starts
-   if(mode == DAY_START_DUBAI_2000 || mode == DAY_START_BOTH_1000_2000 || mode == DAY_START_BOTH_0800_2000)
-      return 20; // Ends at 20:00 (8:00 PM) when new clean trend session starts
-   return InpDubaiNightCloseEndHour; // Default 16
+   int hr1 = 8, hr2 = 20;
+   string desc = "";
+   GetAccountDubaiResetHours(AccountNumber(), hr1, hr2, desc);
+
+   int mode = (int)InpDayStartSessionMode;
+   if(mode != DAY_START_AUTO)
+     {
+      if(mode == DAY_START_DUBAI_1000)
+         return 10;
+      if(mode == DAY_START_DUBAI_2000 || mode == DAY_START_BOTH_1000_2000 || mode == DAY_START_BOTH_0800_2000)
+         return 20;
+      return InpDubaiNightCloseEndHour;
+     }
+
+   if(hr2 >= 0)
+      return MathMax(hr1, hr2);
+   return hr1;
   }
 
 bool     EnableDubaiTradingPause             = true;
@@ -3121,94 +3219,59 @@ int ResolveNextEqDdTier(int curTier, int doneTier, double &nextThreshOut)
 //+------------------------------------------------------------------+
 //| GetDubai16TradingDayKey                                          |
 //| Computes unified trading session key for active day start mode:  |
-//| - Mode 1 (Both 08:00 & 20:00): Session 1: 08:00-19:59, Session 2: 20:00-07:59 |
-//| - Mode 2 (20:00 Only): Runs 20:00 to 19:59:59 next day (Clean)   |
-//| - Mode 3 (16:00 Only): Runs 16:00 to 15:59:59 next day (US)      |
-//| - Mode 4 (10:00 Only): Runs 10:00 to 09:59:59 next day (London)  |
-//| - Mode 5 (Both): Session 1: 10:00-19:59, Session 2: 20:00-09:59  |
-//| - Mode 6 (Both): Session 1: 10:00-15:59, Session 2: 16:00-09:59  |
+//| - Multi-Account / Auto: Uses account-configured hours in code    |
+//| - Default (Both 08:00 & 20:00): Session 1: 08:00-19:59,          |
+//|                                 Session 2: 20:00-07:59 next day  |
+//| - Manual Override: Forces selected dropdown preset               |
 //+------------------------------------------------------------------+
 int GetDubai16TradingDayKey(datetime dubaiTime)
   {
    if(dubaiTime <= 0)
       return -1;
 
-   int mode = GetEffectiveDayStartSessionMode();
+   int hr1 = 8, hr2 = 20;
+   string desc = "";
+   GetAccountDubaiResetHours(AccountNumber(), hr1, hr2, desc);
 
-// Mode 1: Both Sessions (08:00 AM & 20:00 PM) - Morning Dubai 8AM and Night Dubai 8PM
-   if(mode == DAY_START_BOTH_0800_2000)
+   int mode = (int)InpDayStartSessionMode;
+   if(mode != DAY_START_AUTO)
      {
-      int hr = TimeHour(dubaiTime);
-      if(hr >= 8 && hr < 20)
+      if(mode == DAY_START_BOTH_0800_2000)    { hr1 = 8;  hr2 = 20; }
+      else if(mode == DAY_START_DUBAI_2000)   { hr1 = 20; hr2 = -1; }
+      else if(mode == DAY_START_DUBAI_1600)   { hr1 = 16; hr2 = -1; }
+      else if(mode == DAY_START_DUBAI_1000)   { hr1 = 10; hr2 = -1; }
+      else if(mode == DAY_START_BOTH_1000_2000){ hr1 = 10; hr2 = 20; }
+      else if(mode == DAY_START_BOTH_1000_1600){ hr1 = 10; hr2 = 16; }
+     }
+
+   int hr = TimeHour(dubaiTime);
+
+   // Dual session reset (hr1 and hr2)
+   if(hr2 >= 0)
+     {
+      int startHr = MathMin(hr1, hr2);
+      int endHr   = MathMax(hr1, hr2);
+
+      if(hr >= startHr && hr < endHr)
         {
-         // Session 1: 08:00 AM to 19:59:59 Dubai Morning Session
+         // Session 1: Day/Morning session (e.g. 08:00 to 19:59:59 Dubai)
          int calDate = TimeYear(dubaiTime) * 10000 + TimeMonth(dubaiTime) * 100 + TimeDay(dubaiTime);
          return (calDate * 10 + 1);
         }
       else
         {
-         // Session 2: 20:00 PM to 07:59:59 Dubai Night Session next day
-         datetime sessionStart = (hr >= 20) ? dubaiTime : (dubaiTime - (24 * 3600));
+         // Session 2: Night session (e.g. 20:00 to 07:59:59 Dubai next day)
+         datetime sessionStart = (hr >= endHr) ? dubaiTime : (dubaiTime - (24 * 3600));
          int calDate = TimeYear(sessionStart) * 10000 + TimeMonth(sessionStart) * 100 + TimeDay(sessionStart);
          return (calDate * 10 + 2);
         }
      }
-
-// Mode 2: Dubai 20:00 Only (8:00 PM US Clean Trend Session)
-   if(mode == DAY_START_DUBAI_2000)
+   else
      {
-      datetime tradingDayStart = dubaiTime - (20 * 3600);
+      // Single session reset (hr1 only, runs hr1 to hr1 next day)
+      datetime tradingDayStart = dubaiTime - (hr1 * 3600);
       return (TimeYear(tradingDayStart) * 10000 + TimeMonth(tradingDayStart) * 100 + TimeDay(tradingDayStart));
      }
-
-// Mode 3: Dubai 10:00 AM Only (London Session)
-   if(mode == DAY_START_DUBAI_1000)
-     {
-      datetime tradingDayStart = dubaiTime - (10 * 3600);
-      return (TimeYear(tradingDayStart) * 10000 + TimeMonth(tradingDayStart) * 100 + TimeDay(tradingDayStart));
-     }
-
-// Mode 4: Both Sessions (10:00 AM & 20:00 PM)
-   if(mode == DAY_START_BOTH_1000_2000)
-     {
-      int hr = TimeHour(dubaiTime);
-      if(hr >= 10 && hr < 20)
-        {
-         // Session 1: 10:00 AM to 19:59:59 Dubai
-         int calDate = TimeYear(dubaiTime) * 10000 + TimeMonth(dubaiTime) * 100 + TimeDay(dubaiTime);
-         return (calDate * 10 + 1);
-        }
-      else
-        {
-         // Session 2: 20:00 PM to 09:59:59 Dubai next day
-         datetime sessionStart = (hr >= 20) ? dubaiTime : (dubaiTime - (24 * 3600));
-         int calDate = TimeYear(sessionStart) * 10000 + TimeMonth(sessionStart) * 100 + TimeDay(sessionStart);
-         return (calDate * 10 + 2);
-        }
-     }
-
-// Mode 5: Both Sessions (10:00 AM & 16:00 PM) - Used when selected
-   if(mode == DAY_START_BOTH_1000_1600)
-     {
-      int hr = TimeHour(dubaiTime);
-      if(hr >= 10 && hr < 16)
-        {
-         // Session 1: 10:00 AM to 15:59:59 Dubai
-         int calDate = TimeYear(dubaiTime) * 10000 + TimeMonth(dubaiTime) * 100 + TimeDay(dubaiTime);
-         return (calDate * 10 + 1);
-        }
-      else
-        {
-         // Session 2: 16:00 PM to 09:59:59 Dubai next day
-         datetime sessionStart = (hr >= 16) ? dubaiTime : (dubaiTime - (24 * 3600));
-         int calDate = TimeYear(sessionStart) * 10000 + TimeMonth(sessionStart) * 100 + TimeDay(sessionStart);
-         return (calDate * 10 + 2);
-        }
-     }
-
-// Mode 2: Dubai 16:00 Only (4:00 PM US/Dubai Session)
-   datetime tradingDayStart = dubaiTime - (16 * 3600);
-   return (TimeYear(tradingDayStart) * 10000 + TimeMonth(tradingDayStart) * 100 + TimeDay(tradingDayStart));
   }
 
 //+------------------------------------------------------------------+
@@ -13048,9 +13111,10 @@ void ResetAllRuntimeVariablesOnFreshStart()
 int OnInit()
   {
    Print(">>> [EA ONINIT] Fresh Start Initializing | Resetting all runtime variables & cleaning chart objects...");
-   PrintFormat(">>> [DAY START CONFIG] Account=%d | Session Mode=%s | Configuration=%s",
+   PrintFormat(">>> [DAY START CONFIG] Account=%d | Session Mode=%s | Config=%s | Reset Hours=%s",
                AccountNumber(), GetDayStartSessionModeName(),
-               (InpDayStartSessionMode == DAY_START_AUTO ? "AUTO (Dubai 8:00 AM & 8:00 PM Dual Session)" : "MANUAL OVERRIDE"));
+               (InpDayStartSessionMode == DAY_START_AUTO ? "AUTO (Account-Based in Code)" : "MANUAL OVERRIDE"),
+               GetDayStartSessionShortTag());
    ResetAllRuntimeVariablesOnFreshStart();
    CheckForNewDay();
 // Check minimum opening balance condition (.00)
