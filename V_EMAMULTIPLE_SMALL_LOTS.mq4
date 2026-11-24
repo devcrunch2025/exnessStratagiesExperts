@@ -43,7 +43,7 @@ CheckBasketProfitClose  Total open basket profit
 
 */
 
-string glbVersion = "V-SMALL-1078- Spike Every Tick Peak Profit 50Pct Protect";
+string glbVersion = "V-SMALL-1079- Spike Pending Zero Opens Market Orders";
 
 int AccountMultiplierLOT = 500;//100;//1000;//400;//200;//500; ALWAYS multiples of 1000 is better for best results
 //balance multiplier
@@ -1065,7 +1065,7 @@ double InpPendingGapLossMultiplier         = 2.0;   // Pending gap multiplier on
  int    InpSpikeOrderCooldownSec               = 5;    // Spike Orders: Cooldown seconds between consecutive spike order attempts (default 5s)
  int    InpMaxSpikePendingOrders               = 1;    // Spike Orders: Max simultaneous pending stop orders (default 1)
  bool   InpSpikeOrderBypassSameTypeGap         = true; // Spike Orders: Bypass wide same-type minimum gap during sudden spike momentum
- double InpSpikeOrderPendingGapUSD             = 50.0;  // Spike Orders: Pending stop entry gap from live price ($50 USD)
+ double InpSpikeOrderPendingGapUSD             = 50.0;  // Spike Orders: Pending stop entry gap ($0 = open market orders without pending, >0 = pending stop gap)
  double InpSpikeOrderMinGapUSD                 = 50.0;  // Spike Orders: Minimal gap between consecutive spike orders ($50 USD)
  double InpSpikeOrderStaleCleanupDistUSD       = 100.0; // Spike Orders: Distance to delete stale pending spike order ($100 USD)
  bool   InpSpikeBypassHorizontalLineBlock      = true;  // Spike Orders: Bypass active opposite horizontal line block (EQH-R/EQH-G)
@@ -16671,12 +16671,18 @@ void OnTickCore()
       sellSignal = false;
       missingSellOrder = false;
 
-      // Clean up stale pending spike orders if price drifted away
-      CleanupStaleSpikePendingOrders(OP_BUYSTOP, InpSpikeOrderStaleCleanupDistUSD);
+      // Clean up stale pending spike orders if price drifted away (or delete all pending if operating in direct market mode)
+      CleanupStaleSpikePendingOrders(OP_BUYSTOP, (InpSpikeOrderPendingGapUSD <= 0.0 ? 0.0 : InpSpikeOrderStaleCleanupDistUSD));
 
-      // Create Spike BUY pending order whenever no pending spike buy exists
+      // Create Spike BUY order: when pending value is 0 open market orders without pending; when > 0 maintain 1 pending stop
       static datetime s_lastSpikeBuyTime = 0;
-      if(CountSpikePendingOrders(OP_BUYSTOP) == 0 && (TimeCurrent() - s_lastSpikeBuyTime >= 1))
+      bool canCreateSpikeBuy = false;
+      if(InpSpikeOrderPendingGapUSD <= 0.0)
+         canCreateSpikeBuy = (TimeCurrent() - s_lastSpikeBuyTime >= InpSpikeOrderCooldownSec);
+      else
+         canCreateSpikeBuy = (CountSpikePendingOrders(OP_BUYSTOP) == 0 && (TimeCurrent() - s_lastSpikeBuyTime >= 1));
+
+      if(canCreateSpikeBuy)
         {
          s_lastSpikeBuyTime = TimeCurrent();
          OpenBuy("SPIKE_BUY");
@@ -16687,12 +16693,18 @@ void OnTickCore()
       buySignal = false;
       missingBuyOrder = false;
 
-      // Clean up stale pending spike orders if price drifted away
-      CleanupStaleSpikePendingOrders(OP_SELLSTOP, InpSpikeOrderStaleCleanupDistUSD);
+      // Clean up stale pending spike orders if price drifted away (or delete all pending if operating in direct market mode)
+      CleanupStaleSpikePendingOrders(OP_SELLSTOP, (InpSpikeOrderPendingGapUSD <= 0.0 ? 0.0 : InpSpikeOrderStaleCleanupDistUSD));
 
-      // Create Spike SELL pending order whenever no pending spike sell exists
+      // Create Spike SELL order: when pending value is 0 open market orders without pending; when > 0 maintain 1 pending stop
       static datetime s_lastSpikeSellTime = 0;
-      if(CountSpikePendingOrders(OP_SELLSTOP) == 0 && (TimeCurrent() - s_lastSpikeSellTime >= 1))
+      bool canCreateSpikeSell = false;
+      if(InpSpikeOrderPendingGapUSD <= 0.0)
+         canCreateSpikeSell = (TimeCurrent() - s_lastSpikeSellTime >= InpSpikeOrderCooldownSec);
+      else
+         canCreateSpikeSell = (CountSpikePendingOrders(OP_SELLSTOP) == 0 && (TimeCurrent() - s_lastSpikeSellTime >= 1));
+
+      if(canCreateSpikeSell)
         {
          s_lastSpikeSellTime = TimeCurrent();
          OpenSell("SPIKE_SELL");
@@ -27669,14 +27681,24 @@ void OpenBuy(string MOMorder="")
         }
      }
    RefreshRates();
+   bool isSpikeMarketOrder = (isSpikeOrder && InpSpikeOrderPendingGapUSD <= 0.0);
    double pendingGap = isSpikeOrder ? InpSpikeOrderPendingGapUSD : GetSSLLongShortPendingGapRaw(OP_BUY, true);
    double minStopDist = GetRequiredStopDistance();
-   double entryPrice = Ask + pendingGap;
-   if(entryPrice < Ask + minStopDist)
-      entryPrice = Ask + minStopDist;
-   entryPrice = NormalizeDouble(entryPrice, Digits);
+   double entryPrice = Ask;
 
-   // USER RULE: Spike orders are pending orders with gap $50 (verifies minimum gap between two orders is $50)
+   if(isSpikeMarketOrder)
+     {
+      entryPrice = NormalizeDouble(Ask, Digits);
+     }
+   else
+     {
+      entryPrice = Ask + pendingGap;
+      if(entryPrice < Ask + minStopDist)
+         entryPrice = Ask + minStopDist;
+      entryPrice = NormalizeDouble(entryPrice, Digits);
+     }
+
+   // USER RULE: Spike orders verify minimum gap between two orders is $50 (InpSpikeOrderMinGapUSD)
    double requiredGap = isSpikeOrder ? InpSpikeOrderMinGapUSD : GetDynamicOrderGap(OP_BUY);
    if(!HasMinimumSameOrderGap(OP_BUY, requiredGap, entryPrice))
      {
@@ -27696,14 +27718,30 @@ void OpenBuy(string MOMorder="")
       DeleteOppositePendingOrders(OP_BUY);
 
    string buyComment = isSpikeOrder ? "SSL Long SPIKE" : ((MOMorder == "MOM_BUY" || isMOMOrder) ? "SSL Long MOM" : "SSL Long");
-   int ticket = SafeOrderSend(Symbol(), OP_BUYSTOP, Lots, entryPrice, Slippage, stopLoss, takeProfit, buyComment, MagicNumber, BuyColor);
-   if(ticket > 0)
+   int ticket = 0;
+   if(isSpikeMarketOrder)
      {
-      OrderCreatedThisCandle = true;
-      LastOrderCandleTime = Time[0];
-      Print(buyComment, " PENDING ORDER CREATED: BUY STOP Ticket #", ticket, " Lots=", DoubleToString(Lots, 2),
-            " Entry=", DoubleToString(entryPrice, Digits), " (Ask+", DoubleToString(pendingGap, 2), ")",
-            " SL=", DoubleToString(stopLoss, Digits), " TP=", DoubleToString(takeProfit, Digits));
+      ticket = SafeOrderSend(Symbol(), OP_BUY, Lots, Ask, Slippage, stopLoss, takeProfit, buyComment, MagicNumber, BuyColor);
+      if(ticket > 0)
+        {
+         OrderCreatedThisCandle = true;
+         LastOrderCandleTime = Time[0];
+         Print(buyComment, " MARKET ORDER CREATED: BUY Ticket #", ticket, " Lots=", DoubleToString(Lots, 2),
+               " Entry=", DoubleToString(Ask, Digits),
+               " SL=", DoubleToString(stopLoss, Digits), " TP=", DoubleToString(takeProfit, Digits));
+        }
+     }
+   else
+     {
+      ticket = SafeOrderSend(Symbol(), OP_BUYSTOP, Lots, entryPrice, Slippage, stopLoss, takeProfit, buyComment, MagicNumber, BuyColor);
+      if(ticket > 0)
+        {
+         OrderCreatedThisCandle = true;
+         LastOrderCandleTime = Time[0];
+         Print(buyComment, " PENDING ORDER CREATED: BUY STOP Ticket #", ticket, " Lots=", DoubleToString(Lots, 2),
+               " Entry=", DoubleToString(entryPrice, Digits), " (Ask+", DoubleToString(pendingGap, 2), ")",
+               " SL=", DoubleToString(stopLoss, Digits), " TP=", DoubleToString(takeProfit, Digits));
+        }
      }
   }
 
@@ -27751,14 +27789,24 @@ void OpenSell(string MOMorder="")
         }
      }
    RefreshRates();
+   bool isSpikeMarketOrder = (isSpikeOrder && InpSpikeOrderPendingGapUSD <= 0.0);
    double pendingGap = isSpikeOrder ? InpSpikeOrderPendingGapUSD : GetSSLLongShortPendingGapRaw(OP_SELL, true);
    double minStopDist = GetRequiredStopDistance();
-   double entryPrice = Bid - pendingGap;
-   if(entryPrice > Bid - minStopDist)
-      entryPrice = Bid - minStopDist;
-   entryPrice = NormalizeDouble(entryPrice, Digits);
+   double entryPrice = Bid;
 
-   // USER RULE: Spike orders are pending orders with gap $50 (verifies minimum gap between two orders is $50)
+   if(isSpikeMarketOrder)
+     {
+      entryPrice = NormalizeDouble(Bid, Digits);
+     }
+   else
+     {
+      entryPrice = Bid - pendingGap;
+      if(entryPrice > Bid - minStopDist)
+         entryPrice = Bid - minStopDist;
+      entryPrice = NormalizeDouble(entryPrice, Digits);
+     }
+
+   // USER RULE: Spike orders verify minimum gap between two orders is $50 (InpSpikeOrderMinGapUSD)
    double requiredGap = isSpikeOrder ? InpSpikeOrderMinGapUSD : GetDynamicOrderGap(OP_SELL);
    if(!HasMinimumSameOrderGap(OP_SELL, requiredGap, entryPrice))
      {
@@ -27778,14 +27826,30 @@ void OpenSell(string MOMorder="")
       DeleteOppositePendingOrders(OP_SELL);
 
    string sellComment = isSpikeOrder ? "SSL Short SPIKE" : ((MOMorder == "MOM_SELL" || isMOMOrder) ? "SSL Short MOM" : "SSL Short");
-   int ticket = SafeOrderSend(Symbol(), OP_SELLSTOP, Lots, entryPrice, Slippage, stopLoss, takeProfit, sellComment, MagicNumber, SellColor);
-   if(ticket > 0)
+   int ticket = 0;
+   if(isSpikeMarketOrder)
      {
-      OrderCreatedThisCandle = true;
-      LastOrderCandleTime = Time[0];
-      Print(sellComment, " PENDING ORDER CREATED: SELL STOP Ticket #", ticket, " Lots=", DoubleToString(Lots, 2),
-            " Entry=", DoubleToString(entryPrice, Digits), " (Bid-", DoubleToString(pendingGap, 2), ")",
-            " SL=", DoubleToString(stopLoss, Digits), " TP=", DoubleToString(takeProfit, Digits));
+      ticket = SafeOrderSend(Symbol(), OP_SELL, Lots, Bid, Slippage, stopLoss, takeProfit, sellComment, MagicNumber, SellColor);
+      if(ticket > 0)
+        {
+         OrderCreatedThisCandle = true;
+         LastOrderCandleTime = Time[0];
+         Print(sellComment, " MARKET ORDER CREATED: SELL Ticket #", ticket, " Lots=", DoubleToString(Lots, 2),
+               " Entry=", DoubleToString(Bid, Digits),
+               " SL=", DoubleToString(stopLoss, Digits), " TP=", DoubleToString(takeProfit, Digits));
+        }
+     }
+   else
+     {
+      ticket = SafeOrderSend(Symbol(), OP_SELLSTOP, Lots, entryPrice, Slippage, stopLoss, takeProfit, sellComment, MagicNumber, SellColor);
+      if(ticket > 0)
+        {
+         OrderCreatedThisCandle = true;
+         LastOrderCandleTime = Time[0];
+         Print(sellComment, " PENDING ORDER CREATED: SELL STOP Ticket #", ticket, " Lots=", DoubleToString(Lots, 2),
+               " Entry=", DoubleToString(entryPrice, Digits), " (Bid-", DoubleToString(pendingGap, 2), ")",
+               " SL=", DoubleToString(stopLoss, Digits), " TP=", DoubleToString(takeProfit, Digits));
+        }
      }
   }
 
