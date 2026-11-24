@@ -70,8 +70,8 @@ enum ENUM_RESUME_DAY_MODE
 ENUM_RESUME_DAY_MODE InpResumeDayTradingTargetMode = RESUME_MODE_TRAIL_STEP; // Resume Target Mode [0=Trail Step Mode, 1=Full Target]
 int    InpTradingResumeIconCode             = 241;  // Chart icon Wingdings code for Trading Resume (241=Play, 251=Check, 159=Circle)
 bool   InpCloseOrdersOnManualPause          = false; // When clicking Pause Trading: false = delete pending only & keep open market orders; true = close all market orders
-input bool   InpCapStepTradingMomentumLot001      = true;  // Step Trading Momentum Cap: When day equity step trading started/resumed, cap strong momentum lot to max 0.01
-input bool   InpStepTradingMomentumUsesMultiplier = true;  // Step Trading Momentum Lot uses Balance Multiplier (true = 0.01 * mult, false = strict 0.01)
+ bool   InpCapStepTradingMomentumLot001      = true;  // Step Trading Momentum Cap: When day equity step trading started/resumed, cap strong momentum lot to max 0.01
+ bool   InpStepTradingMomentumUsesMultiplier = true;  // Step Trading Momentum Lot uses Balance Multiplier (true = 0.01 * mult, false = strict 0.01)
 
 //--- Dynamic Hourly Target Decay (V-SMALL-1024) ---
 bool   InpEnableHourlyTargetDecay        = true;   // Enable Hourly Target Decay ($1*mult/hr down to min floor)
@@ -974,7 +974,7 @@ int      InpDubaiNightIconFontSize           = 10;    // Chart icon text font si
 
 
 // ===== SPREAD & RISK SETTINGS =====
-input bool InpEnableSpreadFilter = false; // Spread Spike Filter: Block trades when current spread > MaxAllowedSpreadUSD (false = DISABLED)
+ bool InpEnableSpreadFilter = false; // Spread Spike Filter: Block trades when current spread > MaxAllowedSpreadUSD (false = DISABLED)
 double MaxAllowedSpreadUSD = 35.0;
 double OriginalStopLossUSD = 30;//0;//6;//4;
 double StopLossRawPriceGap =3000;// 2000.0;   // Raw price gap ($2000 BTC price points) for StopLoss
@@ -1059,9 +1059,9 @@ bool   InpEnablePendingGapDoubleOnLoss     = true;  // Double pending order gap 
 double InpPendingGapDoubleLossThresholdUSD = 30;//10.0;  // Basket floating loss threshold ($10 * multiplier) to double pending gap
 double InpPendingGapLossMultiplier         = 2.0;   // Pending gap multiplier on basket loss threshold (2.0 = double)
 // double MinimumSameOrderGapRawSSLLongShort =50;// 50;
-input double InpDynamicGapAngleThreshold        = 4.0;   // Dynamic Order Gap: EMA angle boundary (if MathAbs(EMA Angle) < 4.0: Required Gap = Base Gap; if >= 4.0: Base Gap * Drawdown Mult * Sweep Mult)
-input bool   InpDisableDDAndSweepGapWhenEmaUnmatched = true; // Dynamic Order Gap: Disable DD Scaling & Sweep Guard when MathAbs(EMA Angle) >= 4.0 and OrderType != EMADirection
-input bool   InpEnableSpikeOrderCreation            = true; // Spike Orders: When EMADirection is 1 but angle < 0 create BUY; when -1 and angle > 0 create SELL
+ double InpDynamicGapAngleThreshold        = 4.0;   // Dynamic Order Gap: EMA angle boundary (if MathAbs(EMA Angle) < 4.0: Required Gap = Base Gap; if >= 4.0: Base Gap * Drawdown Mult * Sweep Mult)
+ bool   InpDisableDDAndSweepGapWhenEmaUnmatched = true; // Dynamic Order Gap: Disable DD Scaling & Sweep Guard when MathAbs(EMA Angle) >= 4.0 and OrderType != EMADirection
+ bool   InpEnableSpikeOrderCreation            = true; // Spike Orders: When EMADirection is 1 but angle < 0 create BUY; when -1 and angle > 0 create SELL
 double MinimumSameOrderGapRawMatched =50;//30;//50;//100;//50;//30;//10;//20;//50;//20;// 50;//SSL long //SSL short
 double MinimumSameOrderGapRawUnmatched =50;//10;//10;//20;// 100;
 
