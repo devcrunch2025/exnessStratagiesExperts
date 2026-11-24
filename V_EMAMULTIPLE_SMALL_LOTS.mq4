@@ -43,7 +43,7 @@ CheckBasketProfitClose  Total open basket profit
 
 */
 
-string glbVersion = "V-SMALL-1079- Spike Pending Zero Opens Market Orders";
+string glbVersion = "V-SMALL-1080- Spike 1Xmul Min Profit 50Pct Ladder";
 
 int AccountMultiplierLOT = 500;//100;//1000;//400;//200;//500; ALWAYS multiples of 1000 is better for best results
 //balance multiplier
@@ -1071,9 +1071,10 @@ double InpPendingGapLossMultiplier         = 2.0;   // Pending gap multiplier on
  bool   InpSpikeBypassHorizontalLineBlock      = true;  // Spike Orders: Bypass active opposite horizontal line block (EQH-R/EQH-G)
  bool   InpSpikeBypassSweepBlock               = true;  // Spike Orders: Bypass active liquidity sweep block (SSLS/BSLS)
  bool   InpFollowEmaIgnoreSsl                  = true;  // Trade Direction: Follow EMADirection (Bull=BUY, Bear=SELL) & Ignore SSL Signal
- bool   InpEnableSpikeProfitLadder             = true;  // Spike Ladder: Enable $5 Step Profit Ladder with 50% Protection
- double InpSpikeLadderStepUSD                  = 5.0;   // Spike Ladder: Step size in USD ($5.00)
- double InpSpikeMinProfitToProtectUSD          = 1.0;   // Spike Ladder: Min peak profit to activate 50% protection ($1.00)
+ bool   InpEnableSpikeProfitLadder             = true;  // Spike Ladder: Enable Step Profit Ladder with 50% Protection
+ bool   InpSpikeLadderUseMultiplier            = true;  // Spike Ladder: Use Balance Multiplier (1Xmul for min profit & step)
+ double InpSpikeMinProfitToProtectUSD          = 1.0;   // Spike Ladder: Base min profit to start logic ($1.00 * multiplier)
+ double InpSpikeLadderStepUSD                  = 5.0;   // Spike Ladder: Base step size in USD ($5.00 * multiplier)
  double InpSpikeLadderProtectPct               = 50.0;  // Spike Ladder: Protected profit % on market reversal (50%)
 
 double g_spikeBuyBucketPeakPL                  = 0.0;   // Peak floating profit reached by open BUY spike bucket
@@ -22165,6 +22166,12 @@ void ManageSpikeProfitLadder()
 
    RefreshRates();
 
+   double mult = (InpSpikeLadderUseMultiplier && balancelomultipler > 0) ? (double)balancelomultipler : 1.0;
+   double minToProtect = InpSpikeMinProfitToProtectUSD * mult;
+   double stepUSD      = InpSpikeLadderStepUSD * mult;
+   if(minToProtect <= 0.0)
+      minToProtect = 1.0 * mult;
+
    int    spikeBuyCount     = 0;
    double spikeBuyLots      = 0.0;
    double spikeBuyPL        = 0.0;
@@ -22249,15 +22256,15 @@ void ManageSpikeProfitLadder()
       if(spikeBuyPL > g_spikeBuyBucketPeakPL)
          g_spikeBuyBucketPeakPL = spikeBuyPL;
 
-      double minToProtect = (InpSpikeMinProfitToProtectUSD > 0.0) ? InpSpikeMinProfitToProtectUSD : InpSpikeLadderStepUSD;
+      // START LOGIC: Minimum profit is $1Xmul of SPIKE BUY basket
       if(g_spikeBuyBucketPeakPL >= minToProtect)
         {
-         int curLevel = (InpSpikeLadderStepUSD > 0.0) ? (int)MathFloor(g_spikeBuyBucketPeakPL / InpSpikeLadderStepUSD) : 1;
+         int curLevel = (stepUSD > 0.0) ? (int)MathFloor(g_spikeBuyBucketPeakPL / stepUSD) : 1;
          if(curLevel > g_spikeBuyBucketLadderLevel)
            {
             g_spikeBuyBucketLadderLevel = curLevel;
-            PrintFormat(">>> [SPIKE BUY LADDER LEVEL %d] Peak=$%.2f >= Step $%.2f | Floating PL=$%.2f (Lots=%.2fL, Orders=%d)",
-                        curLevel, g_spikeBuyBucketPeakPL, curLevel * InpSpikeLadderStepUSD, spikeBuyPL, spikeBuyLots, spikeBuyCount);
+            PrintFormat(">>> [SPIKE BUY LADDER LEVEL %d] Peak=$%.2f >= Step $%.2f (Min=$%.2f) | Floating PL=$%.2f (Lots=%.2fL, Orders=%d, Mult=%.0fX)",
+                        curLevel, g_spikeBuyBucketPeakPL, curLevel * stepUSD, minToProtect, spikeBuyPL, spikeBuyLots, spikeBuyCount, mult);
            }
 
          double protectFloorPL = g_spikeBuyBucketPeakPL * (InpSpikeLadderProtectPct / 100.0);
@@ -22265,8 +22272,8 @@ void ManageSpikeProfitLadder()
          // A. REVERSAL CLOSE: Close spike orders if profit retraced to or below 50% floor
          if(spikeBuyPL <= protectFloorPL)
            {
-            string closeReason = StringFormat("Spike BUY Ladder 50%% Retrace Hit: Peak=$%.2f, Closed=$%.2f <= Floor=$%.2f (Lvl %d)",
-                                              g_spikeBuyBucketPeakPL, spikeBuyPL, protectFloorPL, curLevel);
+            string closeReason = StringFormat("Spike BUY Ladder 50%% Retrace Hit: Peak=$%.2f, Closed=$%.2f <= Floor=$%.2f (Min=$%.2f, Lvl %d)",
+                                              g_spikeBuyBucketPeakPL, spikeBuyPL, protectFloorPL, minToProtect, curLevel);
             Print(">>> [SPIKE BUCKET CLOSE - BUY] ", closeReason);
             CloseAllOpenSpikeOrders(OP_BUY, closeReason);
             CleanupStaleSpikePendingOrders(OP_BUYSTOP, 0.0);
@@ -22322,15 +22329,15 @@ void ManageSpikeProfitLadder()
       if(spikeSellPL > g_spikeSellBucketPeakPL)
          g_spikeSellBucketPeakPL = spikeSellPL;
 
-      double minToProtect = (InpSpikeMinProfitToProtectUSD > 0.0) ? InpSpikeMinProfitToProtectUSD : InpSpikeLadderStepUSD;
+      // START LOGIC: Minimum profit is $1Xmul of SPIKE SELL basket
       if(g_spikeSellBucketPeakPL >= minToProtect)
         {
-         int curLevel = (InpSpikeLadderStepUSD > 0.0) ? (int)MathFloor(g_spikeSellBucketPeakPL / InpSpikeLadderStepUSD) : 1;
+         int curLevel = (stepUSD > 0.0) ? (int)MathFloor(g_spikeSellBucketPeakPL / stepUSD) : 1;
          if(curLevel > g_spikeSellBucketLadderLevel)
            {
             g_spikeSellBucketLadderLevel = curLevel;
-            PrintFormat(">>> [SPIKE SELL LADDER LEVEL %d] Peak=$%.2f >= Step $%.2f | Floating PL=$%.2f (Lots=%.2fL, Orders=%d)",
-                        curLevel, g_spikeSellBucketPeakPL, curLevel * InpSpikeLadderStepUSD, spikeSellPL, spikeSellLots, spikeSellCount);
+            PrintFormat(">>> [SPIKE SELL LADDER LEVEL %d] Peak=$%.2f >= Step $%.2f (Min=$%.2f) | Floating PL=$%.2f (Lots=%.2fL, Orders=%d, Mult=%.0fX)",
+                        curLevel, g_spikeSellBucketPeakPL, curLevel * stepUSD, minToProtect, spikeSellPL, spikeSellLots, spikeSellCount, mult);
            }
 
          double protectFloorPL = g_spikeSellBucketPeakPL * (InpSpikeLadderProtectPct / 100.0);
@@ -22338,8 +22345,8 @@ void ManageSpikeProfitLadder()
          // A. REVERSAL CLOSE: Close spike orders if profit retraced to or below 50% floor
          if(spikeSellPL <= protectFloorPL)
            {
-            string closeReason = StringFormat("Spike SELL Ladder 50%% Retrace Hit: Peak=$%.2f, Closed=$%.2f <= Floor=$%.2f (Lvl %d)",
-                                              g_spikeSellBucketPeakPL, spikeSellPL, protectFloorPL, curLevel);
+            string closeReason = StringFormat("Spike SELL Ladder 50%% Retrace Hit: Peak=$%.2f, Closed=$%.2f <= Floor=$%.2f (Min=$%.2f, Lvl %d)",
+                                              g_spikeSellBucketPeakPL, spikeSellPL, protectFloorPL, minToProtect, curLevel);
             Print(">>> [SPIKE BUCKET CLOSE - SELL] ", closeReason);
             CloseAllOpenSpikeOrders(OP_SELL, closeReason);
             CleanupStaleSpikePendingOrders(OP_SELLSTOP, 0.0);
@@ -30686,7 +30693,8 @@ void UpdateDashboard(DailyProtectionState &state)
    string spikeTag = (EMADirection == 1 && GlobalEmaAngle30 < 0.0) ? ", SPIKE BULL" : ((EMADirection == -1 && GlobalEmaAngle30 > 0.0) ? ", SPIKE BEAR" : "");
    if(InpEnableSpikeProfitLadder)
      {
-      double minToProtect = (InpSpikeMinProfitToProtectUSD > 0.0) ? InpSpikeMinProfitToProtectUSD : InpSpikeLadderStepUSD;
+      double mult = (InpSpikeLadderUseMultiplier && balancelomultipler > 0) ? (double)balancelomultipler : 1.0;
+      double minToProtect = InpSpikeMinProfitToProtectUSD * mult;
       if(g_spikeBuyBucketPeakPL >= minToProtect)
          spikeTag += StringFormat(" [LAD: B Pk=$%.1f Flr=$%.1f]", g_spikeBuyBucketPeakPL, g_spikeBuyBucketPeakPL * (InpSpikeLadderProtectPct / 100.0));
       if(g_spikeSellBucketPeakPL >= minToProtect)
