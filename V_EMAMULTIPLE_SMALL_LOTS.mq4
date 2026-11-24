@@ -43,7 +43,7 @@ CheckBasketProfitClose  Total open basket profit
 
 */
 
-string glbVersion = "V-SMALL-1055- Block Horizontal Order Creation When EMA Angle 4 Plus";
+string glbVersion = "V-SMALL-1056- Method 6 Trend Aligned Orders Multiplier 2X";
 
 int AccountMultiplierLOT = 500;//100;//1000;//400;//200;//500; ALWAYS multiples of 1000 is better for best results
 //balance multiplier
@@ -7781,6 +7781,7 @@ double InpMethod6SteepAngleMultiplier       = 2.0;    // Method 6: Threshold mul
 double InpMethod6LowAngleThresholdUSD       = 1.0;//5/5;//5;//10;//2.0;    // Method 6: Profit threshold when MathAbs(EMA Angle) < 4 deg ($2.00 * multiplier)
 double InpMethod6LowAngleEmaDegrees         = 0;//4.0;    // Method 6: Dynamic EMA angle boundary in degrees (default 4.0)
 double InpMethod6SameTypeMultiplier         = 3.0;    // Method 6: Threshold multiplier when all orders are same type (2+ BUY or 2+ SELL = 3.0x; if angle > 4 then 3.0 * 2.0 = 6.0x)
+double InpMethod6EmaAlignedMultiplier       = 2.0;    // Method 6: Additional threshold multiplier when all combo orders match EMADirection (default 2.0x -> 3X * 2X = 6X; if angle > 4 then 3X * 2X * 2X = 12X)
 
 // Universal Trend-Aware StopLoss Modifier (Applies across all order modify methods)
 // User Rule:
@@ -9504,14 +9505,17 @@ void ExecuteMethod6CombinationAction(int &comboIndices[], int comboCount, double
    double angleMult    = (absEmaAng > InpMethod6SteepAngleDegrees) ? InpMethod6SteepAngleMultiplier : 1.0;
    double sameTypeMult = isAllSameType ? ((InpMethod6SameTypeMultiplier > 0.0) ? InpMethod6SameTypeMultiplier : 3.0) : 1.0;
    int mult = (balancelomultipler > 0) ? balancelomultipler : 1;
-   double activeThresholdUSD = baseThreshold * sameTypeMult * angleMult * mult;
+   bool isEmaAligned   = isAllSameType && ((firstComboType == OP_BUY && EMADirection == 1) || (firstComboType == OP_SELL && EMADirection == -1));
+   double emaAlignMult = isEmaAligned ? ((InpMethod6EmaAlignedMultiplier > 0.0) ? InpMethod6EmaAlignedMultiplier : 2.0) : 1.0;
+   double activeThresholdUSD = baseThreshold * sameTypeMult * angleMult * emaAlignMult * mult;
+   string emaAlignStr = isEmaAligned ? " [EMA ALIGNED 2X]" : "";
 
    string sameTypeStr = isAllSameType ? (firstComboType == OP_BUY ? " [SAME TYPE ALL-BUY 3X]" : " [SAME TYPE ALL-SELL 3X]") : " [OPPOSITE]";
    string angleStr    = (absEmaAng > InpMethod6SteepAngleDegrees) ? (isAllSameType ? " [DOUBLED >4 deg -> 6X TOTAL]" : " [DOUBLED >4 deg -> 2X]") : "";
 
    Print(">>> [METHOD 6 TRIGGERED] Combination of ", comboCount, " orders hit Profit = $", DoubleToString(comboSum, 2),
          " >= Threshold $", DoubleToString(activeThresholdUSD, 2),
-         sameTypeStr, angleStr,
+         sameTypeStr, angleStr, emaAlignStr,
          " (EMA Angle=", DoubleToString(curEmaAng, 1), " deg)",
          ". Executing Action: 1) Close losing orders at market, 2) Modify profit orders with SL at current price.");
 
@@ -9885,7 +9889,10 @@ void ExecuteMethod6PartialLotAction(int winIdx, int lossIdx, double partialLots,
    double angleMult    = (absEmaAng > InpMethod6SteepAngleDegrees) ? InpMethod6SteepAngleMultiplier : 1.0;
    double sameTypeMult = isSameTypePartial ? ((InpMethod6SameTypeMultiplier > 0.0) ? InpMethod6SameTypeMultiplier : 3.0) : 1.0;
    int mult = (balancelomultipler > 0) ? balancelomultipler : 1;
-   double activeThresholdUSD = baseThreshold * sameTypeMult * angleMult * mult;
+   bool isEmaAligned   = isSameTypePartial && ((winType == OP_BUY && EMADirection == 1) || (winType == OP_SELL && EMADirection == -1));
+   double emaAlignMult = isEmaAligned ? ((InpMethod6EmaAlignedMultiplier > 0.0) ? InpMethod6EmaAlignedMultiplier : 2.0) : 1.0;
+   double activeThresholdUSD = baseThreshold * sameTypeMult * angleMult * emaAlignMult * mult;
+   string emaAlignStr = isEmaAligned ? " [EMA ALIGNED 2X]" : "";
 
    string sameTypeStr = isSameTypePartial ? (winType == OP_BUY ? " [SAME TYPE BUY 3X]" : " [SAME TYPE SELL 3X]") : " [OPPOSITE]";
    string angleStr    = (absEmaAng > InpMethod6SteepAngleDegrees) ? (isSameTypePartial ? " [DOUBLED >4 deg -> 6X TOTAL]" : " [DOUBLED >4 deg -> 2X]") : "";
@@ -9898,7 +9905,7 @@ void ExecuteMethod6PartialLotAction(int winIdx, int lossIdx, double partialLots,
          " | Partial Cut = ", DoubleToString(partialLots, 2), "L (Loss=-$", DoubleToString(MathAbs(partialLossUSD), 2), ")",
          " | Net Combo Profit = +$", DoubleToString(netProfitUSD, 2),
          " >= Threshold $", DoubleToString(activeThresholdUSD, 2),
-         sameTypeStr, angleStr,
+         sameTypeStr, angleStr, emaAlignStr,
          " (EMA Angle=", DoubleToString(curEmaAng, 1), " deg)");
 
 // 1. FIRST: Close partial lot of losing order at market
@@ -10055,7 +10062,16 @@ void ExecuteMethod6PartialLotSearch(bool targetOpposite, double threshold, int c
       double winCloseRatio = (winTotalLots > 0.0) ? (winCloseLots / winTotalLots) : 1.0;
       double winPL = NormalizeDouble(candProfits[i] * winCloseRatio, 2);
 
-      if(winPL < threshold)
+      double effThreshold = threshold;
+      if(!targetOpposite)
+        {
+         bool isAligned = ((candTypes[i] == OP_BUY && EMADirection == 1) || (candTypes[i] == OP_SELL && EMADirection == -1));
+         double emaAlignMult = (InpMethod6EmaAlignedMultiplier > 0.0) ? InpMethod6EmaAlignedMultiplier : 2.0;
+         if(isAligned)
+            effThreshold = threshold * emaAlignMult;
+        }
+
+      if(winPL < effThreshold)
          continue; // Realized profit of closed winner lot (half if >0.01L, full if 0.01L) must reach base threshold
 
       int bestLossIdx = -1;
@@ -10090,7 +10106,7 @@ void ExecuteMethod6PartialLotSearch(bool targetOpposite, double threshold, int c
          if(lossPerLot <= 0.0)
             continue;
 
-         double maxAbsorbableLoss = winPL - threshold;
+         double maxAbsorbableLoss = winPL - effThreshold;
          if(maxAbsorbableLoss <= 0.0)
             continue;
 
@@ -10113,7 +10129,7 @@ void ExecuteMethod6PartialLotSearch(bool targetOpposite, double threshold, int c
          double pLossUSD = -1.0 * NormalizeDouble(lossPerLot * pLots, 2);
          double nProfitUSD = NormalizeDouble(winPL + pLossUSD, 2);
 
-         if(nProfitUSD >= threshold)
+         if(nProfitUSD >= effThreshold)
            {
             if(pLots > bestCutLots || (pLots == bestCutLots && MathAbs(pLossUSD) > MathAbs(bestPartialLoss)))
               {
@@ -10174,6 +10190,8 @@ void ModifyMethod6MultiOrderCombinationsOver5USD()
    // USER RULE (VMULTI-1295): If all orders in combo are same type (2+ BUY or 2+ SELL) -> 3X (or 6X if angle > 4: 3X * 2X = 6X)
    double sameTypeMult = (InpMethod6SameTypeMultiplier > 0.0) ? InpMethod6SameTypeMultiplier : 3.0;
    double thresholdSameType = baseThreshold * sameTypeMult * angleMult * mult;
+   double emaAlignMult = (InpMethod6EmaAlignedMultiplier > 0.0) ? InpMethod6EmaAlignedMultiplier : 2.0;
+   double thresholdSameTypeEmaAligned = thresholdSameType * emaAlignMult;
 
    double threshold     = thresholdOpposite;
    double fullThreshold = thresholdSameType;
@@ -10367,7 +10385,9 @@ void ModifyMethod6MultiOrderCombinationsOver5USD()
             if((candProfits[i] < 0.0 || candProfits[j] < 0.0) && (candTypes[i] == candTypes[j]))
               {
                double sum2 = candProfits[i] + candProfits[j];
-               if(sum2 >= thresholdSameType)
+               bool isAligned = ((candTypes[i] == OP_BUY && EMADirection == 1) || (candTypes[i] == OP_SELL && EMADirection == -1));
+               double reqThresh = isAligned ? thresholdSameTypeEmaAligned : thresholdSameType;
+               if(sum2 >= reqThresh)
                  {
                   int combo[2];
                   combo[0] = i;
@@ -10402,7 +10422,10 @@ void ModifyMethod6MultiOrderCombinationsOver5USD()
                if(!hasBuy || !hasSell) // All same order type
                  {
                   double sum3 = candProfits[i] + candProfits[j] + candProfits[k];
-                  if(sum3 >= thresholdSameType)
+                  int comboType = hasBuy ? OP_BUY : OP_SELL;
+                  bool isAligned = ((comboType == OP_BUY && EMADirection == 1) || (comboType == OP_SELL && EMADirection == -1));
+                  double reqThresh = isAligned ? thresholdSameTypeEmaAligned : thresholdSameType;
+                  if(sum3 >= reqThresh)
                     {
                      int combo[3];
                      combo[0] = i;
@@ -10445,7 +10468,10 @@ void ModifyMethod6MultiOrderCombinationsOver5USD()
                   if(!hasBuy || !hasSell) // All same order type
                     {
                      double sum4 = candProfits[i] + candProfits[j] + candProfits[k] + candProfits[m];
-                     if(sum4 >= thresholdSameType)
+                     int comboType = hasBuy ? OP_BUY : OP_SELL;
+                     bool isAligned = ((comboType == OP_BUY && EMADirection == 1) || (comboType == OP_SELL && EMADirection == -1));
+                     double reqThresh = isAligned ? thresholdSameTypeEmaAligned : thresholdSameType;
+                     if(sum4 >= reqThresh)
                        {
                         int combo[4];
                         combo[0] = i;
@@ -10491,7 +10517,8 @@ void ModifyMethod6MultiOrderCombinationsOver5USD()
 
             // USER RULE: Same Type (Both Profit) -> use full InpMethod6ProfitThresholdUSD ($5 * mult), not $2
             bool isSameTypeBothProfit = (candTypes[i] == candTypes[j] && candProfits[i] >= 0.0 && candProfits[j] >= 0.0);
-            double reqThreshold = isSameTypeBothProfit ? fullThreshold : threshold;
+            bool isAligned = isSameTypeBothProfit && ((candTypes[i] == OP_BUY && EMADirection == 1) || (candTypes[i] == OP_SELL && EMADirection == -1));
+            double reqThreshold = isSameTypeBothProfit ? (isAligned ? thresholdSameTypeEmaAligned : fullThreshold) : threshold;
 
             double sum2 = candProfits[i] + candProfits[j];
             if(sum2 >= reqThreshold)
@@ -10524,7 +10551,8 @@ void ModifyMethod6MultiOrderCombinationsOver5USD()
             // USER RULE: Same Type (All Profit) -> use full InpMethod6ProfitThresholdUSD ($5 * mult), not $2
             bool isSameTypeAllProfit = (candTypes[i] == candTypes[j] && candTypes[j] == candTypes[k] &&
                                         candProfits[i] >= 0.0 && candProfits[j] >= 0.0 && candProfits[k] >= 0.0);
-            double reqThreshold = isSameTypeAllProfit ? fullThreshold : threshold;
+            bool isAligned = isSameTypeAllProfit && ((candTypes[i] == OP_BUY && EMADirection == 1) || (candTypes[i] == OP_SELL && EMADirection == -1));
+            double reqThreshold = isSameTypeAllProfit ? (isAligned ? thresholdSameTypeEmaAligned : fullThreshold) : threshold;
 
             double sum3 = candProfits[i] + candProfits[j] + candProfits[k];
             if(sum3 >= reqThreshold)
@@ -10567,7 +10595,8 @@ void ModifyMethod6MultiOrderCombinationsOver5USD()
      }
 
 // USER RULE: Same Type (All Profit) -> use full InpMethod6ProfitThresholdUSD ($5 * mult), not $2
-   double reqBasketThreshold = (remainingCount >= 2 && basketAllSameTypeProfit) ? fullThreshold : threshold;
+   bool isAlignedBasket = basketAllSameTypeProfit && ((firstType == OP_BUY && EMADirection == 1) || (firstType == OP_SELL && EMADirection == -1));
+   double reqBasketThreshold = (remainingCount >= 2 && basketAllSameTypeProfit) ? (isAlignedBasket ? thresholdSameTypeEmaAligned : fullThreshold) : threshold;
    if(remainingCount >= minOrders && totalBasketPL >= reqBasketThreshold)
      {
       ExecuteMethod6CombinationAction(basketIndices, remainingCount, totalBasketPL, candTickets, candTypes, candLots,
