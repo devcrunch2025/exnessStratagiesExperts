@@ -42,7 +42,7 @@ CheckBasketProfitClose  Total open basket profit
 */
 
 
-string glbVersion = "VMULTI-1298- Disable Dubai Hours 15-17 Block on Horizontal Orders";
+string glbVersion = "VMULTI-1299- Block Horizontal Order Creation When EMA Angle 4 Plus";
 
 int AccountMultiplierLOT = 1000;//400;//200;//500; ALWAYS multiples of 1000 is better for best results
 //balance multiplier 
@@ -339,6 +339,7 @@ double InpNewEqhSellOrderLotBase                  =0.06;// 0.03;//0.06;         
 bool   InpCloseSellOnNewEqlGreenLine              = true;          // On new EQH-G green line: Close SELL orders (loss < $1*mult) & Open SSL Long
 double InpCloseSellMaxLossUSD                     = 1.0;           // Max loss in USD ($1.00 * multiplier) to close SELL order
 double InpNewEqlBuyOrderLotBase                   = 0.06;//0.03;//0.06;          // Base lot for immediate SSL Long (0.06 * multiplier)
+double InpHorizontalOrderMaxEmaAngle             = 4.0;           // Horizontal Orders: Max MathAbs(EMA Angle) to create orders (if >= 4.0: do not create horizontal orders; only create when < 4.0)
 double InpHorizontalOrderSameTypeMinGapUSD        =100;// 200.0;               // Minimum price gap in USD ($200) between 2 horizontal EQH orders of same type
 bool   InpEnableModifySLOnLineEnded               = true;          // When horizontal line ends: modify open horizontal order SL with $50 gap
 double InpHorizontalLineEndedSLGapRaw             =3000;//1000;//200;// 50.0;          // StopLoss raw price gap ($50) when horizontal line ends
@@ -33807,6 +33808,17 @@ bool HasMinimumHorizontalOrderGap(int orderType, double proposedPrice, double mi
 //+------------------------------------------------------------------+
 int SendLsdRedLineSellOrder(double sellLot, double linePrice = 0.0)
   {
+   // USER RULE: "do not create any horizontal order when mathabs emaangle is more than >=4"
+   double curEmaAng = (GlobalEmaAngle30 != 0.0) ? GlobalEmaAngle30 : GetEmaAngleDegrees(30);
+   double absEmaAng = MathAbs(curEmaAng);
+   double maxHorizAngle = (InpHorizontalOrderMaxEmaAngle > 0.0) ? InpHorizontalOrderMaxEmaAngle : 4.0;
+   if(absEmaAng >= maxHorizAngle)
+     {
+      PrintFormat(">>> [EQH-R SHORT BLOCKED] MathAbs(EMA Angle)=%.2f >= %.1f deg (Strategy 2: Strong Trend). Horizontal orders strictly blocked!",
+                  absEmaAng, maxHorizAngle);
+      return -1;
+     }
+
    RefreshRates();
    if(IsBlockedByActiveHorizontalLines(OP_SELL, Bid, "EQH-R Short"))
       return -1;
@@ -33941,6 +33953,17 @@ int GetSmallestLossOrderTicket(int targetType)
 //+------------------------------------------------------------------+
 int CreateHorizontalLineRecoveryOrder(int parentTicket, int orderType, double linePrice)
   {
+   // USER RULE: "do not create any horizontal order when mathabs emaangle is more than >=4"
+   double curEmaAng = (GlobalEmaAngle30 != 0.0) ? GlobalEmaAngle30 : GetEmaAngleDegrees(30);
+   double absEmaAng = MathAbs(curEmaAng);
+   double maxHorizAngle = (InpHorizontalOrderMaxEmaAngle > 0.0) ? InpHorizontalOrderMaxEmaAngle : 4.0;
+   if(absEmaAng >= maxHorizAngle)
+     {
+      PrintFormat(">>> [HORIZONTAL RECOVERY BLOCKED] MathAbs(EMA Angle)=%.2f >= %.1f deg (Strategy 2: Strong Trend). Horizontal recovery orders strictly blocked!",
+                  absEmaAng, maxHorizAngle);
+      return -1;
+     }
+
    if(!OrderSelect(parentTicket, SELECT_BY_TICKET, MODE_TRADES))
       return -1;
    if(!InpAllowRecoveryForHorizontalOrders && IsHorizontalLineOrder(parentTicket, OrderComment()))
@@ -34275,6 +34298,20 @@ void CheckNewRedLineCloseBuyAndOpenSell()
       return;
      }
 
+   double curEmaAng = (GlobalEmaAngle30 != 0.0) ? GlobalEmaAngle30 : GetEmaAngleDegrees(30);
+   double absEmaAng = MathAbs(curEmaAng);
+   double maxHorizAngle = (InpHorizontalOrderMaxEmaAngle > 0.0) ? InpHorizontalOrderMaxEmaAngle : 4.0;
+   bool blockHorizByAngle = (absEmaAng >= maxHorizAngle);
+
+   if(retryPending && blockHorizByAngle)
+     {
+      s_lastHandledRedLineStart  = curEqhStart;
+      s_pendingRetryRedLineStart = 0;
+      g_lastOrderEqHighLineStart = curEqhStart;
+      PrintFormat(">>> [RED LINE RETRY CANCELLED] MathAbs(EMA Angle)=%.2f >= %.1f deg (Strategy 2: Strong Trend). Horizontal order creation blocked!", absEmaAng, maxHorizAngle);
+      return;
+     }
+
 // Confusion Block: While BOTH Red & Green lines are active, wait for single-line confirmation
    if(InpBlockAllOrdersWhenBothHorizontalLinesActive &&
       g_lastEqLowPrice > 0.0 && g_lastEqLowLineStart > 0)
@@ -34453,7 +34490,7 @@ void CheckNewRedLineCloseBuyAndOpenSell()
 
       // Step 2c: USER RULE: "When horizantal line is started. create recovery order which is smallest loss amount.
       // if RED line started create immidtate recovery order for lowest open sell order. same logic for GREEN horizontal line"
-      if(InpEnableHorizontalLineRecovery)
+      if(!blockHorizByAngle && InpEnableHorizontalLineRecovery)
         {
          int parentSellTicket = GetSmallestLossOrderTicket(OP_SELL);
          if(parentSellTicket > 0)
@@ -34471,7 +34508,18 @@ void CheckNewRedLineCloseBuyAndOpenSell()
 // Step 3: If no recovery order was created (or if InpOpenLineOrderIfRecoveryCreated is true):
 // Create NEW sell order "EQH-R Short" with LOT InpNewEqhSellOrderLotBase * multiplier
 // Retries while within the 5-minute window if blocked by same-type gap or OrderSend failure.
-   if(retryPending || recTicket <= 0 || InpOpenLineOrderIfRecoveryCreated)
+   if(blockHorizByAngle)
+     {
+      static datetime s_lastRedBlockLog = 0;
+      if(s_lastRedBlockLog == 0 || TimeCurrent() - s_lastRedBlockLog >= 30 || TimeCurrent() < s_lastRedBlockLog)
+        {
+         s_lastRedBlockLog = TimeCurrent();
+         PrintFormat(">>> [RED LINE ORDER CREATION BLOCKED] MathAbs(EMA Angle)=%.2f >= %.1f deg (Strategy 2: Strong Trend). Horizontal order creation blocked!", absEmaAng, maxHorizAngle);
+        }
+      g_lastOrderEqHighLineStart = curEqhStart;
+      s_pendingRetryRedLineStart = 0;
+     }
+   else if(retryPending || recTicket <= 0 || InpOpenLineOrderIfRecoveryCreated)
      {
       double baseLot = (InpNewEqhSellOrderLotBase > 0.0) ? InpNewEqhSellOrderLotBase : 0.06;
       double sellLot = NormalizeLots(baseLot * mult);
@@ -34505,6 +34553,17 @@ void CheckNewRedLineCloseBuyAndOpenSell()
 //+------------------------------------------------------------------+
 int SendLsdGreenLineBuyOrder(double buyLot, double linePrice = 0.0)
   {
+   // USER RULE: "do not create any horizontal order when mathabs emaangle is more than >=4"
+   double curEmaAng = (GlobalEmaAngle30 != 0.0) ? GlobalEmaAngle30 : GetEmaAngleDegrees(30);
+   double absEmaAng = MathAbs(curEmaAng);
+   double maxHorizAngle = (InpHorizontalOrderMaxEmaAngle > 0.0) ? InpHorizontalOrderMaxEmaAngle : 4.0;
+   if(absEmaAng >= maxHorizAngle)
+     {
+      PrintFormat(">>> [EQH-G LONG BLOCKED] MathAbs(EMA Angle)=%.2f >= %.1f deg (Strategy 2: Strong Trend). Horizontal orders strictly blocked!",
+                  absEmaAng, maxHorizAngle);
+      return -1;
+     }
+
    RefreshRates();
    if(IsBlockedByActiveHorizontalLines(OP_BUY, Ask, "EQH-G Long"))
       return -1;
@@ -34632,6 +34691,20 @@ void CheckNewGreenLineCloseSellAndOpenBuy()
      {
       s_lastHandledGreenLineStart  = curEqlStart;
       s_pendingRetryGreenLineStart = 0;
+      return;
+     }
+
+   double curEmaAng = (GlobalEmaAngle30 != 0.0) ? GlobalEmaAngle30 : GetEmaAngleDegrees(30);
+   double absEmaAng = MathAbs(curEmaAng);
+   double maxHorizAngle = (InpHorizontalOrderMaxEmaAngle > 0.0) ? InpHorizontalOrderMaxEmaAngle : 4.0;
+   bool blockHorizByAngle = (absEmaAng >= maxHorizAngle);
+
+   if(retryPending && blockHorizByAngle)
+     {
+      s_lastHandledGreenLineStart  = curEqlStart;
+      s_pendingRetryGreenLineStart = 0;
+      g_lastOrderEqLowLineStart    = curEqlStart;
+      PrintFormat(">>> [GREEN LINE RETRY CANCELLED] MathAbs(EMA Angle)=%.2f >= %.1f deg (Strategy 2: Strong Trend). Horizontal order creation blocked!", absEmaAng, maxHorizAngle);
       return;
      }
 
@@ -34813,7 +34886,7 @@ void CheckNewGreenLineCloseSellAndOpenBuy()
 
       // Step 2c: USER RULE: "When horizantal line is started. create recovery order which is smallest loss amount.
       // if RED line started create immidtate recovery order for lowest open sell order. same logic for GREEN horizontal line"
-      if(InpEnableHorizontalLineRecovery)
+      if(!blockHorizByAngle && InpEnableHorizontalLineRecovery)
         {
          int parentBuyTicket = GetSmallestLossOrderTicket(OP_BUY);
          if(parentBuyTicket > 0)
@@ -34831,7 +34904,18 @@ void CheckNewGreenLineCloseSellAndOpenBuy()
 // Step 3: If no recovery order was created (or if InpOpenLineOrderIfRecoveryCreated is true):
 // Create NEW buy order "EQH-G Long" with LOT InpNewEqlBuyOrderLotBase * multiplier
 // Retries while within the 5-minute window if blocked by same-type gap or OrderSend failure.
-   if(retryPending || recTicket <= 0 || InpOpenLineOrderIfRecoveryCreated)
+   if(blockHorizByAngle)
+     {
+      static datetime s_lastGreenBlockLog = 0;
+      if(s_lastGreenBlockLog == 0 || TimeCurrent() - s_lastGreenBlockLog >= 30 || TimeCurrent() < s_lastGreenBlockLog)
+        {
+         s_lastGreenBlockLog = TimeCurrent();
+         PrintFormat(">>> [GREEN LINE ORDER CREATION BLOCKED] MathAbs(EMA Angle)=%.2f >= %.1f deg (Strategy 2: Strong Trend). Horizontal order creation blocked!", absEmaAng, maxHorizAngle);
+        }
+      g_lastOrderEqLowLineStart    = curEqlStart; // Mark line as handled so it never creates later
+      s_pendingRetryGreenLineStart = 0;
+     }
+   else if(retryPending || recTicket <= 0 || InpOpenLineOrderIfRecoveryCreated)
      {
       double baseLot = (InpNewEqlBuyOrderLotBase > 0.0) ? InpNewEqlBuyOrderLotBase : 0.06;
       double buyLot = NormalizeLots(baseLot * mult);
