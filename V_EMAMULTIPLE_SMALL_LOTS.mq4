@@ -43,7 +43,7 @@ CheckBasketProfitClose  Total open basket profit
 
 */
 
-string glbVersion = "V-SMALL-1057- Disable DD and Sweep Gap Multipliers When EMA Unmatched on Angle 4 Plus";
+string glbVersion = "V-SMALL-1058- Sweep Opposite Block Only Blocks MOM Orders When EMA Angle 4 Plus";
 
 int AccountMultiplierLOT = 500;//100;//1000;//400;//200;//500; ALWAYS multiples of 1000 is better for best results
 //balance multiplier
@@ -369,6 +369,7 @@ bool   InpBlockAllOppositeWhenLineActive          = true;          // Single Act
 bool   InpEnableSweepOppositeBlock                = true;          // Block opposite orders in SafeOrderSend(): SSLS blocks SELL, BSLS blocks BUY
 int    InpSweepOppositeBlockMinutes               = 5;             // Opposite-order block duration in minutes after SSLS/BSLS (5 min)
 double InpSweepOppositeBlockMinEmaAngle           = 4.0;           // Minimum MathAbs(EMA Angle) to block opposite orders on SSLS/BSLS sweep (Strategy 2 >= 4.0 blocks; Strategy 1 < 4.0 allows)
+bool   InpSweepOppositeBlockOnlyMOMOrders         = true;          // When MathAbs(EMA Angle) >= 4.0, only block MOM orders (allow non-MOM orders)
 bool   InpResetSweepOppositeBlockOnNewHLine       = true;          // Reset active SSLS/BSLS opposite-order block when a new horizontal signal (EQH-R/EQH-G) is detected
 bool   InpResetSweepOppositeBlockOnEmaFlip        = true;          // Reset active SSLS/BSLS opposite-order block when EMADirection flips
 bool   InpSweepMitigationWaitCandleClose          = true;          // Wait for closed candle (i >= 1) before mitigating/ending active EQH-R / EQH-G horizontal lines
@@ -7943,7 +7944,7 @@ void     SyncHorizontalLineActivationTimers();
 int      GetHorizontalLineActiveWaitElapsedSeconds(bool isRedLine);
 bool     IsHorizontalLineActivationWaitSatisfied(bool isRedLine);
 void     ResetSweepOppositeBlockState(string reason = "");
-int      DeleteOppositePendingOrdersForGuard(bool deleteBuyPending, string reason);
+int      DeleteOppositePendingOrdersForGuard(bool deleteBuyPending, string reason, bool onlyMom = false);
 void     SyncHorizontalLineStartPendingCleanup();
 void     SyncSweepOppositeBlockState();
 void     ActivateSweepOppositeBlockOnSweep(string sweepSig, datetime sweepBarTime);
@@ -18678,7 +18679,7 @@ void ResetSweepOppositeBlockState(string reason = "")
 //| Deletes open EA pending orders on the blocked opposite side.     |
 //| Returns number deleted (>=0), or -failedCount if any retry needed|
 //+------------------------------------------------------------------+
-int DeleteOppositePendingOrdersForGuard(bool deleteBuyPending, string reason)
+int DeleteOppositePendingOrdersForGuard(bool deleteBuyPending, string reason, bool onlyMom = false)
   {
    int deletedCount = 0;
    int failedCount  = 0;
@@ -18703,6 +18704,9 @@ int DeleteOppositePendingOrdersForGuard(bool deleteBuyPending, string reason)
       double lots   = OrderLots();
       double openPx = OrderOpenPrice();
       string cmt    = OrderComment();
+
+      if(onlyMom && StringFind(cmt, "MOM") < 0)
+         continue;
 
       if(SafeOrderDelete(tkt, delClr))
         {
@@ -18782,7 +18786,8 @@ void SyncSweepOppositeBlockState()
       if(InpDeleteOppositePendingOnSweep && EAStartupComplete)
         {
          int retryDel = DeleteOppositePendingOrdersForGuard((g_sweepPendingCleanupDir > 0),
-                        StringFormat("SWEEP %s RETRY", (g_sweepPendingCleanupDir > 0 ? "BSLS" : "SSLS")));
+                        StringFormat("SWEEP %s RETRY", (g_sweepPendingCleanupDir > 0 ? "BSLS" : "SSLS")),
+                        InpSweepOppositeBlockOnlyMOMOrders);
          if(retryDel >= 0)
             g_sweepPendingCleanupDir = 0;
         }
@@ -18923,7 +18928,8 @@ void ActivateSweepOppositeBlockOnSweep(string sweepSig, datetime sweepBarTime)
         {
          bool delBuyPending = (sweepSig == "BSLS");
          int sweepDelRes = DeleteOppositePendingOrdersForGuard(delBuyPending,
-                           StringFormat("SWEEP %s (%s)", sweepSig, TimeToString(sweepBarTime, TIME_DATE|TIME_MINUTES)));
+                           StringFormat("SWEEP %s (%s)", sweepSig, TimeToString(sweepBarTime, TIME_DATE|TIME_MINUTES)),
+                           InpSweepOppositeBlockOnlyMOMOrders);
          g_sweepPendingCleanupDir = (sweepDelRes < 0) ? (delBuyPending ? 1 : -1) : 0;
         }
      }
@@ -18947,6 +18953,14 @@ bool IsBlockedByActiveSweepOppositeRule(int orderType, string orderComment = "")
    double minAngleToBlock = (InpSweepOppositeBlockMinEmaAngle > 0.0) ? InpSweepOppositeBlockMinEmaAngle : 4.0;
    if(absEmaAng < minAngleToBlock)
       return false;
+
+   // USER RULE (V-SMALL-1058): When MathAbs(EMA Angle) >= 4.0, then only block MOM orders (allow non-MOM orders)
+   if(InpSweepOppositeBlockOnlyMOMOrders)
+     {
+      bool isMom = (isMOMOrder || StringFind(orderComment, "MOM") >= 0);
+      if(!isMom)
+         return false;
+     }
 
    bool isBuySideOrder  = (orderType == OP_BUY  || orderType == OP_BUYSTOP  || orderType == OP_BUYLIMIT);
    bool isSellSideOrder = (orderType == OP_SELL || orderType == OP_SELLSTOP || orderType == OP_SELLLIMIT);
