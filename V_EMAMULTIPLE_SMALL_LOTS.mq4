@@ -27718,7 +27718,7 @@ void OpenBuy(string MOMorder="")
    
    
     if(isSpikeOrder)
-   StopLossRawPriceGap=100;
+   StopLossRawPriceGap=200;
     else
    StopLossRawPriceGap=3000;//
    
@@ -27835,7 +27835,7 @@ void OpenSell(string MOMorder="")
    ChangeLots(GlobalBuyPL,"SSL Short",OP_SELL,0,MOMorder);
    
     if(isSpikeOrder)
-   StopLossRawPriceGap=100;
+   StopLossRawPriceGap=200;
    else
    StopLossRawPriceGap=3000;//
    
