@@ -43,7 +43,7 @@ CheckBasketProfitClose  Total open basket profit
 
 */
 
-string glbVersion = "V-SMALL-1071- Auto-Resume Trading On Direction Angle Mismatch Spike";
+string glbVersion = "V-SMALL-1072- Spike Orders In Normal Trading Time";
 
 int AccountMultiplierLOT = 500;//100;//1000;//400;//200;//500; ALWAYS multiples of 1000 is better for best results
 //balance multiplier
@@ -1062,6 +1062,12 @@ double InpPendingGapLossMultiplier         = 2.0;   // Pending gap multiplier on
  double InpDynamicGapAngleThreshold        = 4.0;   // Dynamic Order Gap: EMA angle boundary (if MathAbs(EMA Angle) < 4.0: Required Gap = Base Gap; if >= 4.0: Base Gap * Drawdown Mult * Sweep Mult)
  bool   InpDisableDDAndSweepGapWhenEmaUnmatched = true; // Dynamic Order Gap: Disable DD Scaling & Sweep Guard when MathAbs(EMA Angle) >= 4.0 and OrderType != EMADirection
  bool   InpEnableSpikeOrderCreation            = true; // Spike Orders: When EMADirection is 1 but angle < 0 create BUY; when -1 and angle > 0 create SELL
+ int    InpSpikeOrderCooldownSec               = 5;    // Spike Orders: Cooldown seconds between consecutive spike order attempts (default 5s)
+ int    InpMaxSpikePendingOrders               = 1;    // Spike Orders: Max simultaneous pending stop orders (default 1)
+ bool   InpSpikeOrderBypassSameTypeGap         = true; // Spike Orders: Bypass wide same-type minimum gap during sudden spike momentum
+ double InpSpikeOrderMinGapUSD                 = 10.0; // Spike Orders: Minimal gap between consecutive spike orders ($10 USD, or 0 = none)
+ bool   InpSpikeBypassHorizontalLineBlock      = true; // Spike Orders: Bypass active opposite horizontal line block (EQH-R/EQH-G)
+ bool   InpSpikeBypassSweepBlock               = true; // Spike Orders: Bypass active liquidity sweep block (SSLS/BSLS)
 double MinimumSameOrderGapRawMatched =50;//30;//50;//100;//50;//30;//10;//20;//50;//20;// 50;//SSL long //SSL short
 double MinimumSameOrderGapRawUnmatched =50;//10;//10;//20;// 100;
 
@@ -16579,8 +16585,22 @@ void OnTickCore()
 
    static datetime s_lastSpikeBuyAttempt  = 0;
    static datetime s_lastSpikeSellAttempt = 0;
-   bool spikeBuySignal  = (isBullishSpike && CountDirectionOrders(OP_BUYSTOP) == 0 && (TimeCurrent() - s_lastSpikeBuyAttempt >= 5));
-   bool spikeSellSignal = (isBearishSpike && CountDirectionOrders(OP_SELLSTOP) == 0 && (TimeCurrent() - s_lastSpikeSellAttempt >= 5));
+   int maxSpikePending = (InpMaxSpikePendingOrders > 0) ? InpMaxSpikePendingOrders : 1;
+   int spikeCooldownSec = (InpSpikeOrderCooldownSec > 0) ? InpSpikeOrderCooldownSec : 5;
+   bool spikeBuySignal  = (isBullishSpike && CountDirectionOrders(OP_BUYSTOP) < maxSpikePending && (TimeCurrent() - s_lastSpikeBuyAttempt >= spikeCooldownSec));
+   bool spikeSellSignal = (isBearishSpike && CountDirectionOrders(OP_SELLSTOP) < maxSpikePending && (TimeCurrent() - s_lastSpikeSellAttempt >= spikeCooldownSec));
+
+   // Directional Spike Guard: Suppress counter-spike signals during active spike
+   if(isBullishSpike)
+     {
+      sellSignal = false;
+      missingSellOrder = false;
+     }
+   if(isBearishSpike)
+     {
+      buySignal = false;
+      missingBuyOrder = false;
+     }
 
    if(buySignal || missingBuyOrder || spikeBuySignal)
      {
@@ -16605,7 +16625,7 @@ void OnTickCore()
               {
                if(PassesEMAFilter(OP_BUY))
                  {
-                  OpenBuy();
+                  OpenBuy(spikeBuySignal ? "SPIKE_BUY" : "");
                  }
                else
                  {
@@ -16642,7 +16662,7 @@ void OnTickCore()
                  {
                   if(PassesEMAFilter(OP_SELL))
                     {
-                     OpenSell();
+                     OpenSell(spikeSellSignal ? "SPIKE_SELL" : "");
                     }
                   else
                     {
@@ -18878,45 +18898,77 @@ bool IsBlockedByActiveHorizontalLines(int orderType, double reqPrice, string ord
    bool isBuySideOrder  = (orderType == OP_BUY  || orderType == OP_BUYSTOP  || orderType == OP_BUYLIMIT);
    bool isSellSideOrder = (orderType == OP_SELL || orderType == OP_SELLSTOP || orderType == OP_SELLLIMIT);
 
+   // USER RULE: Spike Orders Bypass Active Horizontal Line Opposite Block
+   bool isSpikeOrder = (StringFind(orderComment, "SPIKE") >= 0) ||
+                       (InpEnableSpikeOrderCreation &&
+                        ((isBuySideOrder  && EMADirection == 1  && curEmaAng < 0.0) ||
+                         (isSellSideOrder && EMADirection == -1 && curEmaAng > 0.0)));
+
    if(InpBlockBuyNearActiveRedLine && isBuySideOrder && hasActiveRed)
      {
-      double checkBuyReq    = (orderType == OP_BUY) ? Ask : NormalizeDouble(reqPrice, Digits);
-      double liveBuyDistRed = MathAbs(Ask - g_lastEqHighPrice);
-      double reqBuyDistRed  = (checkBuyReq > 0.0) ? MathAbs(checkBuyReq - g_lastEqHighPrice) : liveBuyDistRed;
-      if(InpBlockAllOppositeWhenLineActive || liveBuyDistRed <= lineBlockRange + 1e-8 || reqBuyDistRed <= lineBlockRange + 1e-8)
+      if(InpSpikeBypassHorizontalLineBlock && isSpikeOrder)
         {
-         if(s_lastActiveRedBuyBlockLog == 0 || (nowLineBlockT - s_lastActiveRedBuyBlockLog) >= 30)
+         static datetime s_lastSpikeRedBypassLog = 0;
+         if(s_lastSpikeRedBypassLog == 0 || (nowLineBlockT - s_lastSpikeRedBypassLog) >= 30)
            {
-            PrintFormat("SAFEORDERSEND BLOCKED [ACTIVE RED EQH-R]: Blocking BUY type=%d | Ask=%.2f Req=%.2f RedLine=%.2f Start=%s LiveDist=$%.2f ReqDist=$%.2f Mode=%s | %s",
-                        orderType, Ask, checkBuyReq, g_lastEqHighPrice,
-                        TimeToString(g_lastEqHighLineStart, TIME_DATE|TIME_SECONDS),
-                        liveBuyDistRed, reqBuyDistRed,
-                        (InpBlockAllOppositeWhenLineActive ? "ALL_DIST" : ("$" + DoubleToString(lineBlockRange, 2))),
-                        orderComment);
-            s_lastActiveRedBuyBlockLog = nowLineBlockT;
+            PrintFormat(">>> [SPIKE ORDER BYPASS ACTIVE RED LINE] Bullish Spike (EMA=+1, Angle=%+.1f deg) -> Allowing BUY order despite active Red EQH-R | %s",
+                        curEmaAng, orderComment);
+            s_lastSpikeRedBypassLog = nowLineBlockT;
            }
-         return true;
+        }
+      else
+        {
+         double checkBuyReq    = (orderType == OP_BUY) ? Ask : NormalizeDouble(reqPrice, Digits);
+         double liveBuyDistRed = MathAbs(Ask - g_lastEqHighPrice);
+         double reqBuyDistRed  = (checkBuyReq > 0.0) ? MathAbs(checkBuyReq - g_lastEqHighPrice) : liveBuyDistRed;
+         if(InpBlockAllOppositeWhenLineActive || liveBuyDistRed <= lineBlockRange + 1e-8 || reqBuyDistRed <= lineBlockRange + 1e-8)
+           {
+            if(s_lastActiveRedBuyBlockLog == 0 || (nowLineBlockT - s_lastActiveRedBuyBlockLog) >= 30)
+              {
+               PrintFormat("SAFEORDERSEND BLOCKED [ACTIVE RED EQH-R]: Blocking BUY type=%d | Ask=%.2f Req=%.2f RedLine=%.2f Start=%s LiveDist=$%.2f ReqDist=$%.2f Mode=%s | %s",
+                           orderType, Ask, checkBuyReq, g_lastEqHighPrice,
+                           TimeToString(g_lastEqHighLineStart, TIME_DATE|TIME_SECONDS),
+                           liveBuyDistRed, reqBuyDistRed,
+                           (InpBlockAllOppositeWhenLineActive ? "ALL_DIST" : ("$" + DoubleToString(lineBlockRange, 2))),
+                           orderComment);
+               s_lastActiveRedBuyBlockLog = nowLineBlockT;
+              }
+            return true;
+           }
         }
      }
 
    if(InpBlockSellNearActiveGreenLine && isSellSideOrder && hasActiveGreen)
      {
-      double checkSellReq      = (orderType == OP_SELL) ? Bid : NormalizeDouble(reqPrice, Digits);
-      double liveSellDistGreen = MathAbs(Bid - g_lastEqLowPrice);
-      double reqSellDistGreen  = (checkSellReq > 0.0) ? MathAbs(checkSellReq - g_lastEqLowPrice) : liveSellDistGreen;
-      if(InpBlockAllOppositeWhenLineActive || liveSellDistGreen <= lineBlockRange + 1e-8 || reqSellDistGreen <= lineBlockRange + 1e-8)
+      if(InpSpikeBypassHorizontalLineBlock && isSpikeOrder)
         {
-         if(s_lastActiveGreenSellBlockLog == 0 || (nowLineBlockT - s_lastActiveGreenSellBlockLog) >= 30)
+         static datetime s_lastSpikeGreenBypassLog = 0;
+         if(s_lastSpikeGreenBypassLog == 0 || (nowLineBlockT - s_lastSpikeGreenBypassLog) >= 30)
            {
-            PrintFormat("SAFEORDERSEND BLOCKED [ACTIVE GREEN EQH-G]: Blocking SELL type=%d | Bid=%.2f Req=%.2f GreenLine=%.2f Start=%s LiveDist=$%.2f ReqDist=$%.2f Mode=%s | %s",
-                        orderType, Bid, checkSellReq, g_lastEqLowPrice,
-                        TimeToString(g_lastEqLowLineStart, TIME_DATE|TIME_SECONDS),
-                        liveSellDistGreen, reqSellDistGreen,
-                        (InpBlockAllOppositeWhenLineActive ? "ALL_DIST" : ("$" + DoubleToString(lineBlockRange, 2))),
-                        orderComment);
-            s_lastActiveGreenSellBlockLog = nowLineBlockT;
+            PrintFormat(">>> [SPIKE ORDER BYPASS ACTIVE GREEN LINE] Bearish Spike (EMA=-1, Angle=%+.1f deg) -> Allowing SELL order despite active Green EQH-G | %s",
+                        curEmaAng, orderComment);
+            s_lastSpikeGreenBypassLog = nowLineBlockT;
            }
-         return true;
+        }
+      else
+        {
+         double checkSellReq      = (orderType == OP_SELL) ? Bid : NormalizeDouble(reqPrice, Digits);
+         double liveSellDistGreen = MathAbs(Bid - g_lastEqLowPrice);
+         double reqSellDistGreen  = (checkSellReq > 0.0) ? MathAbs(checkSellReq - g_lastEqLowPrice) : liveSellDistGreen;
+         if(InpBlockAllOppositeWhenLineActive || liveSellDistGreen <= lineBlockRange + 1e-8 || reqSellDistGreen <= lineBlockRange + 1e-8)
+           {
+            if(s_lastActiveGreenSellBlockLog == 0 || (nowLineBlockT - s_lastActiveGreenSellBlockLog) >= 30)
+              {
+               PrintFormat("SAFEORDERSEND BLOCKED [ACTIVE GREEN EQH-G]: Blocking SELL type=%d | Bid=%.2f Req=%.2f GreenLine=%.2f Start=%s LiveDist=$%.2f ReqDist=$%.2f Mode=%s | %s",
+                           orderType, Bid, checkSellReq, g_lastEqLowPrice,
+                           TimeToString(g_lastEqLowLineStart, TIME_DATE|TIME_SECONDS),
+                           liveSellDistGreen, reqSellDistGreen,
+                           (InpBlockAllOppositeWhenLineActive ? "ALL_DIST" : ("$" + DoubleToString(lineBlockRange, 2))),
+                           orderComment);
+               s_lastActiveGreenSellBlockLog = nowLineBlockT;
+              }
+            return true;
+           }
         }
      }
 
@@ -18976,6 +19028,9 @@ int DeleteOppositePendingOrdersForGuard(bool deleteBuyPending, string reason, bo
       string cmt    = OrderComment();
 
       if(onlyMom && StringFind(cmt, "MOM") < 0)
+         continue;
+
+      if(StringFind(cmt, "SPIKE") >= 0)
          continue;
 
       if(SafeOrderDelete(tkt, delClr))
@@ -19234,6 +19289,14 @@ bool IsBlockedByActiveSweepOppositeRule(int orderType, string orderComment = "")
 
    bool isBuySideOrder  = (orderType == OP_BUY  || orderType == OP_BUYSTOP  || orderType == OP_BUYLIMIT);
    bool isSellSideOrder = (orderType == OP_SELL || orderType == OP_SELLSTOP || orderType == OP_SELLLIMIT);
+
+   // USER RULE: Spike Orders Bypass Sweep Opposite Block
+   bool isSpikeOrder = (StringFind(orderComment, "SPIKE") >= 0) ||
+                       (InpEnableSpikeOrderCreation &&
+                        ((isBuySideOrder  && EMADirection == 1  && curEmaAng < 0.0) ||
+                         (isSellSideOrder && EMADirection == -1 && curEmaAng > 0.0)));
+   if(InpSpikeBypassSweepBlock && isSpikeOrder)
+      return false;
 
    bool shouldBlock = (g_sweepOppositeBlockSignal == "SSLS" && isSellSideOrder) ||
                       (g_sweepOppositeBlockSignal == "BSLS" && isBuySideOrder);
@@ -27209,7 +27272,12 @@ void OpenBuy(string MOMorder="")
    entryPrice = NormalizeDouble(entryPrice, Digits);
 
    double buyGap = GetDynamicOrderGap(OP_BUY);
-   if(!HasMinimumSameOrderGap(OP_BUY, buyGap, entryPrice))
+   bool isSpikeOrder = (MOMorder == "SPIKE_BUY" || (InpEnableSpikeOrderCreation && EMADirection == 1 && GlobalEmaAngle30 < 0.0));
+   if(isSpikeOrder && InpSpikeOrderBypassSameTypeGap)
+     {
+      buyGap = (InpSpikeOrderMinGapUSD > 0.0) ? InpSpikeOrderMinGapUSD : 0.0;
+     }
+   if(buyGap > 0.0 && !HasMinimumSameOrderGap(OP_BUY, buyGap, entryPrice))
      {
       Print("Order Blocked HasMinimumSameOrderGap: Required Gap=", DoubleToString(buyGap, 2), " Proposed Entry=", DoubleToString(entryPrice, Digits));
       return;
@@ -27226,7 +27294,7 @@ void OpenBuy(string MOMorder="")
    if(DeleteOppositePendingOnSignal)
       DeleteOppositePendingOrders(OP_BUY);
 
-   string buyComment = (MOMorder == "MOM_BUY" || isMOMOrder) ? "SSL Long MOM" : "SSL Long";
+   string buyComment = isSpikeOrder ? "SSL Long SPIKE" : ((MOMorder == "MOM_BUY" || isMOMOrder) ? "SSL Long MOM" : "SSL Long");
    int ticket = SafeOrderSend(Symbol(), OP_BUYSTOP, Lots, entryPrice, Slippage, stopLoss, takeProfit, buyComment, MagicNumber, BuyColor);
    if(ticket > 0)
      {
@@ -27287,7 +27355,12 @@ void OpenSell(string MOMorder="")
    entryPrice = NormalizeDouble(entryPrice, Digits);
 
    double sellGap = GetDynamicOrderGap(OP_SELL);
-   if(!HasMinimumSameOrderGap(OP_SELL, sellGap, entryPrice))
+   bool isSpikeOrder = (MOMorder == "SPIKE_SELL" || (InpEnableSpikeOrderCreation && EMADirection == -1 && GlobalEmaAngle30 > 0.0));
+   if(isSpikeOrder && InpSpikeOrderBypassSameTypeGap)
+     {
+      sellGap = (InpSpikeOrderMinGapUSD > 0.0) ? InpSpikeOrderMinGapUSD : 0.0;
+     }
+   if(sellGap > 0.0 && !HasMinimumSameOrderGap(OP_SELL, sellGap, entryPrice))
      {
       Print("Order Blocked HasMinimumSameOrderGap: Required Gap=", DoubleToString(sellGap, 2), " Proposed Entry=", DoubleToString(entryPrice, Digits));
       return;
@@ -27304,7 +27377,7 @@ void OpenSell(string MOMorder="")
    if(DeleteOppositePendingOnSignal)
       DeleteOppositePendingOrders(OP_SELL);
 
-   string sellComment = (MOMorder == "MOM_SELL" || isMOMOrder) ? "SSL Short MOM" : "SSL Short";
+   string sellComment = isSpikeOrder ? "SSL Short SPIKE" : ((MOMorder == "MOM_SELL" || isMOMOrder) ? "SSL Short MOM" : "SSL Short");
    int ticket = SafeOrderSend(Symbol(), OP_SELLSTOP, Lots, entryPrice, Slippage, stopLoss, takeProfit, sellComment, MagicNumber, SellColor);
    if(ticket > 0)
      {
