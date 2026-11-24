@@ -43,7 +43,7 @@ CheckBasketProfitClose  Total open basket profit
 
 */
 
-string glbVersion = "V-SMALL-1068- Multi-Account Configurable Dubai Day Reset Timings";
+string glbVersion = "V-SMALL-1069- Strong Trend Resume Dual Conditions Angle Gt4 Or Lt2 HLine";
 
 int AccountMultiplierLOT = 500;//100;//1000;//400;//200;//500; ALWAYS multiples of 1000 is better for best results
 //balance multiplier
@@ -55,8 +55,10 @@ double DailyEquitySafetyFloor      = 2;//20;//10;//5;//5.0; // Dedicated Safety 
 double DailyEquityRetraceFloorPct  = 50.0; // Baseline retrace floor % (Dynamic Tiered: Peak>$50->50%, >$100->30%, >$200->20%, >$300->10%)
 double DailyEquityMaxLossUSD       = 1000;//200.0; // Adverse Day Protection (): Close all orders & pause trading till next day Dubai reset (20:00) if day equity drops
 bool   ResumeDayTradingOnEmaDirectionChange =false;// true; // Auto-resume Day Equity trading when EMAdirection changed
-bool   ResumeDayTradingOnStrongAngleSSL     = true;//false;//true; // Option 5 (Choice A): Auto-resume when EMA Angle >= 3.0 and SSL matches EMA direction
-double ResumeDayTradingMinEmaAngle          = 2;//3;//2;//3;//5;//4;//3;//2;//3.0;  // Minimum MathAbs(GlobalEmaAngle30) for strong trend (Default: 3.0 deg)
+bool   ResumeDayTradingOnStrongAngleSSL     = true;  // Option 5 (Choice A): Auto-resume on Strong Trend Dual Conditions
+double ResumeDayTradingHighEmaAngle         = 4.0;   // Condition 1: MathAbs(EMA Angle) > 4.0 for Strong Trend Resume (Default: >= 4.0 deg)
+double ResumeDayTradingLowEmaAngle          = 2.0;   // Condition 2: MathAbs(EMA Angle) < 2.0 with Horizontal Lines Started (Default: <= 2.0 deg)
+double ResumeDayTradingMinEmaAngle          = 4.0;   // Legacy fallback (Default: 4.0 deg)
 int    ResumeDayTradingMinCooldownMin      = 30;//10;   // Minimum cooldown buffer minutes after Retrace Floor Stop (e.g. 10m)
 enum ENUM_RESUME_DAY_MODE
   {
@@ -14284,12 +14286,12 @@ void CheckAndResumeDayTradingOnEmaDirectionChange()
 
 //+------------------------------------------------------------------+
 //| CheckAndResumeDayTradingOnStrongAngleAndSSL                      |
-//| OPTION 5 (Choice A): Auto-resume day trading when:               |
-//| 1. Day equity trading is paused (Retrace floor exit hit)         |
-//| 2. MathAbs(GlobalEmaAngle30) >= ResumeDayTradingMinEmaAngle (3.0)|
-//| 3. SSL Signal == EMA Direction (Confirmed trend & momentum)      |
-//| 4. Fresh alignment: SSL flipped away during pullback & flipped   |
-//|    back, OR direction reversed, OR minimum cooldown elapsed      |
+//| Auto-resumes Day Equity trading on Dual Strong Trend conditions: |
+//| Condition 1: MathAbs(EMA Angle) is more than 4 (>= 4.0 deg)      |
+//|              with SSL & slope confirming strong trend momentum   |
+//|                               OR                                 |
+//| Condition 2: MathAbs(EMA Angle) is less than 2 (<= 2.0 deg)      |
+//|              and when Horizontal lines are started               |
 //+------------------------------------------------------------------+
 void CheckAndResumeDayTradingOnStrongAngleAndSSL()
   {
@@ -14330,21 +14332,60 @@ void CheckAndResumeDayTradingOnStrongAngleAndSSL()
    if(liveEmaDir == 0)
       return;
 
-// 3. Check SSL Direction (must match EMA direction)
-   if(curSslDir == 0 || curSslDir != liveEmaDir)
-      return;
-
-// 4. Check EMA Angle (must be >= threshold and slope in same direction)
+// 3. Check EMA Angle & Active Horizontal Lines for Dual Resume Conditions:
+// User Rule:
+// 1. When mathabs emaangle is more than 4 (>= 4.0 deg)
+// OR
+// 2. mathabs EMAangle is lessthan 2 (<= 2.0 deg) and when Horizontal lines are started
+// These 2 can start resume strong trend...
    double curEmaAng = GetEmaAngleDegrees(30);
    double absAngle  = MathAbs(curEmaAng);
-   if(absAngle < ResumeDayTradingMinEmaAngle)
+
+   bool hasActiveRedLine   = (g_lastEqHighPrice > 0.0 && g_lastEqHighLineStart > 0);
+   bool hasActiveGreenLine = (g_lastEqLowPrice  > 0.0 && g_lastEqLowLineStart  > 0);
+   bool hasActiveHLine     = (hasActiveRedLine || hasActiveGreenLine);
+
+   bool isCond1HighAngle = false;
+   bool isCond2LowAngleHLine = false;
+
+   // Condition 1: MathAbs(EMA Angle) is more than 4 (>= 4.0 deg) with slope confirming trend direction
+   if(absAngle >= ResumeDayTradingHighEmaAngle)
+     {
+      if(liveEmaDir == 1 && curEmaAng >= ResumeDayTradingHighEmaAngle)
+         isCond1HighAngle = true;
+      else if(liveEmaDir == -1 && curEmaAng <= -ResumeDayTradingHighEmaAngle)
+         isCond1HighAngle = true;
+     }
+
+   // Condition 2: MathAbs(EMA Angle) is less than 2 (<= 2.0 deg) AND Horizontal lines are started
+   if(absAngle <= ResumeDayTradingLowEmaAngle && hasActiveHLine)
+     {
+      isCond2LowAngleHLine = true;
+     }
+
+   // Neither condition satisfied -> do not resume!
+   if(!isCond1HighAngle && !isCond2LowAngleHLine)
       return;
 
-// Ensure angle direction confirms EMA direction (positive for BUY, negative for SELL)
-   if(liveEmaDir == 1 && curEmaAng < ResumeDayTradingMinEmaAngle)
+// 4. Check Directional Confirmation:
+// - For Condition 1 (High Angle >= 4.0): SSL must strictly confirm EMA direction
+// - For Condition 2 (Low Angle <= 2.0 with H-Line): SSL must confirm either EMA direction or active horizontal line side
+   if(curSslDir == 0)
       return;
-   if(liveEmaDir == -1 && curEmaAng > -ResumeDayTradingMinEmaAngle)
-      return;
+
+   if(isCond1HighAngle)
+     {
+      if(curSslDir != liveEmaDir)
+         return;
+     }
+   else if(isCond2LowAngleHLine)
+     {
+      bool hLineSslAligned = (curSslDir == liveEmaDir) ||
+                             (hasActiveGreenLine && curSslDir == 1) ||
+                             (hasActiveRedLine && curSslDir == -1);
+      if(!hLineSslAligned)
+         return;
+     }
 
 // 5. Choice A Freshness Check:
 // - If pause happened in same direction, require that SSL flipped during pullback OR a fresh cross occurred
@@ -14373,18 +14414,34 @@ void CheckAndResumeDayTradingOnStrongAngleAndSSL()
                isFreshSignal = true;
               }
             else
-               if(g_dailyEquityPauseTime > 0 && (TimeCurrent() - g_dailyEquityPauseTime) >= (MathMax(ResumeDayTradingMinCooldownMin, 15) * 60))
+               if(isCond2LowAngleHLine && hasActiveHLine)
                  {
-                  // Cooldown buffer (at least 15m) fully elapsed and strong momentum maintained
+                  // Fresh Horizontal Line active/started in low angle range
                   isFreshSignal = true;
                  }
+               else
+                  if(g_dailyEquityPauseTime > 0 && (TimeCurrent() - g_dailyEquityPauseTime) >= (MathMax(ResumeDayTradingMinCooldownMin, 15) * 60))
+                    {
+                     // Cooldown buffer (at least 15m) fully elapsed and strong momentum maintained
+                     isFreshSignal = true;
+                    }
 
    if(!isFreshSignal)
       return;
 
-   string dirStr = (liveEmaDir == 1) ? "BULLISH(+1)" : "BEARISH(-1)";
-   string reason = StringFormat("STRONG TREND RESUME (EMA Angle=%+.1f deg >= %.1f | SSL=%s)",
-                                curEmaAng, ResumeDayTradingMinEmaAngle, dirStr);
+   string dirStr = (curSslDir == 1) ? "BULLISH(+1)" : "BEARISH(-1)";
+   string reason = "";
+   if(isCond1HighAngle)
+     {
+      reason = StringFormat("STRONG TREND RESUME (Cond 1: EMA Angle=%+.1f deg >= %.1f | SSL=%s)",
+                            curEmaAng, ResumeDayTradingHighEmaAngle, dirStr);
+     }
+   else
+     {
+      string hLineTag = (hasActiveRedLine && hasActiveGreenLine) ? "BOTH(R+G)" : (hasActiveRedLine ? "EQH-R(Red)" : "EQH-G(Green)");
+      reason = StringFormat("STRONG TREND RESUME (Cond 2: Low Angle=%+.1f deg <= %.1f | H-Line=%s | SSL=%s)",
+                            curEmaAng, ResumeDayTradingLowEmaAngle, hLineTag, dirStr);
+     }
 
    PerformDayTradingResume(reason);
   }
