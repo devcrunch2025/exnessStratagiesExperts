@@ -23191,7 +23191,7 @@ void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep,s
    double sellOpenPL = GetOpenPL(OP_SELL);
    int bMult = (balancelomultipler > 0) ? balancelomultipler : 1;
 
-   if((buyOpenPL + sellOpenPL) <= -30.0 * bMult && Lots <= 0.01 &&  EMADirection==requestedDirection)
+   if(buyOpenPL <-10* bMult && sellOpenPL<=-10* bMult && (buyOpenPL + sellOpenPL) <= -20.0 * bMult && Lots <= 0.01 &&  EMADirection==requestedDirection)
      {
       Lots = 0.02;
       Print(">>> [CHANGE_LOTS BOOST] Basket loss <= -$", DoubleToString(30.0 * bMult, 2),
