@@ -43,7 +43,7 @@ CheckBasketProfitClose  Total open basket profit
 
 */
 
-string glbVersion = "V-SMALL-1052- Dynamic Order Gap Base on Angle Under 4 and DDxSweep on Angle 4 Plus";
+string glbVersion = "V-SMALL-1053- Do Not Block Sweep Orders When EMA Angle Under 4";
 
 int AccountMultiplierLOT = 500;//100;//1000;//400;//200;//500; ALWAYS multiples of 1000 is better for best results
 //balance multiplier
@@ -367,6 +367,7 @@ bool   InpBlockAllOppositeWhenLineActive          = true;          // Single Act
 // ===== LSD SWEEP (SSLS/BSLS) OPPOSITE-ORDER BLOCK IN SafeOrderSend() =====
 bool   InpEnableSweepOppositeBlock                = true;          // Block opposite orders in SafeOrderSend(): SSLS blocks SELL, BSLS blocks BUY
 int    InpSweepOppositeBlockMinutes               = 5;             // Opposite-order block duration in minutes after SSLS/BSLS (5 min)
+double InpSweepOppositeBlockMinEmaAngle           = 4.0;           // Minimum MathAbs(EMA Angle) to block opposite orders on SSLS/BSLS sweep (Strategy 2 >= 4.0 blocks; Strategy 1 < 4.0 allows)
 bool   InpResetSweepOppositeBlockOnNewHLine       = true;          // Reset active SSLS/BSLS opposite-order block when a new horizontal signal (EQH-R/EQH-G) is detected
 bool   InpResetSweepOppositeBlockOnEmaFlip        = true;          // Reset active SSLS/BSLS opposite-order block when EMADirection flips
 bool   InpSweepMitigationWaitCandleClose          = true;          // Wait for closed candle (i >= 1) before mitigating/ending active EQH-R / EQH-G horizontal lines
@@ -18884,10 +18885,16 @@ void ActivateSweepOppositeBlockOnSweep(string sweepSig, datetime sweepBarTime)
 
    if(InpDeleteOppositePendingOnSweep)
      {
-      bool delBuyPending = (sweepSig == "BSLS");
-      int sweepDelRes = DeleteOppositePendingOrdersForGuard(delBuyPending,
-                        StringFormat("SWEEP %s (%s)", sweepSig, TimeToString(sweepBarTime, TIME_DATE|TIME_MINUTES)));
-      g_sweepPendingCleanupDir = (sweepDelRes < 0) ? (delBuyPending ? 1 : -1) : 0;
+      double curEmaAng = (GlobalEmaAngle30 != 0.0) ? GlobalEmaAngle30 : GetEmaAngleDegrees(30);
+      double absEmaAng = MathAbs(curEmaAng);
+      double minAngleToBlock = (InpSweepOppositeBlockMinEmaAngle > 0.0) ? InpSweepOppositeBlockMinEmaAngle : 4.0;
+      if(absEmaAng >= minAngleToBlock)
+        {
+         bool delBuyPending = (sweepSig == "BSLS");
+         int sweepDelRes = DeleteOppositePendingOrdersForGuard(delBuyPending,
+                           StringFormat("SWEEP %s (%s)", sweepSig, TimeToString(sweepBarTime, TIME_DATE|TIME_MINUTES)));
+         g_sweepPendingCleanupDir = (sweepDelRes < 0) ? (delBuyPending ? 1 : -1) : 0;
+        }
      }
   }
 
@@ -18901,6 +18908,13 @@ bool IsBlockedByActiveSweepOppositeRule(int orderType, string orderComment = "")
   {
    SyncSweepOppositeBlockState();
    if(g_sweepOppositeBlockSignal != "SSLS" && g_sweepOppositeBlockSignal != "BSLS")
+      return false;
+
+   // USER RULE: Do not block if EMA angle is less than 4 (Strategy 1: Range/Consolidation regime)
+   double curEmaAng = (GlobalEmaAngle30 != 0.0) ? GlobalEmaAngle30 : GetEmaAngleDegrees(30);
+   double absEmaAng = MathAbs(curEmaAng);
+   double minAngleToBlock = (InpSweepOppositeBlockMinEmaAngle > 0.0) ? InpSweepOppositeBlockMinEmaAngle : 4.0;
+   if(absEmaAng < minAngleToBlock)
       return false;
 
    bool isBuySideOrder  = (orderType == OP_BUY  || orderType == OP_BUYSTOP  || orderType == OP_BUYLIMIT);
