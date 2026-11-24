@@ -42,7 +42,7 @@ CheckBasketProfitClose  Total open basket profit
 */
 
 
-string glbVersion = "VMULTI-1302- Sweep Opposite Block Only Blocks MOM Orders When EMA Angle 4 Plus";
+string glbVersion = "VMULTI-1303- Disable Dubai Hours 14 16 17 Counter Trend Block";
 
 int AccountMultiplierLOT = 1000;//400;//200;//500; ALWAYS multiples of 1000 is better for best results
 //balance multiplier 
@@ -768,6 +768,7 @@ int GetEffectiveDubaiNightCloseEndHour()
 bool     EnableDubaiTradingPause             = true;
 string   DubaiTradingPauseHours              = "";// "19,20";
 int      ServerToDubaiOffsetHours            = 4;
+bool     InpEnableDubaiHoursCounterTrendBlock= false; // Dubai Hours Counter-Trend Block (14:00, 16:00, 17:00 Dubai): Block SELL when EMA Bullish (+1) (false = DISABLED)
 bool     InpEnableDubaiNightOneSideCloseAll  = true;  // Close all open orders 1x/day when Dubai time is 11AM-4PM (11-16) and Buy==0 or Sell==0
 int      InpDubaiNightCloseStartHour         = 11;    // Window start hour in Dubai time (11 = 11:00 AM inclusive)
 int      InpDubaiNightCloseEndHour           = 16;    // Window end hour in Dubai time (16 = 4:00 PM exclusive; covers 11:00..15:59:59)
@@ -19037,17 +19038,17 @@ int SafeOrderSend(string symbol,int orderType,double lots,double price,int slipp
       ignoreFlipTime = true;
       
       
-        datetime dubaiTime = TimeCurrent() + (ServerToDubaiOffsetHours * 3600);
-   int currentHour = TimeHour(dubaiTime);
-      if(currentHour ==14 || currentHour==16 || currentHour==17)
-      {
-      
-      
-      if(EMADirection==1 && requestedDirection==-1)
-      return -1;
-      
-      
-      }
+   // USER RULE (VMULTI-1303): Dubai Hours Counter-Trend Block (14:00, 16:00, 17:00 Dubai Time) - DISABLED by default
+   if(InpEnableDubaiHoursCounterTrendBlock)
+     {
+      datetime dubaiTime = TimeCurrent() + (ServerToDubaiOffsetHours * 3600);
+      int currentHour = TimeHour(dubaiTime);
+      if(currentHour == 14 || currentHour == 16 || currentHour == 17)
+        {
+         if(EMADirection == 1 && requestedDirection == -1)
+            return -1;
+        }
+     }
 
 
 
