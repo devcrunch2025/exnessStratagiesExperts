@@ -43,7 +43,7 @@ CheckBasketProfitClose  Total open basket profit
 
 */
 
-string glbVersion = "V-SMALL-1061- Disable Spread Spike Gate";
+string glbVersion = "V-SMALL-1062- Align Horizontal Lines Block Gate";
 
 int AccountMultiplierLOT = 500;//100;//1000;//400;//200;//500; ALWAYS multiples of 1000 is better for best results
 //balance multiplier
@@ -19375,7 +19375,7 @@ int SafeOrderSend(string symbol,int orderType,double lots,double price,int slipp
      }
 
 // Physical Gate: Both-lines confusion block + single active Red/Green line $50 opposite-order block
-   if(IsBlockedByActiveHorizontalLines(orderType, price, comment) && (MathAbs(GlobalEmaAngle30) <= 3.0))
+   if(IsBlockedByActiveHorizontalLines(orderType, price, comment))
       return -1;
 
    if(IsBlockedByActiveSweepOppositeRule(orderType, comment))
