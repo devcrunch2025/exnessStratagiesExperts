@@ -43,7 +43,7 @@ CheckBasketProfitClose  Total open basket profit
 
 */
 
-string glbVersion = "V-SMALL-1075- Spike Orders Verify SSL Price Gap";
+string glbVersion = "V-SMALL-1076- Spike Orders Pending With 50 Gap";
 
 int AccountMultiplierLOT = 500;//100;//1000;//400;//200;//500; ALWAYS multiples of 1000 is better for best results
 //balance multiplier
@@ -1065,7 +1065,9 @@ double InpPendingGapLossMultiplier         = 2.0;   // Pending gap multiplier on
  int    InpSpikeOrderCooldownSec               = 5;    // Spike Orders: Cooldown seconds between consecutive spike order attempts (default 5s)
  int    InpMaxSpikePendingOrders               = 1;    // Spike Orders: Max simultaneous pending stop orders (default 1)
  bool   InpSpikeOrderBypassSameTypeGap         = true; // Spike Orders: Bypass wide same-type minimum gap during sudden spike momentum
- double InpSpikeOrderMinGapUSD                 = 20.0; // Spike Orders: Minimal gap between consecutive spike orders ($20 USD from SSLLongShortPendingGapRaw)
+ double InpSpikeOrderPendingGapUSD             = 50.0; // Spike Orders: Pending stop entry gap from live price ($50 USD)
+ double InpSpikeOrderMinGapUSD                 = 50.0; // Spike Orders: Minimal gap between consecutive spike orders ($50 USD)
+ double InpSpikeOrderStaleCleanupDistUSD       = 100.0; // Spike Orders: Distance to delete stale pending spike order ($100 USD)
  bool   InpSpikeBypassHorizontalLineBlock      = true; // Spike Orders: Bypass active opposite horizontal line block (EQH-R/EQH-G)
  bool   InpSpikeBypassSweepBlock               = true; // Spike Orders: Bypass active liquidity sweep block (SSLS/BSLS)
  bool   InpFollowEmaIgnoreSsl                  = true; // Trade Direction: Follow EMADirection (Bull=BUY, Bear=SELL) & Ignore SSL Signal
@@ -16652,8 +16654,8 @@ void OnTickCore()
       sellSignal = false;
       missingSellOrder = false;
 
-      // Clean up stale pending spike orders if price drifted away (> $50 USD)
-      CleanupStaleSpikePendingOrders(OP_BUYSTOP, 50.0);
+      // Clean up stale pending spike orders if price drifted away
+      CleanupStaleSpikePendingOrders(OP_BUYSTOP, InpSpikeOrderStaleCleanupDistUSD);
 
       // Create Spike BUY pending order whenever no pending spike buy exists
       static datetime s_lastSpikeBuyTime = 0;
@@ -16668,8 +16670,8 @@ void OnTickCore()
       buySignal = false;
       missingBuyOrder = false;
 
-      // Clean up stale pending spike orders if price drifted away (> $50 USD)
-      CleanupStaleSpikePendingOrders(OP_SELLSTOP, 50.0);
+      // Clean up stale pending spike orders if price drifted away
+      CleanupStaleSpikePendingOrders(OP_SELLSTOP, InpSpikeOrderStaleCleanupDistUSD);
 
       // Create Spike SELL pending order whenever no pending spike sell exists
       static datetime s_lastSpikeSellTime = 0;
@@ -27391,15 +27393,15 @@ void OpenBuy(string MOMorder="")
         }
      }
    RefreshRates();
-   double pendingGap = GetSSLLongShortPendingGapRaw(OP_BUY, true);
+   double pendingGap = isSpikeOrder ? InpSpikeOrderPendingGapUSD : GetSSLLongShortPendingGapRaw(OP_BUY, true);
    double minStopDist = GetRequiredStopDistance();
    double entryPrice = Ask + pendingGap;
    if(entryPrice < Ask + minStopDist)
       entryPrice = Ask + minStopDist;
    entryPrice = NormalizeDouble(entryPrice, Digits);
 
-   // USER RULE: Spike orders verify minimum gap between two orders is regular price gap $20 from SSL price gap variable (SSLLongShortPendingGapRaw)
-   double requiredGap = isSpikeOrder ? ((SSLLongShortPendingGapRaw > 0.0) ? SSLLongShortPendingGapRaw : 20.0) : GetDynamicOrderGap(OP_BUY);
+   // USER RULE: Spike orders are pending orders with gap $50 (verifies minimum gap between two orders is $50)
+   double requiredGap = isSpikeOrder ? InpSpikeOrderMinGapUSD : GetDynamicOrderGap(OP_BUY);
    if(!HasMinimumSameOrderGap(OP_BUY, requiredGap, entryPrice))
      {
       Print("Order Blocked HasMinimumSameOrderGap: ", (isSpikeOrder ? "[SPIKE] " : ""), "Required Gap=", DoubleToString(requiredGap, 2), " Proposed Entry=", DoubleToString(entryPrice, Digits));
@@ -27473,15 +27475,15 @@ void OpenSell(string MOMorder="")
         }
      }
    RefreshRates();
-   double pendingGap = GetSSLLongShortPendingGapRaw(OP_SELL, true);
+   double pendingGap = isSpikeOrder ? InpSpikeOrderPendingGapUSD : GetSSLLongShortPendingGapRaw(OP_SELL, true);
    double minStopDist = GetRequiredStopDistance();
    double entryPrice = Bid - pendingGap;
    if(entryPrice > Bid - minStopDist)
       entryPrice = Bid - minStopDist;
    entryPrice = NormalizeDouble(entryPrice, Digits);
 
-   // USER RULE: Spike orders verify minimum gap between two orders is regular price gap $20 from SSL price gap variable (SSLLongShortPendingGapRaw)
-   double requiredGap = isSpikeOrder ? ((SSLLongShortPendingGapRaw > 0.0) ? SSLLongShortPendingGapRaw : 20.0) : GetDynamicOrderGap(OP_SELL);
+   // USER RULE: Spike orders are pending orders with gap $50 (verifies minimum gap between two orders is $50)
+   double requiredGap = isSpikeOrder ? InpSpikeOrderMinGapUSD : GetDynamicOrderGap(OP_SELL);
    if(!HasMinimumSameOrderGap(OP_SELL, requiredGap, entryPrice))
      {
       Print("Order Blocked HasMinimumSameOrderGap: ", (isSpikeOrder ? "[SPIKE] " : ""), "Required Gap=", DoubleToString(requiredGap, 2), " Proposed Entry=", DoubleToString(entryPrice, Digits));
