@@ -43,7 +43,7 @@ CheckBasketProfitClose  Total open basket profit
 
 */
 
-string glbVersion = "V-SMALL-1050- Cap Lot to 0.01 on Strong Momentum in Day Step Trading";
+string glbVersion = "V-SMALL-1051- Method 6 Same-Type Orders Threshold 3X and 6X on Angle Over 4";
 
 int AccountMultiplierLOT = 500;//100;//1000;//400;//200;//500; ALWAYS multiples of 1000 is better for best results
 //balance multiplier
@@ -7777,6 +7777,7 @@ double InpMethod6SteepAngleDegrees          = 4.0;    // Method 6: EMA angle thr
 double InpMethod6SteepAngleMultiplier       = 2.0;    // Method 6: Threshold multiplier when MathAbs(EMA Angle) > 4 (default 2.0 = double)
 double InpMethod6LowAngleThresholdUSD       = 1.0;//5/5;//5;//10;//2.0;    // Method 6: Profit threshold when MathAbs(EMA Angle) < 4 deg ($2.00 * multiplier)
 double InpMethod6LowAngleEmaDegrees         = 0;//4.0;    // Method 6: Dynamic EMA angle boundary in degrees (default 4.0)
+double InpMethod6SameTypeMultiplier         = 3.0;    // Method 6: Threshold multiplier when all orders are same type (2+ BUY or 2+ SELL = 3.0x; if angle > 4 then 3.0 * 2.0 = 6.0x)
 
 // Universal Trend-Aware StopLoss Modifier (Applies across all order modify methods)
 // User Rule:
@@ -9485,13 +9486,30 @@ void ExecuteMethod6CombinationAction(int &comboIndices[], int comboCount, double
    double baseThreshold = InpMethod6ProfitThresholdUSD;
    if(baseThreshold <= 0.0)
       baseThreshold = 2.0;
-   double angleMult = (absEmaAng > InpMethod6SteepAngleDegrees) ? InpMethod6SteepAngleMultiplier : 1.0;
+   // Check if all orders in combo are same type (all BUY or all SELL)
+   bool isAllSameType = true;
+   int firstComboType = candTypes[comboIndices[0]];
+   for(int c = 1; c < comboCount; c++)
+     {
+      if(candTypes[comboIndices[c]] != firstComboType)
+        {
+         isAllSameType = false;
+         break;
+        }
+     }
+
+   double angleMult    = (absEmaAng > InpMethod6SteepAngleDegrees) ? InpMethod6SteepAngleMultiplier : 1.0;
+   double sameTypeMult = isAllSameType ? ((InpMethod6SameTypeMultiplier > 0.0) ? InpMethod6SameTypeMultiplier : 3.0) : 1.0;
    int mult = (balancelomultipler > 0) ? balancelomultipler : 1;
-   double activeThresholdUSD = baseThreshold * angleMult * mult;
+   double activeThresholdUSD = baseThreshold * sameTypeMult * angleMult * mult;
+
+   string sameTypeStr = isAllSameType ? (firstComboType == OP_BUY ? " [SAME TYPE ALL-BUY 3X]" : " [SAME TYPE ALL-SELL 3X]") : " [OPPOSITE]";
+   string angleStr    = (absEmaAng > InpMethod6SteepAngleDegrees) ? (isAllSameType ? " [DOUBLED >4 deg -> 6X TOTAL]" : " [DOUBLED >4 deg -> 2X]") : "";
 
    Print(">>> [METHOD 6 TRIGGERED] Combination of ", comboCount, " orders hit Profit = $", DoubleToString(comboSum, 2),
          " >= Threshold $", DoubleToString(activeThresholdUSD, 2),
-         " (EMA Angle=", DoubleToString(curEmaAng, 1), " deg", (absEmaAng > InpMethod6SteepAngleDegrees ? " [DOUBLED >4 deg]" : ""), ")",
+         sameTypeStr, angleStr,
+         " (EMA Angle=", DoubleToString(curEmaAng, 1), " deg)",
          ". Executing Action: 1) Close losing orders at market, 2) Modify profit orders with SL at current price.");
 
 // 1. FIRST: Close losing orders at market (Priority 1: Opposite order type, Priority 2: Same order type)
@@ -9860,9 +9878,14 @@ void ExecuteMethod6PartialLotAction(int winIdx, int lossIdx, double partialLots,
    double baseThreshold = InpMethod6ProfitThresholdUSD;
    if(baseThreshold <= 0.0)
       baseThreshold = 2.0;
-   double angleMult = (absEmaAng > InpMethod6SteepAngleDegrees) ? InpMethod6SteepAngleMultiplier : 1.0;
+   bool isSameTypePartial = (winType == lossType);
+   double angleMult    = (absEmaAng > InpMethod6SteepAngleDegrees) ? InpMethod6SteepAngleMultiplier : 1.0;
+   double sameTypeMult = isSameTypePartial ? ((InpMethod6SameTypeMultiplier > 0.0) ? InpMethod6SameTypeMultiplier : 3.0) : 1.0;
    int mult = (balancelomultipler > 0) ? balancelomultipler : 1;
-   double activeThresholdUSD = baseThreshold * angleMult * mult;
+   double activeThresholdUSD = baseThreshold * sameTypeMult * angleMult * mult;
+
+   string sameTypeStr = isSameTypePartial ? (winType == OP_BUY ? " [SAME TYPE BUY 3X]" : " [SAME TYPE SELL 3X]") : " [OPPOSITE]";
+   string angleStr    = (absEmaAng > InpMethod6SteepAngleDegrees) ? (isSameTypePartial ? " [DOUBLED >4 deg -> 6X TOTAL]" : " [DOUBLED >4 deg -> 2X]") : "";
 
    Print(">>> [METHOD 6 PARTIAL LOT TRIGGERED] Winner Ticket #", winTkt,
          " (", (winType == OP_BUY ? "BUY " : "SELL "), DoubleToString(winLots, 2), "L, Total P/L=+$", DoubleToString(winPL, 2),
@@ -9872,6 +9895,7 @@ void ExecuteMethod6PartialLotAction(int winIdx, int lossIdx, double partialLots,
          " | Partial Cut = ", DoubleToString(partialLots, 2), "L (Loss=-$", DoubleToString(MathAbs(partialLossUSD), 2), ")",
          " | Net Combo Profit = +$", DoubleToString(netProfitUSD, 2),
          " >= Threshold $", DoubleToString(activeThresholdUSD, 2),
+         sameTypeStr, angleStr,
          " (EMA Angle=", DoubleToString(curEmaAng, 1), " deg)");
 
 // 1. FIRST: Close partial lot of losing order at market
@@ -10140,12 +10164,16 @@ void ModifyMethod6MultiOrderCombinationsOver5USD()
    double baseThreshold = InpMethod6ProfitThresholdUSD;
    if(baseThreshold <= 0.0)
       baseThreshold = 2.0;
-// USER RULE: If MathAbs(EMA Angle) > 4 -> threshold should be double: InpMethod6ProfitThresholdUSD * 2 * multiplier
+   // USER RULE: If MathAbs(EMA Angle) > 4 -> angle multiplier is 2.0x (InpMethod6SteepAngleMultiplier)
    double angleMult = (absEmaAng > InpMethod6SteepAngleDegrees) ? InpMethod6SteepAngleMultiplier : 1.0;
-   double threshold = baseThreshold * angleMult * mult;
-   double fullThreshold = threshold;
-   if(fullThreshold <= 0.0)
-      fullThreshold = 5.0 * mult;
+   double thresholdOpposite = baseThreshold * angleMult * mult;
+
+   // USER RULE (VMULTI-1295): If all orders in combo are same type (2+ BUY or 2+ SELL) -> 3X (or 6X if angle > 4: 3X * 2X = 6X)
+   double sameTypeMult = (InpMethod6SameTypeMultiplier > 0.0) ? InpMethod6SameTypeMultiplier : 3.0;
+   double thresholdSameType = baseThreshold * sameTypeMult * angleMult * mult;
+
+   double threshold     = thresholdOpposite;
+   double fullThreshold = thresholdSameType;
    int minOrders = (InpMethod6MinOrderCount >= 2) ? InpMethod6MinOrderCount : 2;
 
    for(int i = OrdersTotal() - 1; i >= 0 && candCount < MAX_M6_ORDERS; i--)
@@ -10336,7 +10364,7 @@ void ModifyMethod6MultiOrderCombinationsOver5USD()
             if((candProfits[i] < 0.0 || candProfits[j] < 0.0) && (candTypes[i] == candTypes[j]))
               {
                double sum2 = candProfits[i] + candProfits[j];
-               if(sum2 >= threshold)
+               if(sum2 >= thresholdSameType)
                  {
                   int combo[2];
                   combo[0] = i;
@@ -10371,7 +10399,7 @@ void ModifyMethod6MultiOrderCombinationsOver5USD()
                if(!hasBuy || !hasSell) // All same order type
                  {
                   double sum3 = candProfits[i] + candProfits[j] + candProfits[k];
-                  if(sum3 >= threshold)
+                  if(sum3 >= thresholdSameType)
                     {
                      int combo[3];
                      combo[0] = i;
@@ -10414,7 +10442,7 @@ void ModifyMethod6MultiOrderCombinationsOver5USD()
                   if(!hasBuy || !hasSell) // All same order type
                     {
                      double sum4 = candProfits[i] + candProfits[j] + candProfits[k] + candProfits[m];
-                     if(sum4 >= threshold)
+                     if(sum4 >= thresholdSameType)
                        {
                         int combo[4];
                         combo[0] = i;
@@ -10437,7 +10465,7 @@ void ModifyMethod6MultiOrderCombinationsOver5USD()
      }
 
 // --- PLAN B: PARTIAL ORDER LOT (Same-Type Losers) ---
-   ExecuteMethod6PartialLotSearch(false, threshold, candCount, candTickets, candTypes, candLots,
+   ExecuteMethod6PartialLotSearch(false, thresholdSameType, candCount, candTickets, candTypes, candLots,
                                   candOpenPrices, candTakeProfits, candProfits, isProcessed);
 
 
