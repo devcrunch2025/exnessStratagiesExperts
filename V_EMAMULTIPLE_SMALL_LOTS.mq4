@@ -43,7 +43,7 @@ CheckBasketProfitClose  Total open basket profit
 
 */
 
-string glbVersion = "V-SMALL-1077- Spike Basket Profit Ladder 50Pct Protect";
+string glbVersion = "V-SMALL-1078- Spike Every Tick Peak Profit 50Pct Protect";
 
 int AccountMultiplierLOT = 500;//100;//1000;//400;//200;//500; ALWAYS multiples of 1000 is better for best results
 //balance multiplier
@@ -1073,6 +1073,7 @@ double InpPendingGapLossMultiplier         = 2.0;   // Pending gap multiplier on
  bool   InpFollowEmaIgnoreSsl                  = true;  // Trade Direction: Follow EMADirection (Bull=BUY, Bear=SELL) & Ignore SSL Signal
  bool   InpEnableSpikeProfitLadder             = true;  // Spike Ladder: Enable $5 Step Profit Ladder with 50% Protection
  double InpSpikeLadderStepUSD                  = 5.0;   // Spike Ladder: Step size in USD ($5.00)
+ double InpSpikeMinProfitToProtectUSD          = 1.0;   // Spike Ladder: Min peak profit to activate 50% protection ($1.00)
  double InpSpikeLadderProtectPct               = 50.0;  // Spike Ladder: Protected profit % on market reversal (50%)
 
 double g_spikeBuyBucketPeakPL                  = 0.0;   // Peak floating profit reached by open BUY spike bucket
@@ -15707,6 +15708,9 @@ void OnTick()
    CheckBasketLossDeRiskAndBreakevenProtection(); // Basket Loss >= $10: Below order BE SL at +$50 raw & Older order BE exit
    IsDailyEquityStopReached(); // Check target every tick; sets g_dailyEquityTradingBlocked and closes all orders if hit
 
+   // Record every tick highest spike bucket profit and protect 50% of profit (runs on every incoming tick)
+   ManageSpikeProfitLadder();
+
    bool isTradingPausedOrBlocked = (g_dailyEquityTradingBlocked || g_manualTradingPaused || DayProfitLadderTradingStopped || g_dailyEquityAdverseLossHitToday || TradingHaltedUntilNextFlip);
 
    if(isTradingPausedOrBlocked)
@@ -22222,19 +22226,21 @@ void ManageSpikeProfitLadder()
      }
 
    // 1. Manage BUY Spike Bucket
-   if(spikeBuyCount == 0 || spikeBuyPL <= 0.0)
+   if(spikeBuyCount == 0)
      {
       g_spikeBuyBucketPeakPL      = 0.0;
       g_spikeBuyBucketLadderLevel = 0;
      }
    else
      {
+      // Record highest spike bucket profit on every incoming tick
       if(spikeBuyPL > g_spikeBuyBucketPeakPL)
          g_spikeBuyBucketPeakPL = spikeBuyPL;
 
-      if(g_spikeBuyBucketPeakPL >= InpSpikeLadderStepUSD)
+      double minToProtect = (InpSpikeMinProfitToProtectUSD > 0.0) ? InpSpikeMinProfitToProtectUSD : InpSpikeLadderStepUSD;
+      if(g_spikeBuyBucketPeakPL >= minToProtect)
         {
-         int curLevel = (int)MathFloor(g_spikeBuyBucketPeakPL / InpSpikeLadderStepUSD);
+         int curLevel = (InpSpikeLadderStepUSD > 0.0) ? (int)MathFloor(g_spikeBuyBucketPeakPL / InpSpikeLadderStepUSD) : 1;
          if(curLevel > g_spikeBuyBucketLadderLevel)
            {
             g_spikeBuyBucketLadderLevel = curLevel;
@@ -22293,19 +22299,21 @@ void ManageSpikeProfitLadder()
      }
 
    // 2. Manage SELL Spike Bucket
-   if(spikeSellCount == 0 || spikeSellPL <= 0.0)
+   if(spikeSellCount == 0)
      {
       g_spikeSellBucketPeakPL      = 0.0;
       g_spikeSellBucketLadderLevel = 0;
      }
    else
      {
+      // Record highest spike bucket profit on every incoming tick
       if(spikeSellPL > g_spikeSellBucketPeakPL)
          g_spikeSellBucketPeakPL = spikeSellPL;
 
-      if(g_spikeSellBucketPeakPL >= InpSpikeLadderStepUSD)
+      double minToProtect = (InpSpikeMinProfitToProtectUSD > 0.0) ? InpSpikeMinProfitToProtectUSD : InpSpikeLadderStepUSD;
+      if(g_spikeSellBucketPeakPL >= minToProtect)
         {
-         int curLevel = (int)MathFloor(g_spikeSellBucketPeakPL / InpSpikeLadderStepUSD);
+         int curLevel = (InpSpikeLadderStepUSD > 0.0) ? (int)MathFloor(g_spikeSellBucketPeakPL / InpSpikeLadderStepUSD) : 1;
          if(curLevel > g_spikeSellBucketLadderLevel)
            {
             g_spikeSellBucketLadderLevel = curLevel;
@@ -30614,9 +30622,10 @@ void UpdateDashboard(DailyProtectionState &state)
    string spikeTag = (EMADirection == 1 && GlobalEmaAngle30 < 0.0) ? ", SPIKE BULL" : ((EMADirection == -1 && GlobalEmaAngle30 > 0.0) ? ", SPIKE BEAR" : "");
    if(InpEnableSpikeProfitLadder)
      {
-      if(g_spikeBuyBucketPeakPL >= InpSpikeLadderStepUSD)
+      double minToProtect = (InpSpikeMinProfitToProtectUSD > 0.0) ? InpSpikeMinProfitToProtectUSD : InpSpikeLadderStepUSD;
+      if(g_spikeBuyBucketPeakPL >= minToProtect)
          spikeTag += StringFormat(" [LAD: B Pk=$%.1f Flr=$%.1f]", g_spikeBuyBucketPeakPL, g_spikeBuyBucketPeakPL * (InpSpikeLadderProtectPct / 100.0));
-      if(g_spikeSellBucketPeakPL >= InpSpikeLadderStepUSD)
+      if(g_spikeSellBucketPeakPL >= minToProtect)
          spikeTag += StringFormat(" [LAD: S Pk=$%.1f Flr=$%.1f]", g_spikeSellBucketPeakPL, g_spikeSellBucketPeakPL * (InpSpikeLadderProtectPct / 100.0));
      }
    string sslShortDir = (currentSSLDirection > 0) ? "BUY (+1)" : (currentSSLDirection < 0 ? "SELL (-1)" : "NONE");
