@@ -42,7 +42,7 @@ CheckBasketProfitClose  Total open basket profit
 */
 
 
-string glbVersion = "VMULTI-1293- Basket Loss Exceeds 30 USD Lots Boost to 0.02";
+string glbVersion = "VMULTI-1294- Cap Lot to 0.01 on Strong Momentum in Day Step Trading";
 
 int AccountMultiplierLOT = 1000;//400;//200;//500; ALWAYS multiples of 1000 is better for best results
 //balance multiplier 
@@ -64,6 +64,8 @@ enum ENUM_RESUME_DAY_MODE
 ENUM_RESUME_DAY_MODE InpResumeDayTradingTargetMode = RESUME_MODE_TRAIL_STEP; // Resume Target Mode [0=Trail Step Mode, 1=Full Target]
 int    InpTradingResumeIconCode             = 241;  // Chart icon Wingdings code for Trading Resume (241=Play, 251=Check, 159=Circle)
 bool   InpCloseOrdersOnManualPause          = false; // When clicking Pause Trading: false = delete pending only & keep open market orders; true = close all market orders
+input bool   InpCapStepTradingMomentumLot001      = true;  // Step Trading Momentum Cap: When day equity step trading started/resumed, cap strong momentum lot to max 0.01
+input bool   InpStepTradingMomentumUsesMultiplier = true;  // Step Trading Momentum Lot uses Balance Multiplier (true = 0.01 * mult, false = strict 0.01)
 
 //--- Dynamic Hourly Target Decay (VMULTI-1269) ---
 input bool   InpEnableHourlyTargetDecay        = true;   // Enable Hourly Target Decay ($1*mult/hr down to min floor)
@@ -23120,10 +23122,10 @@ void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep,s
    double sellOpenPL = GetOpenPL(OP_SELL);
    int bMult = (balancelomultipler > 0) ? balancelomultipler : 1;
 
-   if((buyOpenPL + sellOpenPL) <= -30.0 * bMult && Lots <= 0.01)
+   if(buyOpenPL < -10 * bMult && sellOpenPL <= -10 * bMult && (buyOpenPL + sellOpenPL) <= -20.0 * bMult && Lots <= 0.01 && EMADirection == requestedDirection)
      {
       Lots = 0.02;
-      Print(">>> [CHANGE_LOTS BOOST] Basket loss <= -$", DoubleToString(30.0 * bMult, 2),
+      Print(">>> [CHANGE_LOTS BOOST] Basket loss <= -$", DoubleToString(20.0 * bMult, 2),
             " (BuyPL: ", DoubleToString(buyOpenPL, 2), ", SellPL: ", DoubleToString(sellOpenPL, 2),
             ", TotalPL: ", DoubleToString(buyOpenPL + sellOpenPL, 2),
             ") -> Lots boosted to 0.02 (pre-multiplier) | Type: ", orderType, " | Reason: ", reason);
@@ -23175,11 +23177,37 @@ void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep,s
    if(Lots > effectiveMaxLot)
       Lots = effectiveMaxLot;
 
+// USER RULE (VMULTI-1294): When Day Equity step trading started or strong momentum trading resumed:
+// On trading strong momentum, maximum lot is 0.01 (pre-multiplier)
+   bool isDayStepTradingOrResumed = (g_dailyEquityTargetHitToday || g_dailyEquityIsResumedLeg);
+   bool isStrongMomentumTrade     = (MOMorder == "MOM_BUY" || MOMorder == "MOM_SELL" || isMOMOrder ||
+                                     IsStrongMomentum(orderType) ||
+                                     (MathAbs(GlobalEmaAngle30) > 3.0 && !IsEmaWEAKDistanceReduced50PercentFromPeak(orderType)) ||
+                                     (g_dailyEquityIsResumedLeg && StringFind(g_lastTradingResumeReason, "STRONG") >= 0));
+
+   if(InpCapStepTradingMomentumLot001 && isDayStepTradingOrResumed && isStrongMomentumTrade)
+     {
+      if(Lots > 0.01)
+        {
+         Lots = 0.01;
+         PrintFormat(">>> [CHANGE_LOTS CAPPED] Day Equity Step Trading / Resumed Leg active with Strong Momentum -> Lots capped to max 0.01 (pre-mult) | Angle=%+.1f | MOM=%s | ResumedReason=%s | Type=%d | Reason=%s",
+                     GlobalEmaAngle30, MOMorder, g_lastTradingResumeReason, orderType, reason);
+        }
+     }
+
    /*int lotMultiplierDiv = (AccountMultiplierLOT > 0) ? AccountMultiplierLOT : 500;
    balancelomultipler = (int)(AccountBalance() / lotMultiplierDiv);
    if(balancelomultipler < 1)
       balancelomultipler = 1;*/
    Lots = Lots * balancelomultipler;
+
+   if(InpCapStepTradingMomentumLot001 && isDayStepTradingOrResumed && isStrongMomentumTrade)
+     {
+      int bMultLot = (balancelomultipler > 0) ? balancelomultipler : 1;
+      double maxAllowedLot = 0.01 * (InpStepTradingMomentumUsesMultiplier ? bMultLot : 1);
+      if(Lots > maxAllowedLot)
+         Lots = maxAllowedLot;
+     }
 
    bool runMethod1Lots = (InpLsdSupportMode == LSD_MODE_METHOD1_BREAKOUT || InpLsdSupportMode == LSD_MODE_BOTH);
    bool runMethod2Lots = (InpLsdSupportMode == LSD_MODE_METHOD2_BOUNCE   || InpLsdSupportMode == LSD_MODE_BOTH);
@@ -23299,6 +23327,14 @@ void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep,s
                  }
               }
         }
+     }
+
+   if(InpCapStepTradingMomentumLot001 && isDayStepTradingOrResumed && isStrongMomentumTrade)
+     {
+      int bMultFinal = (balancelomultipler > 0) ? balancelomultipler : 1;
+      double maxAllowedFinalLot = 0.01 * (InpStepTradingMomentumUsesMultiplier ? bMultFinal : 1);
+      if(Lots > maxAllowedFinalLot)
+         Lots = maxAllowedFinalLot;
      }
 
    Lots = NormalizeLots(Lots);
