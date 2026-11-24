@@ -43,7 +43,7 @@ CheckBasketProfitClose  Total open basket profit
 
 */
 
-string glbVersion = "V-SMALL-1069- Strong Trend Resume Dual Conditions Angle Gt4 Or Lt2 HLine";
+string glbVersion = "V-SMALL-1070- Disable Same-Type Minimum Gap For Horizontal Orders";
 
 int AccountMultiplierLOT = 500;//100;//1000;//400;//200;//500; ALWAYS multiples of 1000 is better for best results
 //balance multiplier
@@ -344,7 +344,8 @@ bool   InpCloseSellOnNewEqlGreenLine              = true;          // On new EQH
 double InpCloseSellMaxLossUSD                     = 1.0;           // Max loss in USD ($1.00 * multiplier) to close SELL order
 double InpNewEqlBuyOrderLotBase                   = 0.03;//0.06/3;//0.02;//0.06;//0.03;//0.06;          // Base lot for immediate SSL Long (0.06 * multiplier)
 double InpHorizontalOrderMaxEmaAngle             = 4.0;           // Horizontal Orders: Max MathAbs(EMA Angle) to create orders (if >= 4.0: do not create horizontal orders; only create when < 4.0)
-double InpHorizontalOrderSameTypeMinGapUSD        =100;// 200.0;               // Minimum price gap in USD ($200) between 2 horizontal EQH orders of same type
+bool   InpEnableHorizontalOrderSameTypeMinGap = false;         // Enable Same-Type Minimum Gap for horizontal orders (false = DISABLED)
+double InpHorizontalOrderSameTypeMinGapUSD    = 0.0;//100;// 200.0; // Minimum price gap in USD ($100) between 2 horizontal EQH orders of same type (0 = disabled)
 bool   InpEnableModifySLOnLineEnded               = true;          // When horizontal line ends: modify open horizontal order SL with $50 gap
 double InpHorizontalLineEndedSLGapRaw             =3000;//1000;//200;// 50.0;          // StopLoss raw price gap ($50) when horizontal line ends
 double InpHorizontalLineMinEmaGapRaw             = 0.0;           // Min raw price gap ( = disabled) between horizontal line & EMA (Do not create orders if < min gap)
@@ -34162,8 +34163,8 @@ void ManageLsdSweepLineStopLossProtection()
 //+------------------------------------------------------------------+
 bool HasMinimumHorizontalOrderGap(int orderType, double proposedPrice, double minGapUSD)
   {
-// Honor configured InpHorizontalOrderSameTypeMinGapUSD (0 or negative disables check)
-   if(minGapUSD <= 0.0)
+// Honor configured InpHorizontalOrderSameTypeMinGapUSD (disabled if false or <= 0.0)
+   if(!InpEnableHorizontalOrderSameTypeMinGap || minGapUSD <= 0.0)
       return true;
    double effectiveGap = minGapUSD;
 
