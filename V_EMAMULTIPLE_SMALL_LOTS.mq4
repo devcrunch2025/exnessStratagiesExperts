@@ -43,7 +43,7 @@ CheckBasketProfitClose  Total open basket profit
 
 */
 
-string glbVersion = "V-SMALL-1070- Disable Same-Type Minimum Gap For Horizontal Orders";
+string glbVersion = "V-SMALL-1071- Auto-Resume Trading On Direction Angle Mismatch Spike";
 
 int AccountMultiplierLOT = 500;//100;//1000;//400;//200;//500; ALWAYS multiples of 1000 is better for best results
 //balance multiplier
@@ -55,9 +55,11 @@ double DailyEquitySafetyFloor      = 2;//20;//10;//5;//5.0; // Dedicated Safety 
 double DailyEquityRetraceFloorPct  = 50.0; // Baseline retrace floor % (Dynamic Tiered: Peak>$50->50%, >$100->30%, >$200->20%, >$300->10%)
 double DailyEquityMaxLossUSD       = 1000;//200.0; // Adverse Day Protection (): Close all orders & pause trading till next day Dubai reset (20:00) if day equity drops
 bool   ResumeDayTradingOnEmaDirectionChange =false;// true; // Auto-resume Day Equity trading when EMAdirection changed
-bool   ResumeDayTradingOnStrongAngleSSL     = true;  // Option 5 (Choice A): Auto-resume on Strong Trend Dual Conditions
+bool   ResumeDayTradingOnStrongAngleSSL     = true;  // Option 5 (Choice A): Auto-resume on Strong Trend / Spike Conditions
 double ResumeDayTradingHighEmaAngle         = 4.0;   // Condition 1: MathAbs(EMA Angle) > 4.0 for Strong Trend Resume (Default: >= 4.0 deg)
 double ResumeDayTradingLowEmaAngle          = 2.0;   // Condition 2: MathAbs(EMA Angle) < 2.0 with Horizontal Lines Started (Default: <= 2.0 deg)
+bool   ResumeDayTradingOnSpikeMismatch      = true;  // Condition 3: Resume on Spike (EMA Direction & Angle Mismatch: Bull +1 with Angle < 0, or Bear -1 with Angle > 0)
+bool   InpSpikeResumeBypassCooldown         = true;  // Spike Resume: Bypass cooldown buffer on sudden spike impulse
 double ResumeDayTradingMinEmaAngle          = 4.0;   // Legacy fallback (Default: 4.0 deg)
 int    ResumeDayTradingMinCooldownMin      = 30;//10;   // Minimum cooldown buffer minutes after Retrace Floor Stop (e.g. 10m)
 enum ENUM_RESUME_DAY_MODE
@@ -13760,14 +13762,17 @@ void CreateTradingResumeChartIcon(string reason, double curEq)
 // 2. Bold Text Label above the icon
    double labelPrice = markerPrice + (atr * 0.40);
    string shortReason = "RESUME";
-   if(StringFind(reason, "STRONG TREND", 0) >= 0)
-      shortReason = "STRONG TREND";
+   if(StringFind(reason, "SPIKE", 0) >= 0)
+      shortReason = "SPIKE";
    else
-      if(StringFind(reason, "EMA DIRECTION", 0) >= 0)
-         shortReason = "EMA FLIP";
+      if(StringFind(reason, "STRONG TREND", 0) >= 0)
+         shortReason = "STRONG TREND";
       else
-         if(StringFind(reason, "MANUAL", 0) >= 0)
-            shortReason = "MANUAL";
+         if(StringFind(reason, "EMA DIRECTION", 0) >= 0)
+            shortReason = "EMA FLIP";
+         else
+            if(StringFind(reason, "MANUAL", 0) >= 0)
+               shortReason = "MANUAL";
    string labelText   = StringFormat("RESUMED (%s)", shortReason);
 
    ObjectCreate(0, txtName, OBJ_TEXT, 0, barTime, labelPrice);
@@ -14287,12 +14292,15 @@ void CheckAndResumeDayTradingOnEmaDirectionChange()
 
 //+------------------------------------------------------------------+
 //| CheckAndResumeDayTradingOnStrongAngleAndSSL                      |
-//| Auto-resumes Day Equity trading on Dual Strong Trend conditions: |
+//| Auto-resumes Day Equity trading on 3 Market Conditions:          |
 //| Condition 1: MathAbs(EMA Angle) is more than 4 (>= 4.0 deg)      |
 //|              with SSL & slope confirming strong trend momentum   |
 //|                               OR                                 |
 //| Condition 2: MathAbs(EMA Angle) is less than 2 (<= 2.0 deg)      |
 //|              and when Horizontal lines are started               |
+//|                               OR                                 |
+//| Condition 3: Spike Mismatch (EMA Direction & Angle Mismatch):    |
+//|              Bullish Spike (EMA=+1, Angle<0) or Bear Spike (-1,>0|
 //+------------------------------------------------------------------+
 void CheckAndResumeDayTradingOnStrongAngleAndSSL()
   {
@@ -14314,11 +14322,7 @@ void CheckAndResumeDayTradingOnStrongAngleAndSSL()
       g_dailyEquityPauseSslFlipped = true;
      }
 
-// 1. Minimum cooldown buffer (e.g. 10 mins) to prevent immediate same-tick re-entry into the pullback
-   if(g_dailyEquityPauseTime > 0 && (TimeCurrent() - g_dailyEquityPauseTime) < (ResumeDayTradingMinCooldownMin * 60))
-      return;
-
-// 2. Check 200 EMA Direction
+// Check 200 EMA Direction & Angle early for Spike condition
    double ema = iMA(Symbol(), Period(), InpEMA200Period, InpEMAPriceShift, MODE_EMA, PRICE_CLOSE, 0);
    if(ema <= 0.0)
       return;
@@ -14326,22 +14330,37 @@ void CheckAndResumeDayTradingOnStrongAngleAndSSL()
    int liveEmaDir = 0;
    if(Close[0] > ema)
       liveEmaDir = 1;
-   else
-      if(Close[0] < ema)
-         liveEmaDir = -1;
+   else if(Close[0] < ema)
+      liveEmaDir = -1;
 
    if(liveEmaDir == 0)
       return;
 
-// 3. Check EMA Angle & Active Horizontal Lines for Dual Resume Conditions:
+   double curEmaAng = GetEmaAngleDegrees(30);
+   double absAngle  = MathAbs(curEmaAng);
+
+   // Condition 3 Spike Mismatch Early Check:
+   // - Bullish Spike: EMADirection == 1 (Bull) && Angle < 0.0
+   // - Bearish Spike: EMADirection == -1 (Bear) && Angle > 0.0
+   bool isBullSpike = (liveEmaDir == 1 && curEmaAng < 0.0);
+   bool isBearSpike = (liveEmaDir == -1 && curEmaAng > 0.0);
+   bool isCond3Spike = (ResumeDayTradingOnSpikeMismatch && (isBullSpike || isBearSpike));
+
+// 1. Minimum cooldown buffer (e.g. 10 mins) to prevent immediate same-tick re-entry into the pullback
+// Spikes are sudden rapid moves; bypass cooldown if InpSpikeResumeBypassCooldown is enabled
+   if(!isCond3Spike || !InpSpikeResumeBypassCooldown)
+     {
+      if(g_dailyEquityPauseTime > 0 && (TimeCurrent() - g_dailyEquityPauseTime) < (ResumeDayTradingMinCooldownMin * 60))
+         return;
+     }
+
+// 2. Check EMA Angle & Active Horizontal Lines for Resume Conditions:
 // User Rule:
 // 1. When mathabs emaangle is more than 4 (>= 4.0 deg)
 // OR
 // 2. mathabs EMAangle is lessthan 2 (<= 2.0 deg) and when Horizontal lines are started
-// These 2 can start resume strong trend...
-   double curEmaAng = GetEmaAngleDegrees(30);
-   double absAngle  = MathAbs(curEmaAng);
-
+// OR
+// 3. Spike on EMA Direction & Angle Mismatch (Bull +1 with Angle < 0, Bear -1 with Angle > 0)
    bool hasActiveRedLine   = (g_lastEqHighPrice > 0.0 && g_lastEqHighLineStart > 0);
    bool hasActiveGreenLine = (g_lastEqLowPrice  > 0.0 && g_lastEqLowLineStart  > 0);
    bool hasActiveHLine     = (hasActiveRedLine || hasActiveGreenLine);
@@ -14364,84 +14383,94 @@ void CheckAndResumeDayTradingOnStrongAngleAndSSL()
       isCond2LowAngleHLine = true;
      }
 
-   // Neither condition satisfied -> do not resume!
-   if(!isCond1HighAngle && !isCond2LowAngleHLine)
+   // None of the 3 conditions satisfied -> do not resume!
+   if(!isCond1HighAngle && !isCond2LowAngleHLine && !isCond3Spike)
       return;
 
-// 4. Check Directional Confirmation:
+// 3. Check Directional Confirmation:
 // - For Condition 1 (High Angle >= 4.0): SSL must strictly confirm EMA direction
 // - For Condition 2 (Low Angle <= 2.0 with H-Line): SSL must confirm either EMA direction or active horizontal line side
-   if(curSslDir == 0)
-      return;
-
+// - For Condition 3 (Spike Mismatch): Target trade is driven by EMA direction (BUY for Bullish Spike, SELL for Bearish Spike)
    if(isCond1HighAngle)
      {
-      if(curSslDir != liveEmaDir)
+      if(curSslDir == 0 || curSslDir != liveEmaDir)
          return;
      }
    else if(isCond2LowAngleHLine)
      {
+      if(curSslDir == 0)
+         return;
       bool hLineSslAligned = (curSslDir == liveEmaDir) ||
                              (hasActiveGreenLine && curSslDir == 1) ||
                              (hasActiveRedLine && curSslDir == -1);
       if(!hLineSslAligned)
          return;
      }
+   else if(isCond3Spike)
+     {
+      // Spike Mismatch confirmed!
+     }
 
-// 5. Choice A Freshness Check:
+// 4. Choice A Freshness Check:
 // - If pause happened in same direction, require that SSL flipped during pullback OR a fresh cross occurred
 // - Or if direction completely changed (e.g. paused on BUY, now SELL == -1 with angle <= -4)
+// - Or if spike condition occurred (sudden fresh momentum impulse)
    bool isFreshSignal = false;
    if(g_dailyEquityPauseSSLDirection == 0)
      {
       isFreshSignal = true;
      }
-   else
-      if(liveEmaDir != g_dailyEquityPauseSSLDirection)
-        {
-         // Complete trend reversal! (e.g. paused on BUY, now strong BEARISH wave with Angle <= -4 and SSL == -1)
-         isFreshSignal = true;
-        }
-      else
-         if(g_dailyEquityPauseSslFlipped)
-           {
-            // Continuation wave after pullback! (SSL dipped during pullback and freshly flipped back to align)
-            isFreshSignal = true;
-           }
-         else
-            if(IsBuySignal(0) || IsSellSignal(0) || IsBuySignal(1) || IsSellSignal(1))
-              {
-               // Fresh SSL cross confirmed on current or previous bar
-               isFreshSignal = true;
-              }
-            else
-               if(isCond2LowAngleHLine && hasActiveHLine)
-                 {
-                  // Fresh Horizontal Line active/started in low angle range
-                  isFreshSignal = true;
-                 }
-               else
-                  if(g_dailyEquityPauseTime > 0 && (TimeCurrent() - g_dailyEquityPauseTime) >= (MathMax(ResumeDayTradingMinCooldownMin, 15) * 60))
-                    {
-                     // Cooldown buffer (at least 15m) fully elapsed and strong momentum maintained
-                     isFreshSignal = true;
-                    }
+   else if(isCond3Spike)
+     {
+      // A Spike Mismatch is a sudden fresh momentum breakout!
+      isFreshSignal = true;
+     }
+   else if(liveEmaDir != g_dailyEquityPauseSSLDirection)
+     {
+      // Complete trend reversal! (e.g. paused on BUY, now strong BEARISH wave with Angle <= -4 and SSL == -1)
+      isFreshSignal = true;
+     }
+   else if(g_dailyEquityPauseSslFlipped)
+     {
+      // Continuation wave after pullback! (SSL dipped during pullback and freshly flipped back to align)
+      isFreshSignal = true;
+     }
+   else if(IsBuySignal(0) || IsSellSignal(0) || IsBuySignal(1) || IsSellSignal(1))
+     {
+      // Fresh SSL cross confirmed on current or previous bar
+      isFreshSignal = true;
+     }
+   else if(isCond2LowAngleHLine && hasActiveHLine)
+     {
+      // Fresh Horizontal Line active/started in low angle range
+      isFreshSignal = true;
+     }
+   else if(g_dailyEquityPauseTime > 0 && (TimeCurrent() - g_dailyEquityPauseTime) >= (MathMax(ResumeDayTradingMinCooldownMin, 15) * 60))
+     {
+      // Cooldown buffer (at least 15m) fully elapsed and strong momentum maintained
+      isFreshSignal = true;
+     }
 
    if(!isFreshSignal)
       return;
 
-   string dirStr = (curSslDir == 1) ? "BULLISH(+1)" : "BEARISH(-1)";
+   string dirStr = (isCond3Spike ? (isBullSpike ? "BULLISH(+1)" : "BEARISH(-1)") : ((curSslDir == 1) ? "BULLISH(+1)" : "BEARISH(-1)"));
    string reason = "";
    if(isCond1HighAngle)
      {
       reason = StringFormat("STRONG TREND RESUME (Cond 1: EMA Angle=%+.1f deg >= %.1f | SSL=%s)",
                             curEmaAng, ResumeDayTradingHighEmaAngle, dirStr);
      }
-   else
+   else if(isCond2LowAngleHLine)
      {
       string hLineTag = (hasActiveRedLine && hasActiveGreenLine) ? "BOTH(R+G)" : (hasActiveRedLine ? "EQH-R(Red)" : "EQH-G(Green)");
       reason = StringFormat("STRONG TREND RESUME (Cond 2: Low Angle=%+.1f deg <= %.1f | H-Line=%s | SSL=%s)",
                             curEmaAng, ResumeDayTradingLowEmaAngle, hLineTag, dirStr);
+     }
+   else if(isCond3Spike)
+     {
+      reason = StringFormat("SPIKE RESUME (Cond 3: Spike Mismatch EMA=%+d Angle=%+.1f deg | %s)",
+                            liveEmaDir, curEmaAng, (isBullSpike ? "BULL SPIKE" : "BEAR SPIKE"));
      }
 
    PerformDayTradingResume(reason);
