@@ -43,7 +43,7 @@ CheckBasketProfitClose  Total open basket profit
 
 */
 
-string glbVersion = "V-SMALL-1063- Align OnTick Horizontal Order Angle Gate";
+string glbVersion = "V-SMALL-1064- Fix Directional Sign Tracking in ManageEmaAngleOppositeClose";
 
 int AccountMultiplierLOT = 500;//100;//1000;//400;//200;//500; ALWAYS multiples of 1000 is better for best results
 //balance multiplier
@@ -16454,6 +16454,7 @@ void CheckMissedSignalMemory(DailyProtectionState &dailyState)
         }
   }
 datetime EmaAngleExtremeStartTime = 0;
+int      EmaAngleExtremeSign      = 0; // Directional sign of the extreme angle (+1 if > +5.0 deg, -1 if < -5.0 deg)
 
 //+------------------------------------------------------------------+
 //| Close Opposite Orders on Extreme EMA Angle (> 5° for 30 Mins)    |
@@ -16461,16 +16462,19 @@ datetime EmaAngleExtremeStartTime = 0;
 void ManageEmaAngleOppositeClose()
   {
    double emaAngle = GlobalEmaAngle30;
+   int currentSign = (emaAngle > 5.0) ? 1 : ((emaAngle < -5.0) ? -1 : 0);
 
-// Check if angle magnitude exceeds 5.0 degrees continuously
-   if(MathAbs(emaAngle) > 5.0)
+// Check if angle magnitude exceeds 5.0 degrees continuously in a single direction
+   if(currentSign != 0)
      {
-      if(EmaAngleExtremeStartTime == 0)
+      // If timer is not running, OR if angle flipped direction (+5 to -5 or vice versa), restart timer
+      if(EmaAngleExtremeStartTime == 0 || EmaAngleExtremeSign != currentSign)
         {
          EmaAngleExtremeStartTime = TimeCurrent(); // Start tracking duration when threshold is first crossed
+         EmaAngleExtremeSign      = currentSign;
         }
       else
-         if(TimeCurrent() - EmaAngleExtremeStartTime >= 30 * 60) // Check if 30 minutes have elapsed
+         if(TimeCurrent() - EmaAngleExtremeStartTime >= 30 * 60) // Check if 30 minutes have elapsed in the SAME direction
            {
             for(int i = OrdersTotal() - 1; i >= 0; i--)
               {
@@ -16482,7 +16486,7 @@ void ManageEmaAngleOppositeClose()
                int orderType = OrderType();
 
                // If EMA angle > 5 continuously for 30m, close all SELL orders
-               if(emaAngle > 5.0 && orderType == OP_SELL)
+               if(currentSign == 1 && orderType == OP_SELL)
                  {
                   Print("EMA ANGLE TRIGGER (> 5° for 30m): Closing SELL order. Angle: ", DoubleToString(emaAngle, 2));
                   SafeOrderClose(OrderTicket(), OrderLots(), OP_SELL, Slippage, clrRed);
@@ -16490,7 +16494,7 @@ void ManageEmaAngleOppositeClose()
 
                // If EMA angle < -5 continuously for 30m, close all BUY orders
                else
-                  if(emaAngle < -5.0 && orderType == OP_BUY)
+                  if(currentSign == -1 && orderType == OP_BUY)
                     {
                      Print("EMA ANGLE TRIGGER (< -5° for 30m): Closing BUY order. Angle: ", DoubleToString(emaAngle, 2));
                      SafeOrderClose(OrderTicket(), OrderLots(), OP_BUY, Slippage, clrRed);
@@ -16500,8 +16504,9 @@ void ManageEmaAngleOppositeClose()
      }
    else
      {
-      // Reset the timer immediately if the angle flattens or drops back within 5 degrees
+      // Reset the timer and sign immediately if the angle flattens or drops back within 5 degrees
       EmaAngleExtremeStartTime = 0;
+      EmaAngleExtremeSign      = 0;
      }
   }
 //+------------------------------------------------------------------+
