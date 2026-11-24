@@ -43,7 +43,7 @@ CheckBasketProfitClose  Total open basket profit
 
 */
 
-string glbVersion = "V-SMALL-1053- Do Not Block Sweep Orders When EMA Angle Under 4";
+string glbVersion = "V-SMALL-1054- Disable Dubai Hours 15-17 Block on Horizontal Orders";
 
 int AccountMultiplierLOT = 500;//100;//1000;//400;//200;//500; ALWAYS multiples of 1000 is better for best results
 //balance multiplier
@@ -34336,15 +34336,11 @@ void CheckNewRedLineCloseBuyAndOpenSell()
 
 
 
-   datetime dubaiTime1 = TimeCurrent() + (ServerToDubaiOffsetHours * 3600);
-   int currentHour1 = TimeHour(dubaiTime1);
-
-
-
-
-   if(currentHour1==15 || currentHour1==16 || currentHour1==17)
-
-      return;
+// DISABLED: Dubai Time-of-Day Block (Hours 15, 16, 17)
+// datetime dubaiTime1 = TimeCurrent() + (ServerToDubaiOffsetHours * 3600);
+// int currentHour1 = TimeHour(dubaiTime1);
+// if(currentHour1==15 || currentHour1==16 || currentHour1==17)
+//    return;
 
 
    if(!EAStartupComplete)
@@ -34706,15 +34702,11 @@ void CheckNewGreenLineCloseSellAndOpenBuy()
       return;
 
 
-   datetime dubaiTime1 = TimeCurrent() + (ServerToDubaiOffsetHours * 3600);
-   int currentHour1 = TimeHour(dubaiTime1);
-
-
-
-
-   if(currentHour1==15 || currentHour1==16 || currentHour1==17)
-
-      return;
+// DISABLED: Dubai Time-of-Day Block (Hours 15, 16, 17)
+// datetime dubaiTime1 = TimeCurrent() + (ServerToDubaiOffsetHours * 3600);
+// int currentHour1 = TimeHour(dubaiTime1);
+// if(currentHour1==15 || currentHour1==16 || currentHour1==17)
+//    return;
 
    SyncHorizontalLineActivationTimers();
 

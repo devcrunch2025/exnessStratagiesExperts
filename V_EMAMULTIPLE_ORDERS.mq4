@@ -42,7 +42,7 @@ CheckBasketProfitClose  Total open basket profit
 */
 
 
-string glbVersion = "VMULTI-1297- Do Not Block Sweep Orders When EMA Angle Under 4";
+string glbVersion = "VMULTI-1298- Disable Dubai Hours 15-17 Block on Horizontal Orders";
 
 int AccountMultiplierLOT = 1000;//400;//200;//500; ALWAYS multiples of 1000 is better for best results
 //balance multiplier 
