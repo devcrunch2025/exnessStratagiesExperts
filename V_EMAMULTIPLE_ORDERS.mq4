@@ -42,7 +42,7 @@ CheckBasketProfitClose  Total open basket profit
 */
 
 
-string glbVersion = "VMULTI-1303- Disable Dubai Hours 14 16 17 Counter Trend Block";
+string glbVersion = "VMULTI-1304- Both Horizontal Lines Block Gate Angle 4 Plus";
 
 int AccountMultiplierLOT = 1000;//400;//200;//500; ALWAYS multiples of 1000 is better for best results
 //balance multiplier 
@@ -361,6 +361,7 @@ bool   InpBlockBuyNearActiveRedLine               = false;// true;          // W
 bool   InpBlockSellNearActiveGreenLine            = false;// true;          // While active Green EQH-G line is running: block SELL orders (Disabled)
 double InpActiveLineOppositeBlockRangeRaw         = 50.0;          // Active Red/Green line opposite-order block distance in raw USD ($50, used if InpBlockAllOppositeWhenLineActive=false)
 bool   InpBlockAllOrdersWhenBothHorizontalLinesActive = true;      // Confusion Block: When BOTH Red (EQH-R) & Green (EQH-G) lines are active, block ALL orders until single line confirms
+double InpBothHorizontalLinesBlockMinEmaAngle         = 4.0;       // Minimum MathAbs(EMA Angle) to block on conflicting horizontal lines (Strategy 2 >= 4.0 blocks; Strategy 1 < 4.0 allows)
 bool   InpBlockAllOppositeWhenLineActive          = false;// true;          // Single Active Line: true = block ALL opposite orders at ANY distance (Disabled)
 
 // ===== LSD SWEEP (SSLS/BSLS) OPPOSITE-ORDER BLOCK IN SafeOrderSend() =====
@@ -18530,15 +18531,19 @@ bool IsBlockedByActiveHorizontalLines(int orderType, double reqPrice, string ord
    if(nowLineBlockT < s_lastActiveGreenSellBlockLog)
       s_lastActiveGreenSellBlockLog = 0;
 
-// Rule 1: Both Red (EQH-R) AND Green (EQH-G) active simultaneously -> block ALL orders
-   if(InpBlockAllOrdersWhenBothHorizontalLinesActive && hasActiveRed && hasActiveGreen)
+   double curEmaAng = (GlobalEmaAngle30 != 0.0) ? GlobalEmaAngle30 : GetEmaAngleDegrees(30);
+   double absEmaAng = MathAbs(curEmaAng);
+   double minAngleToBlock = (InpBothHorizontalLinesBlockMinEmaAngle > 0.0) ? InpBothHorizontalLinesBlockMinEmaAngle : 4.0;
+
+   // Rule 1: Both Red (EQH-R) AND Green (EQH-G) active simultaneously -> block ALL orders only when MathAbs(EMA Angle) >= 4.0
+   if(InpBlockAllOrdersWhenBothHorizontalLinesActive && hasActiveRed && hasActiveGreen && absEmaAng >= minAngleToBlock)
      {
       if(s_lastBothLinesBlockLog == 0 || (nowLineBlockT - s_lastBothLinesBlockLog) >= 30)
         {
-         PrintFormat("SAFEORDERSEND BLOCKED [BOTH HORIZONTAL LINES ACTIVE]: Conflicting Red (EQH-R=%.2f Start=%s) & Green (EQH-G=%.2f Start=%s) -> blocking type=%d Bid=%.2f Ask=%.2f Req=%.2f | Wait for single line confirmation | %s",
+         PrintFormat("SAFEORDERSEND BLOCKED [BOTH HORIZONTAL LINES ACTIVE]: Conflicting Red (EQH-R=%.2f Start=%s) & Green (EQH-G=%.2f Start=%s) -> blocking type=%d Bid=%.2f Ask=%.2f Req=%.2f (EMA Angle=%.1f >= %.1f) | Wait for single line confirmation | %s",
                      g_lastEqHighPrice, TimeToString(g_lastEqHighLineStart, TIME_DATE|TIME_SECONDS),
                      g_lastEqLowPrice, TimeToString(g_lastEqLowLineStart, TIME_DATE|TIME_SECONDS),
-                     orderType, Bid, Ask, reqPrice, orderComment);
+                     orderType, Bid, Ask, reqPrice, absEmaAng, minAngleToBlock, orderComment);
          s_lastBothLinesBlockLog = nowLineBlockT;
         }
       return true;
@@ -34374,9 +34379,11 @@ void CheckNewRedLineCloseBuyAndOpenSell()
       return;
      }
 
-// Confusion Block: While BOTH Red & Green lines are active, wait for single-line confirmation
+// Confusion Block: While BOTH Red & Green lines are active, wait for single-line confirmation (only when MathAbs(EMA Angle) >= 4.0)
+   double minBothLinesAngleRed = (InpBothHorizontalLinesBlockMinEmaAngle > 0.0) ? InpBothHorizontalLinesBlockMinEmaAngle : 4.0;
    if(InpBlockAllOrdersWhenBothHorizontalLinesActive &&
-      g_lastEqLowPrice > 0.0 && g_lastEqLowLineStart > 0)
+      g_lastEqLowPrice > 0.0 && g_lastEqLowLineStart > 0 &&
+      MathAbs(GlobalEmaAngle30) >= minBothLinesAngleRed)
       return;
 
 // USER RULE: Wait 2 to 3 min from line activation before creating horizontal orders (filters out brief/small lines)
@@ -34770,9 +34777,11 @@ void CheckNewGreenLineCloseSellAndOpenBuy()
       return;
      }
 
-// Confusion Block: While BOTH Red & Green lines are active, wait for single-line confirmation
+// Confusion Block: While BOTH Red & Green lines are active, wait for single-line confirmation (only when MathAbs(EMA Angle) >= 4.0)
+   double minBothLinesAngleGreen = (InpBothHorizontalLinesBlockMinEmaAngle > 0.0) ? InpBothHorizontalLinesBlockMinEmaAngle : 4.0;
    if(InpBlockAllOrdersWhenBothHorizontalLinesActive &&
-      g_lastEqHighPrice > 0.0 && g_lastEqHighLineStart > 0)
+      g_lastEqHighPrice > 0.0 && g_lastEqHighLineStart > 0 &&
+      MathAbs(GlobalEmaAngle30) >= minBothLinesAngleGreen)
       return;
 
 // USER RULE: Wait 2 to 3 min from line activation before creating horizontal orders (filters out brief/small lines)
@@ -35544,7 +35553,9 @@ void SyncHorizontalLineActivationTimers()
          g_activeEqLowActivatedAt  = nowT;
         }
 
-   if(InpBlockAllOrdersWhenBothHorizontalLinesActive && redLiveActive && greenLiveActive)
+   double curEmaAngTimer = (GlobalEmaAngle30 != 0.0) ? GlobalEmaAngle30 : GetEmaAngleDegrees(30);
+   double minBothLinesAngleTimer = (InpBothHorizontalLinesBlockMinEmaAngle > 0.0) ? InpBothHorizontalLinesBlockMinEmaAngle : 4.0;
+   if(InpBlockAllOrdersWhenBothHorizontalLinesActive && redLiveActive && greenLiveActive && MathAbs(curEmaAngTimer) >= minBothLinesAngleTimer)
      {
       g_activeEqHighActivatedAt = nowT;
       g_activeEqLowActivatedAt  = nowT;
@@ -35580,7 +35591,9 @@ bool IsHorizontalLineActivationWaitSatisfied(bool isRedLine)
    bool redLiveActive   = (g_lastEqHighPrice > 0.0 && g_lastEqHighLineStart > 0);
    bool greenLiveActive = (g_lastEqLowPrice  > 0.0 && g_lastEqLowLineStart  > 0);
 
-   if(InpBlockAllOrdersWhenBothHorizontalLinesActive && redLiveActive && greenLiveActive)
+   double curEmaAngWait = (GlobalEmaAngle30 != 0.0) ? GlobalEmaAngle30 : GetEmaAngleDegrees(30);
+   double minBothLinesAngleWait = (InpBothHorizontalLinesBlockMinEmaAngle > 0.0) ? InpBothHorizontalLinesBlockMinEmaAngle : 4.0;
+   if(InpBlockAllOrdersWhenBothHorizontalLinesActive && redLiveActive && greenLiveActive && MathAbs(curEmaAngWait) >= minBothLinesAngleWait)
       return false;
 
    int elapsedSec = GetHorizontalLineActiveWaitElapsedSeconds(isRedLine);
