@@ -43,7 +43,7 @@ CheckBasketProfitClose  Total open basket profit
 
 */
 
-string glbVersion = "V-SMALL-1072- Spike Orders In Normal Trading Time";
+string glbVersion = "V-SMALL-1073- Unconditional Spike Order Creation";
 
 int AccountMultiplierLOT = 500;//100;//1000;//400;//200;//500; ALWAYS multiples of 1000 is better for best results
 //balance multiplier
@@ -16577,39 +16577,52 @@ void OnTickCore()
    bool missingBuyOrder = (currentTrend == 1 && CountDirectionOrders(OP_BUY) == 0 && CountDirectionOrders(OP_BUYSTOP) == 0);
    bool missingSellOrder = (currentTrend == -1 && CountDirectionOrders(OP_SELL) == 0 && CountDirectionOrders(OP_SELLSTOP) == 0);
 
-   // USER RULE: Spike Order Detection
+   // USER RULE: Unconditional Spike Order Creation
+   // "create spike orders without any condition"
    // "EMAdirection is 1 , but ema angle is negative means spike in bullish so create BUY orders. 
    //  similary EMAdirection is -1 but EMAangle is positive value then create SELL orders normal ssl orders with pending orders"
    bool isBullishSpike = (InpEnableSpikeOrderCreation && EMADirection == 1 && GlobalEmaAngle30 < 0.0);
    bool isBearishSpike = (InpEnableSpikeOrderCreation && EMADirection == -1 && GlobalEmaAngle30 > 0.0);
 
-   static datetime s_lastSpikeBuyAttempt  = 0;
-   static datetime s_lastSpikeSellAttempt = 0;
-   int maxSpikePending = (InpMaxSpikePendingOrders > 0) ? InpMaxSpikePendingOrders : 1;
-   int spikeCooldownSec = (InpSpikeOrderCooldownSec > 0) ? InpSpikeOrderCooldownSec : 5;
-   bool spikeBuySignal  = (isBullishSpike && CountDirectionOrders(OP_BUYSTOP) < maxSpikePending && (TimeCurrent() - s_lastSpikeBuyAttempt >= spikeCooldownSec));
-   bool spikeSellSignal = (isBearishSpike && CountDirectionOrders(OP_SELLSTOP) < maxSpikePending && (TimeCurrent() - s_lastSpikeSellAttempt >= spikeCooldownSec));
-
-   // Directional Spike Guard: Suppress counter-spike signals during active spike
    if(isBullishSpike)
      {
       sellSignal = false;
       missingSellOrder = false;
+
+      // Clean up stale pending spike orders if price drifted away (> $50 USD)
+      CleanupStaleSpikePendingOrders(OP_BUYSTOP, 50.0);
+
+      // Create Spike BUY pending order whenever no pending spike buy exists
+      static datetime s_lastSpikeBuyTime = 0;
+      if(CountSpikePendingOrders(OP_BUYSTOP) == 0 && (TimeCurrent() - s_lastSpikeBuyTime >= 1))
+        {
+         s_lastSpikeBuyTime = TimeCurrent();
+         OpenBuy("SPIKE_BUY");
+        }
      }
-   if(isBearishSpike)
+   else if(isBearishSpike)
      {
       buySignal = false;
       missingBuyOrder = false;
+
+      // Clean up stale pending spike orders if price drifted away (> $50 USD)
+      CleanupStaleSpikePendingOrders(OP_SELLSTOP, 50.0);
+
+      // Create Spike SELL pending order whenever no pending spike sell exists
+      static datetime s_lastSpikeSellTime = 0;
+      if(CountSpikePendingOrders(OP_SELLSTOP) == 0 && (TimeCurrent() - s_lastSpikeSellTime >= 1))
+        {
+         s_lastSpikeSellTime = TimeCurrent();
+         OpenSell("SPIKE_SELL");
+        }
      }
 
-   if(buySignal || missingBuyOrder || spikeBuySignal)
+   if(buySignal || missingBuyOrder)
      {
       if(buySignal)
          DrawLiveSignal(0, true);
-      if(LastLiveSignalCandle != Time[0] || LastLiveSSLDirection != 1 || missingBuyOrder || spikeBuySignal)
+      if(LastLiveSignalCandle != Time[0] || LastLiveSSLDirection != 1 || missingBuyOrder)
         {
-         if(spikeBuySignal)
-            s_lastSpikeBuyAttempt = TimeCurrent();
          LastLiveSignalCandle = Time[0];
          LastLiveSSLDirection = 1;
 
@@ -16625,7 +16638,7 @@ void OnTickCore()
               {
                if(PassesEMAFilter(OP_BUY))
                  {
-                  OpenBuy(spikeBuySignal ? "SPIKE_BUY" : "");
+                  OpenBuy();
                  }
                else
                  {
@@ -16639,14 +16652,12 @@ void OnTickCore()
         }
      }
    else
-      if(sellSignal || missingSellOrder || spikeSellSignal)
+      if(sellSignal || missingSellOrder)
         {
          if(sellSignal)
             DrawLiveSignal(0, false);
-         if(LastLiveSignalCandle != Time[0] || LastLiveSSLDirection != -1 || missingSellOrder || spikeSellSignal)
+         if(LastLiveSignalCandle != Time[0] || LastLiveSSLDirection != -1 || missingSellOrder)
            {
-            if(spikeSellSignal)
-               s_lastSpikeSellAttempt = TimeCurrent();
             LastLiveSignalCandle = Time[0];
             LastLiveSSLDirection = -1;
 
@@ -16662,7 +16673,7 @@ void OnTickCore()
                  {
                   if(PassesEMAFilter(OP_SELL))
                     {
-                     OpenSell(spikeSellSignal ? "SPIKE_SELL" : "");
+                     OpenSell();
                     }
                   else
                     {
@@ -17178,6 +17189,57 @@ int CountDirectionOrders(int orderType)
          count++;
      }
    return count;
+  }
+
+//+------------------------------------------------------------------+
+//| CountSpikePendingOrders: Counts pending spike orders by type     |
+//+------------------------------------------------------------------+
+int CountSpikePendingOrders(int pendingType)
+  {
+   int count = 0;
+   for(int i = OrdersTotal() - 1; i >= 0; i--)
+     {
+      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
+         continue;
+      if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber)
+         continue;
+      if(OrderType() != pendingType)
+         continue;
+      string cmt = OrderComment();
+      if(StringFind(cmt, "SPIKE") >= 0)
+         count++;
+     }
+   return count;
+  }
+
+//+------------------------------------------------------------------+
+//| CleanupStaleSpikePendingOrders: Deletes stale spike pending orders|
+//+------------------------------------------------------------------+
+void CleanupStaleSpikePendingOrders(int pendingType, double maxDistUSD = 50.0)
+  {
+   RefreshRates();
+   for(int i = OrdersTotal() - 1; i >= 0; i--)
+     {
+      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
+         continue;
+      if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber)
+         continue;
+      if(OrderType() != pendingType)
+         continue;
+      string cmt = OrderComment();
+      if(StringFind(cmt, "SPIKE") < 0)
+         continue;
+
+      double openPx = OrderOpenPrice();
+      double dist = (pendingType == OP_BUYSTOP) ? MathAbs(Ask - openPx) : MathAbs(Bid - openPx);
+      if(dist > maxDistUSD)
+        {
+         SafeOrderDelete(OrderTicket(), clrOrange);
+         InvalidateTotalEAOrdersCache();
+         PrintFormat(">>> [STALE SPIKE PENDING DELETED] Deleted #%d Entry=%.2f Dist=$%.2f > $%.2f to place fresh order near market",
+                     OrderTicket(), openPx, dist, maxDistUSD);
+        }
+     }
   }
 
 //+------------------------------------------------------------------+
@@ -19332,36 +19394,39 @@ int SafeOrderSend(string symbol,int orderType,double lots,double price,int slipp
   {
    bool isFlipBasketSupport = IsFLIPBasketSupportOrder(-1, comment);
    bool isReverse100Order   = (StringFind(comment, "RECOVERY_") == 0 && StringFind(comment, "_REV") >= 0);
+   bool isSpikeOrder        = (StringFind(comment, "SPIKE") >= 0);
 
-   if(OnlyAllowFLIPBasketSupportOrders && !isFlipBasketSupport)
+   if(!isSpikeOrder)
      {
-      Print("SAFEORDERSEND BLOCKED [FLIP Test Mode]: Only FLIPBasketSupport orders allowed. Blocked order: '", comment, "' (Type=", orderType, ", Lots=", lots, ")");
-      return -1;
+      if(OnlyAllowFLIPBasketSupportOrders && !isFlipBasketSupport)
+        {
+         Print("SAFEORDERSEND BLOCKED [FLIP Test Mode]: Only FLIPBasketSupport orders allowed. Blocked order: '", comment, "' (Type=", orderType, ", Lots=", lots, ")");
+         return -1;
+        }
+
+      if(g_dailyEquityTradingBlocked)
+         return -1;
+
+      if(g_deepDrawdownLiveSlClamped)
+        {
+         Print("SAFEORDERSEND BLOCKED [Deep DD Recovery Shield]: Live SL Clamping is active. No new orders allowed until basket exits.");
+         return -1;
+        }
+
+      if(g_deepDrawdownCooldownUntil > 0 && TimeCurrent() < g_deepDrawdownCooldownUntil)
+        {
+         PrintFormat("SAFEORDERSEND BLOCKED [Deep DD Recovery Cooldown]: Cooldown active until %s. No new orders allowed.",
+                     TimeToString(g_deepDrawdownCooldownUntil, TIME_DATE|TIME_MINUTES|TIME_SECONDS));
+         return -1;
+        }
+
+      if(TradeOperationFailedThisTick)
+         return -1;
+      if(IsDubaiTradingPauseHour())
+         return -1;
+      if(!IsDayProfitLadderTradingAllowed())
+         return -1;
      }
-
-   if(g_dailyEquityTradingBlocked)
-      return -1;
-
-   if(g_deepDrawdownLiveSlClamped)
-     {
-      Print("SAFEORDERSEND BLOCKED [Deep DD Recovery Shield]: Live SL Clamping is active. No new orders allowed until basket exits.");
-      return -1;
-     }
-
-   if(g_deepDrawdownCooldownUntil > 0 && TimeCurrent() < g_deepDrawdownCooldownUntil)
-     {
-      PrintFormat("SAFEORDERSEND BLOCKED [Deep DD Recovery Cooldown]: Cooldown active until %s. No new orders allowed.",
-                  TimeToString(g_deepDrawdownCooldownUntil, TIME_DATE|TIME_MINUTES|TIME_SECONDS));
-      return -1;
-     }
-
-
-   if(TradeOperationFailedThisTick)
-      return -1;
-   if(IsDubaiTradingPauseHour())
-      return -1;
-   if(!IsDayProfitLadderTradingAllowed())
-      return -1;
 
 
 
@@ -19436,28 +19501,18 @@ int SafeOrderSend(string symbol,int orderType,double lots,double price,int slipp
         }
      }
 
-  if(IsEmaWEAKDistanceReduced50PercentFromPeak(orderType) && EMADirection== requestedDirection && MathAbs(GlobalEmaAngle30)>4 )//weak
-    {
-    Print("TRADE BLOCKED | IsEmaWEAKDistanceReduced50PercentFromPeak");
-
-    return -1;;
-
-
-   }
-
-   //if(GetTotalSellOrders()==0 && EMADirection==1 && requestedDirection==-1 && MathAbs(GlobalEmaAngle30)>3)
-     // return -1;
-
-
-   //if(GetTotalBuyOrders()==0 && EMADirection==-1 && requestedDirection==1 && MathAbs(GlobalEmaAngle30)>3)
-     // return -1;
-
-
-
-   if(EMADirection!=requestedDirection && MathAbs(GlobalEmaAngle30)>4)
+   if(!isSpikeOrder)
      {
+      if(IsEmaWEAKDistanceReduced50PercentFromPeak(orderType) && EMADirection== requestedDirection && MathAbs(GlobalEmaAngle30)>4 )
+        {
+         Print("TRADE BLOCKED | IsEmaWEAKDistanceReduced50PercentFromPeak");
+         return -1;
+        }
 
-      return -1;
+      if(EMADirection!=requestedDirection && MathAbs(GlobalEmaAngle30)>4)
+        {
+         return -1;
+        }
      }
 
    /*
@@ -27251,17 +27306,20 @@ double GetSSLLongShortPendingGapRaw(int orderType, bool logMessage = false)
 //+------------------------------------------------------------------+
 void OpenBuy(string MOMorder="")
   {
-   if(InpEnableCustomRules && !PassesUserRules(OP_BUY))
-     {
-      Print("Order Blocked InpEnableCustomRules");
-      return;
+   bool isSpikeOrder = (MOMorder == "SPIKE_BUY" || (InpEnableSpikeOrderCreation && EMADirection == 1 && GlobalEmaAngle30 < 0.0));
 
-     }
-   if(!IsSafeToCreateMarketOrder(OP_BUY) || !PassesEMAFilter(OP_BUY) || !IsOneCandleOrderAllowed() || GetTotalEAOrders() >= MaxOpenOrders)
+   if(!isSpikeOrder)
      {
-      Print("Order Blocked IsSafeToCreateMarketOrder");
-      return;
-
+      if(InpEnableCustomRules && !PassesUserRules(OP_BUY))
+        {
+         Print("Order Blocked InpEnableCustomRules");
+         return;
+        }
+      if(!IsSafeToCreateMarketOrder(OP_BUY) || !PassesEMAFilter(OP_BUY) || !IsOneCandleOrderAllowed() || GetTotalEAOrders() >= MaxOpenOrders)
+        {
+         Print("Order Blocked IsSafeToCreateMarketOrder");
+         return;
+        }
      }
    RefreshRates();
    double pendingGap = GetSSLLongShortPendingGapRaw(OP_BUY, true);
@@ -27271,16 +27329,14 @@ void OpenBuy(string MOMorder="")
       entryPrice = Ask + minStopDist;
    entryPrice = NormalizeDouble(entryPrice, Digits);
 
-   double buyGap = GetDynamicOrderGap(OP_BUY);
-   bool isSpikeOrder = (MOMorder == "SPIKE_BUY" || (InpEnableSpikeOrderCreation && EMADirection == 1 && GlobalEmaAngle30 < 0.0));
-   if(isSpikeOrder && InpSpikeOrderBypassSameTypeGap)
+   if(!isSpikeOrder)
      {
-      buyGap = (InpSpikeOrderMinGapUSD > 0.0) ? InpSpikeOrderMinGapUSD : 0.0;
-     }
-   if(buyGap > 0.0 && !HasMinimumSameOrderGap(OP_BUY, buyGap, entryPrice))
-     {
-      Print("Order Blocked HasMinimumSameOrderGap: Required Gap=", DoubleToString(buyGap, 2), " Proposed Entry=", DoubleToString(entryPrice, Digits));
-      return;
+      double buyGap = GetDynamicOrderGap(OP_BUY);
+      if(!HasMinimumSameOrderGap(OP_BUY, buyGap, entryPrice))
+        {
+         Print("Order Blocked HasMinimumSameOrderGap: Required Gap=", DoubleToString(buyGap, 2), " Proposed Entry=", DoubleToString(entryPrice, Digits));
+         return;
+        }
      }
    reEntryCounter=0;
    SaveReEntryCounter();
@@ -27334,17 +27390,20 @@ double NormalizeLots(double lots)
 //+------------------------------------------------------------------+
 void OpenSell(string MOMorder="")
   {
-   if(InpEnableCustomRules && !PassesUserRules(OP_SELL))
-     {
-      Print("InpEnableCustomRules ");
-      return;
+   bool isSpikeOrder = (MOMorder == "SPIKE_SELL" || (InpEnableSpikeOrderCreation && EMADirection == -1 && GlobalEmaAngle30 > 0.0));
 
-     }
-   if(!IsSafeToCreateMarketOrder(OP_SELL) || !PassesEMAFilter(OP_SELL) || !IsOneCandleOrderAllowed() || GetTotalEAOrders() >= MaxOpenOrders)
+   if(!isSpikeOrder)
      {
-      Print("IsSafeToCreateMarketOrder ");
-      return;
-
+      if(InpEnableCustomRules && !PassesUserRules(OP_SELL))
+        {
+         Print("InpEnableCustomRules ");
+         return;
+        }
+      if(!IsSafeToCreateMarketOrder(OP_SELL) || !PassesEMAFilter(OP_SELL) || !IsOneCandleOrderAllowed() || GetTotalEAOrders() >= MaxOpenOrders)
+        {
+         Print("IsSafeToCreateMarketOrder ");
+         return;
+        }
      }
    RefreshRates();
    double pendingGap = GetSSLLongShortPendingGapRaw(OP_SELL, true);
@@ -27354,16 +27413,14 @@ void OpenSell(string MOMorder="")
       entryPrice = Bid - minStopDist;
    entryPrice = NormalizeDouble(entryPrice, Digits);
 
-   double sellGap = GetDynamicOrderGap(OP_SELL);
-   bool isSpikeOrder = (MOMorder == "SPIKE_SELL" || (InpEnableSpikeOrderCreation && EMADirection == -1 && GlobalEmaAngle30 > 0.0));
-   if(isSpikeOrder && InpSpikeOrderBypassSameTypeGap)
+   if(!isSpikeOrder)
      {
-      sellGap = (InpSpikeOrderMinGapUSD > 0.0) ? InpSpikeOrderMinGapUSD : 0.0;
-     }
-   if(sellGap > 0.0 && !HasMinimumSameOrderGap(OP_SELL, sellGap, entryPrice))
-     {
-      Print("Order Blocked HasMinimumSameOrderGap: Required Gap=", DoubleToString(sellGap, 2), " Proposed Entry=", DoubleToString(entryPrice, Digits));
-      return;
+      double sellGap = GetDynamicOrderGap(OP_SELL);
+      if(!HasMinimumSameOrderGap(OP_SELL, sellGap, entryPrice))
+        {
+         Print("Order Blocked HasMinimumSameOrderGap: Required Gap=", DoubleToString(sellGap, 2), " Proposed Entry=", DoubleToString(entryPrice, Digits));
+         return;
+        }
      }
    reEntryCounter=0;
    SaveReEntryCounter();
