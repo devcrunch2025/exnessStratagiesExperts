@@ -43,7 +43,7 @@ CheckBasketProfitClose  Total open basket profit
 
 */
 
-string glbVersion = "V-SMALL-1065- Change Dubai Day Reset Time From 16 to 20";
+string glbVersion = "V-SMALL-1066- Spike Order Creation On EMA Direction Angle Mismatch";
 
 int AccountMultiplierLOT = 500;//100;//1000;//400;//200;//500; ALWAYS multiples of 1000 is better for best results
 //balance multiplier
@@ -941,6 +941,7 @@ double InpPendingGapLossMultiplier         = 2.0;   // Pending gap multiplier on
 // double MinimumSameOrderGapRawSSLLongShort =50;// 50;
 input double InpDynamicGapAngleThreshold        = 4.0;   // Dynamic Order Gap: EMA angle boundary (if MathAbs(EMA Angle) < 4.0: Required Gap = Base Gap; if >= 4.0: Base Gap * Drawdown Mult * Sweep Mult)
 input bool   InpDisableDDAndSweepGapWhenEmaUnmatched = true; // Dynamic Order Gap: Disable DD Scaling & Sweep Guard when MathAbs(EMA Angle) >= 4.0 and OrderType != EMADirection
+input bool   InpEnableSpikeOrderCreation            = true; // Spike Orders: When EMADirection is 1 but angle < 0 create BUY; when -1 and angle > 0 create SELL
 double MinimumSameOrderGapRawMatched =50;//30;//50;//100;//50;//30;//10;//20;//50;//20;// 50;//SSL long //SSL short
 double MinimumSameOrderGapRawUnmatched =50;//10;//10;//20;// 100;
 
@@ -1391,7 +1392,11 @@ bool PassesUserRules(int orderType)
    int baseMarketType     = (requestedDirection == 1) ? OP_BUY : OP_SELL;
    double currentPL       = (baseMarketType == OP_BUY) ? GlobalBuyPL : GlobalSellPL;
 
-   if(currentSSL != requestedDirection)
+   // USER RULE: Spike Order Exception (EMADirection == 1 with angle < 0 is Bullish Spike; EMADirection == -1 with angle > 0 is Bearish Spike)
+   bool isBullishSpikeOrder = (InpEnableSpikeOrderCreation && requestedDirection == 1 && EMADirection == 1 && emaAngle < 0.0);
+   bool isBearishSpikeOrder = (InpEnableSpikeOrderCreation && requestedDirection == -1 && EMADirection == -1 && emaAngle > 0.0);
+
+   if(!isBullishSpikeOrder && !isBearishSpikeOrder && currentSSL != requestedDirection)
      {
       Print("TRADE BLOCKED | SSL does not match requested direction  "+currentSSL+" :  "+requestedDirection);
       return false;
@@ -16378,12 +16383,25 @@ void OnTickCore()
    bool missingBuyOrder = (currentTrend == 1 && CountDirectionOrders(OP_BUY) == 0 && CountDirectionOrders(OP_BUYSTOP) == 0);
    bool missingSellOrder = (currentTrend == -1 && CountDirectionOrders(OP_SELL) == 0 && CountDirectionOrders(OP_SELLSTOP) == 0);
 
-   if(buySignal || missingBuyOrder)
+   // USER RULE: Spike Order Detection
+   // "EMAdirection is 1 , but ema angle is negative means spike in bullish so create BUY orders. 
+   //  similary EMAdirection is -1 but EMAangle is positive value then create SELL orders normal ssl orders with pending orders"
+   bool isBullishSpike = (InpEnableSpikeOrderCreation && EMADirection == 1 && GlobalEmaAngle30 < 0.0);
+   bool isBearishSpike = (InpEnableSpikeOrderCreation && EMADirection == -1 && GlobalEmaAngle30 > 0.0);
+
+   static datetime s_lastSpikeBuyAttempt  = 0;
+   static datetime s_lastSpikeSellAttempt = 0;
+   bool spikeBuySignal  = (isBullishSpike && CountDirectionOrders(OP_BUYSTOP) == 0 && (TimeCurrent() - s_lastSpikeBuyAttempt >= 5));
+   bool spikeSellSignal = (isBearishSpike && CountDirectionOrders(OP_SELLSTOP) == 0 && (TimeCurrent() - s_lastSpikeSellAttempt >= 5));
+
+   if(buySignal || missingBuyOrder || spikeBuySignal)
      {
       if(buySignal)
          DrawLiveSignal(0, true);
-      if(LastLiveSignalCandle != Time[0] || LastLiveSSLDirection != 1 || missingBuyOrder)
+      if(LastLiveSignalCandle != Time[0] || LastLiveSSLDirection != 1 || missingBuyOrder || spikeBuySignal)
         {
+         if(spikeBuySignal)
+            s_lastSpikeBuyAttempt = TimeCurrent();
          LastLiveSignalCandle = Time[0];
          LastLiveSSLDirection = 1;
 
@@ -16413,12 +16431,14 @@ void OnTickCore()
         }
      }
    else
-      if(sellSignal || missingSellOrder)
+      if(sellSignal || missingSellOrder || spikeSellSignal)
         {
          if(sellSignal)
             DrawLiveSignal(0, false);
-         if(LastLiveSignalCandle != Time[0] || LastLiveSSLDirection != -1 || missingSellOrder)
+         if(LastLiveSignalCandle != Time[0] || LastLiveSSLDirection != -1 || missingSellOrder || spikeSellSignal)
            {
+            if(spikeSellSignal)
+               s_lastSpikeSellAttempt = TimeCurrent();
             LastLiveSignalCandle = Time[0];
             LastLiveSSLDirection = -1;
 
@@ -22441,6 +22461,10 @@ bool PassesOscillationBoundaryFilter(int orderType)
       if(isBullishBreakout)
          return true;
 
+      // USER RULE: Bullish Spike Exception (EMADirection == 1 with negative angle -> allow BUY orders)
+      if(InpEnableSpikeOrderCreation && EMADirection == 1 && GlobalEmaAngle30 < 0.0)
+         return true;
+
       // Inside oscillation: Block BUY if price is in Upper Ceiling Zone (>= 65%)
       if(rWidth >= InpOscillationTightThreshold && relPos >= InpBoundaryCeilingPercent)
         {
@@ -22481,6 +22505,10 @@ bool PassesOscillationBoundaryFilter(int orderType)
 
          // If price broke below floor with bearish momentum, breakout sell is permitted
          if(isBearishBreakout)
+            return true;
+
+         // USER RULE: Bearish Spike Exception (EMADirection == -1 with positive angle -> allow SELL orders)
+         if(InpEnableSpikeOrderCreation && EMADirection == -1 && GlobalEmaAngle30 > 0.0)
             return true;
 
          // Inside oscillation: Block SELL if price is in Lower Floor Zone (<= 35%)
@@ -29916,9 +29944,10 @@ void UpdateDashboard(DailyProtectionState &state)
    string emaShortDir = (EMADirection == 1) ? "BULL (+1)" : (EMADirection == -1 ? "BEAR (-1)" : "FLAT (0)");
    bool isEmaWeak = IsEmaWEAKDistanceReduced50PercentFromPeak();
    string emaStrength = isEmaWeak ? "WEAK" : "STRONG";
+   string spikeTag = (EMADirection == 1 && GlobalEmaAngle30 < 0.0) ? ", SPIKE BULL" : ((EMADirection == -1 && GlobalEmaAngle30 > 0.0) ? ", SPIKE BEAR" : "");
    string sslShortDir = (currentSSLDirection > 0) ? "BUY (+1)" : (currentSSLDirection < 0 ? "SELL (-1)" : "NONE");
    color trendColor = (EMADirection == 1) ? clrLime : (EMADirection == -1 ? clrTomato : clrGold);
-   string trendStr = StringFormat("TREND & SSL : EMA: %s [%s, %+.1f deg] | SSL: %s", emaShortDir, emaStrength, GlobalEmaAngle30, sslShortDir);
+   string trendStr = StringFormat("TREND & SSL : EMA: %s [%s, %+.1f deg%s] | SSL: %s", emaShortDir, emaStrength, GlobalEmaAngle30, spikeTag, sslShortDir);
    CreateDashboardLabel(DASH_PREFIX+"TREND", trendStr, tx, y+238, 8, trendColor);
 
 // 2. EMA Distances: Live, Current Peak, Previous Peak
