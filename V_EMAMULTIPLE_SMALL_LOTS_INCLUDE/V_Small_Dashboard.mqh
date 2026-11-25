@@ -385,14 +385,19 @@ void UpdateNoManualWarningDisplay(int chartWidth, int leftEnd, int rightStart)
       return;
      }
 
+   int btnBaseY    = MathMin(LeftDashboardY, DashboardTopGap);
+   int secondLineY = btnBaseY + 38 + 5; // Second line directly below top buttons (Y = 20 + 38 + 5 = 63)
+
    int warnMidX = 0;
-   int warnY    = (InpNoManualWarningCustomY > 0) ? InpNoManualWarningCustomY : MathMin(LeftDashboardY, DashboardTopGap);
+   int warnY    = (InpNoManualWarningCustomY > 0) ? InpNoManualWarningCustomY : secondLineY;
 
    switch(InpNoManualWarningPosition)
      {
       case WARN_POS_RIGHT_UPPER_CORNER:
         {
          warnMidX = chartWidth - 130;
+         if(InpNoManualWarningCustomY <= 0)
+            warnY = btnBaseY;
          break;
         }
       case WARN_POS_ABOVE_RIGHT_DASH:
@@ -408,6 +413,8 @@ void UpdateNoManualWarningDisplay(int chartWidth, int leftEnd, int rightStart)
       case WARN_POS_TOP_CENTER:
         {
          warnMidX = (leftEnd + rightStart) / 2;
+         if(InpNoManualWarningCustomY <= 0)
+            warnY = btnBaseY;
          break;
         }
       case WARN_POS_CUSTOM:
@@ -417,7 +424,6 @@ void UpdateNoManualWarningDisplay(int chartWidth, int leftEnd, int rightStart)
          break;
         }
       case WARN_POS_RIGHT_SIDE:
-      default:
         {
          if(!g_dashboardsUserHidden && (rightStart - leftEnd) < 460)
            {
@@ -425,15 +431,30 @@ void UpdateNoManualWarningDisplay(int chartWidth, int leftEnd, int rightStart)
                      ? (int)ObjectGetInteger(0, DASH_PREFIX + "HEADER", OBJPROP_XSIZE)
                      : MathMax(DashboardWidth, 375);
             warnMidX = rightStart + (rW / 2);
-            warnY    = 4;
+            if(InpNoManualWarningCustomY <= 0)
+               warnY = 4;
            }
          else
            {
-            // Right Side: Anchored cleanly to the left of the Right Dashboard on top row (y=20)
+            // Right Side on second line after buttons
             warnMidX = rightStart - 120;
             if(warnMidX < leftEnd + 120)
                warnMidX = leftEnd + 120;
+            if(InpNoManualWarningCustomY <= 0)
+               warnY = secondLineY;
            }
+         break;
+        }
+      case WARN_POS_SECOND_LINE:
+      default:
+        {
+         // Second Line After Buttons: Centered directly below the top buttons
+         if(g_dashboardsUserHidden || (rightStart - leftEnd) <= 0)
+            warnMidX = chartWidth / 2;
+         else
+            warnMidX = (leftEnd + rightStart) / 2;
+         if(InpNoManualWarningCustomY <= 0)
+            warnY = secondLineY;
          break;
         }
      }
