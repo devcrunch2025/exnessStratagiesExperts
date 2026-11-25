@@ -43,7 +43,7 @@ CheckBasketProfitClose  Total open basket profit
 
 */
 
-string glbVersion = "V-SMALL-1091- Move Manual Orders Warning to Second Line";
+string glbVersion = "V-SMALL-1092- HLine Start Live Price SL for Profitable Orders";
 
 int AccountMultiplierLOT = 500;//100;//1000;//400;//200;//500; ALWAYS multiples of 1000 is better for best results
 //balance multiplier
@@ -357,9 +357,9 @@ int    InpHorizontalLineMinActiveWaitSeconds      = 150;           // Activation
 bool   InpModifyOppositeOrderSLToLinePrice        = true;          // On new/active horizontal line: try to modify opposite order SL to Line price
 bool   InpModifyLinePriceSLOnlyFirstOrder         = true;          // Modify SL with Line Price ONLY for the FIRST (oldest) open order
 double InpLinePriceSLOffsetRaw                    = 3000;//1000;//200;//100;//50.0;          // Offset in USD ($50) added to Line Price for StopLoss modification (Line Price + 50)
-bool   InpEnableHLineProfitLiveSLModify   = true;  // USER RULE: On opposite horizontal line start: modify profitable order SL to live price
-double InpHLineModifyProfitThresholdUSD   = 0.50;  // Minimum order profit in USD ($0.50) to modify SL to live price on opposite horizontal line
-bool   InpHLineModifyUsesMultiplier       = true;  // USER RULE: Multiply profit threshold by balancelomultipler ($0.50 * balancelomultipler)
+bool   InpEnableHLineProfitLiveSLModify   = true;  // USER RULE: On horizontal line start: modify profitable order SL to live price
+double InpHLineModifyProfitThresholdUSD   = 0.0;   // Minimum order profit in USD ($0.0) to modify SL to live price on horizontal line start (profit > $0)
+bool   InpHLineModifyUsesMultiplier       = false; // Multiply profit threshold by balancelomultipler (default: false for strict > $0)
 bool   InpEnableHLineEndedProfitLiveSLModify      = true;          // USER RULE: When ANY horizontal line ends (Red or Green): modify open order SL to live price if profit > $0.50
 double InpHLineEndedProfitThresholdUSD            = 0.50;          // Minimum individual order profit in USD ($0.50) to modify SL to live price on horizontal line ended
 bool   InpHLineEndedModifyUsesMultiplier          = true;          // USER RULE: Multiply profit threshold by balancelomultipler ($0.50 * balancelomultipler)

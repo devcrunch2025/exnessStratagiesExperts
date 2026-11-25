@@ -5450,33 +5450,51 @@ void ModifyAllOrdersWithEquityLadderSL(double slGapRaw)
 //+------------------------------------------------------------------+
 //| ManageHorizontalLineProfitLiveStopLoss:                          |
 //| USER RULE:                                                       |
-//| - EMAdirection is bearish, SELL order is open with profit >= $0.50|
-//|   Horizontal GREENLINE is started -> modify SELL order stoploss  |
-//|   with current live price                                        |
-//| - EMADIRECTION is bullish, BUY/SELL order is open with profit    |
-//|   >= $0.50, Horizontal REDLINE is started -> modify BUY/SELL     |
-//|   stoploss with current live price                               |
+//| - "GREEEN horizontal line is started then SELL orders are in     |
+//|   profit >$0 then modify all open SELL orders stoploss with      |
+//|   liveprice."                                                    |
+//| - "RED horizontal line is started then BUY orders are in profit  |
+//|   >$0 then modify all open BUY orders stoploss with live price"  |
 //+------------------------------------------------------------------+
 void ManageHorizontalLineProfitLiveStopLoss()
   {
    if(!InpEnableHLineProfitLiveSLModify)
       return;
 
-   RefreshRates();
+   bool curGreenActive = (g_lastEqLowPrice  > 0.0 && g_lastEqLowLineStart  > 0) || IsLsdSweepGreenLinePresent() || (GetEQR_G_Price(true) > 0.0);
+   bool curRedActive   = (g_lastEqHighPrice > 0.0 && g_lastEqHighLineStart > 0) || IsLsdSweepRedLinePresent()   || (GetEQR_R_Price(true) > 0.0);
 
-   bool isRedLineActive   = (g_lastEqHighPrice > 0.0 && g_lastEqHighLineStart > 0);
-   bool isGreenLineActive = (g_lastEqLowPrice  > 0.0 && g_lastEqLowLineStart  > 0);
-
-   bool checkSellInBearish = (EMADirection == -1 && isGreenLineActive);
-   bool checkBuyInBullish  = (EMADirection == 1  && isRedLineActive);
-
-   if(!checkSellInBearish && !checkBuyInBullish)
+   if(!curGreenActive && !curRedActive)
       return;
+
+   datetime curGreenStart = (g_lastEqLowLineStart > 0) ? g_lastEqLowLineStart : GetLsdSweepActiveEqlLineStart();
+   double   curGreenPrice = (g_lastEqLowPrice > 0.0)   ? g_lastEqLowPrice     : GetEQR_G_Price(true);
+
+   datetime curRedStart   = (g_lastEqHighLineStart > 0) ? g_lastEqHighLineStart : GetLsdSweepActiveEqhLineStart();
+   double   curRedPrice   = (g_lastEqHighPrice > 0.0)   ? g_lastEqHighPrice     : GetEQR_R_Price(true);
+
+   // Log once when a line is newly detected as started
+   static datetime s_lastLoggedGreenStart = 0;
+   static datetime s_lastLoggedRedStart   = 0;
+   if(curGreenActive && curGreenStart > 0 && curGreenStart != s_lastLoggedGreenStart)
+     {
+      PrintFormat(">>> [HLINE LIVE SL] GREEN Line Started (%s @ %.2f) -> Checking all open SELL orders with profit > $0 to modify SL with live price",
+                  TimeToString(curGreenStart, TIME_DATE|TIME_MINUTES), curGreenPrice);
+      s_lastLoggedGreenStart = curGreenStart;
+     }
+   if(curRedActive && curRedStart > 0 && curRedStart != s_lastLoggedRedStart)
+     {
+      PrintFormat(">>> [HLINE LIVE SL] RED Line Started (%s @ %.2f) -> Checking all open BUY orders with profit > $0 to modify SL with live price",
+                  TimeToString(curRedStart, TIME_DATE|TIME_MINUTES), curRedPrice);
+      s_lastLoggedRedStart = curRedStart;
+     }
 
    double mult = (InpHLineModifyUsesMultiplier && balancelomultipler > 0) ? (double)balancelomultipler : 1.0;
    double minProfit = InpHLineModifyProfitThresholdUSD * mult;
-   if(minProfit <= 0.0)
-      minProfit = 0.50 * mult;
+   if(minProfit < 0.0)
+      minProfit = 0.0;
+
+   RefreshRates();
 
    double curBid = MarketInfo(Symbol(), MODE_BID);
    double curAsk = MarketInfo(Symbol(), MODE_ASK);
@@ -5498,15 +5516,15 @@ void ManageHorizontalLineProfitLiveStopLoss()
 
       int tkt = OrderTicket();
       double netPL = OrderProfit() + OrderSwap() + OrderCommission();
-      if(netPL < minProfit)
+      if(netPL <= minProfit)
          continue;
 
       double oOpen = OrderOpenPrice();
       double curSL = OrderStopLoss();
       double curTP = OrderTakeProfit();
 
-      // Case 1: Bearish + Green Line started -> modify SELL order SL to live price
-      if(checkSellInBearish && oType == OP_SELL)
+      // Rule 1: GREEN horizontal line started -> modify all open SELL orders (profit > $0) SL with liveprice
+      if(curGreenActive && oType == OP_SELL)
         {
          double targetSL = NormalizeDouble(curAsk + minStopDist, Digits);
          if(targetSL > curAsk && (curSL <= 0.0 || (targetSL < curSL - minModGap)))
@@ -5514,13 +5532,13 @@ void ManageHorizontalLineProfitLiveStopLoss()
             bool ok = SafeOrderModify(tkt, oOpen, targetSL, curTP, 0, clrTomato, "HLineLiveSL_Sell");
             if(ok)
               {
-               PrintFormat(">>> [HLINE LIVE SL] Bearish EMADir (-1) + Green Line Started: SELL #%d SL modified to Live Price (Ask+StopDist=%.2f) | Profit=+$%.2f >= $%.2f (Base=$%.2f x Mult=%.0f)",
-                           tkt, targetSL, netPL, minProfit, InpHLineModifyProfitThresholdUSD, mult);
+               PrintFormat(">>> [HLINE LIVE SL] GREEN Line Started/Active (%s @ %.2f): SELL #%d SL modified to Live Price (Ask+StopDist=%.2f) | Profit=+$%.2f > $%.2f",
+                           TimeToString(curGreenStart, TIME_DATE|TIME_MINUTES), curGreenPrice, tkt, targetSL, netPL, minProfit);
               }
            }
         }
-      // Case 2: Bullish + Red Line started -> modify BUY order SL to live price (and SELL order if open & profitable)
-      else if(checkBuyInBullish && oType == OP_BUY)
+      // Rule 2: RED horizontal line started -> modify all open BUY orders (profit > $0) SL with live price
+      else if(curRedActive && oType == OP_BUY)
         {
          double targetSL = NormalizeDouble(curBid - minStopDist, Digits);
          if(targetSL < curBid && (curSL <= 0.0 || (targetSL > curSL + minModGap)))
@@ -5528,21 +5546,8 @@ void ManageHorizontalLineProfitLiveStopLoss()
             bool ok = SafeOrderModify(tkt, oOpen, targetSL, curTP, 0, clrLimeGreen, "HLineLiveSL_Buy");
             if(ok)
               {
-               PrintFormat(">>> [HLINE LIVE SL] Bullish EMADir (+1) + Red Line Started: BUY #%d SL modified to Live Price (Bid-StopDist=%.2f) | Profit=+$%.2f >= $%.2f (Base=$%.2f x Mult=%.0f)",
-                           tkt, targetSL, netPL, minProfit, InpHLineModifyProfitThresholdUSD, mult);
-              }
-           }
-        }
-      else if(checkBuyInBullish && oType == OP_SELL)
-        {
-         double targetSL = NormalizeDouble(curAsk + minStopDist, Digits);
-         if(targetSL > curAsk && (curSL <= 0.0 || (targetSL < curSL - minModGap)))
-           {
-            bool ok = SafeOrderModify(tkt, oOpen, targetSL, curTP, 0, clrTomato, "HLineLiveSL_Sell");
-            if(ok)
-              {
-               PrintFormat(">>> [HLINE LIVE SL] Bullish EMADir (+1) + Red Line Started: SELL #%d SL modified to Live Price (Ask+StopDist=%.2f) | Profit=+$%.2f >= $%.2f (Base=$%.2f x Mult=%.0f)",
-                           tkt, targetSL, netPL, minProfit, InpHLineModifyProfitThresholdUSD, mult);
+               PrintFormat(">>> [HLINE LIVE SL] RED Line Started/Active (%s @ %.2f): BUY #%d SL modified to Live Price (Bid-StopDist=%.2f) | Profit=+$%.2f > $%.2f",
+                           TimeToString(curRedStart, TIME_DATE|TIME_MINUTES), curRedPrice, tkt, targetSL, netPL, minProfit);
               }
            }
         }

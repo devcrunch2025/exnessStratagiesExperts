@@ -2313,7 +2313,7 @@ void CheckNewRedLineCloseBuyAndOpenSell()
            }
         }
 
-      // Step 2b-2: USER RULE: "EMADIRECTION is bullish , SELL order is open and current tick with profit>=$0.50 , horizontal RED line is started then modify BUY order stoploss with current live price"
+      // Step 2b-2: USER RULE: "RED horizontal line is started then BUY orders are in profit >$0 then modify all open BUY orders stoploss with live price"
       ManageHorizontalLineProfitLiveStopLoss();
 
       // Step 2c: USER RULE: "When horizantal line is started. create recovery order which is smallest loss amount.
@@ -2716,7 +2716,7 @@ void CheckNewGreenLineCloseSellAndOpenBuy()
            }
         }
 
-      // Step 2b-2: USER RULE: "EMAdirection is bearish , SELL order is open and current tick with profit >=$0.50, Horizontal GREENLINE Is started then modify SELL order stoploss with current live price"
+      // Step 2b-2: USER RULE: "GREEEN horizontal line is started then SELL orders are in profit >$0 then modify all open SELL orders stoploss with liveprice"
       ManageHorizontalLineProfitLiveStopLoss();
 
       // Step 2c: USER RULE: "When horizantal line is started. create recovery order which is smallest loss amount.
