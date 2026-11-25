@@ -43,7 +43,7 @@ CheckBasketProfitClose  Total open basket profit
 
 */
 
-string glbVersion = "V-SMALL-1083- HLine Ended Profit 0.50 Live Price SL";
+string glbVersion = "V-SMALL-1084- HLine Ended Profit Mult Balance";
 
 int AccountMultiplierLOT = 500;//100;//1000;//400;//200;//500; ALWAYS multiples of 1000 is better for best results
 //balance multiplier
@@ -362,7 +362,7 @@ double InpHLineModifyProfitThresholdUSD   = 0.50;  // Minimum order profit in US
 bool   InpHLineModifyUsesMultiplier       = false; // Multiply profit threshold by balancelomultipler (false = strict $0.50, true = $0.50 * mult)
 bool   InpEnableHLineEndedProfitLiveSLModify      = true;          // USER RULE: When ANY horizontal line ends (Red or Green): modify open order SL to live price if profit > $0.50
 double InpHLineEndedProfitThresholdUSD            = 0.50;          // Minimum individual order profit in USD ($0.50) to modify SL to live price on horizontal line ended
-bool   InpHLineEndedModifyUsesMultiplier          = false;         // Multiply profit threshold by balancelomultipler (false = strict $0.50, true = $0.50 * mult)
+bool   InpHLineEndedModifyUsesMultiplier          = true;          // USER RULE: Multiply profit threshold by balancelomultipler ($0.50 * balancelomultipler)
 int    InpHLineEndedActiveWindowSeconds           = 300;           // Window in seconds (default: 300s = 5min) after line ends to keep protecting orders with live price SL
 bool   InpEnableHorizontalLineRecovery            = true;          // When horizontal line starts: create recovery order for open losing order with smallest loss
 bool   InpOpenLineOrderIfRecoveryCreated          = false;         // If recovery order created, also open standard line order (default: false to enforce 1-order-per-line)
@@ -35266,6 +35266,11 @@ void ManageHorizontalLineEndedProfitLiveStopLoss()
    if(!InpEnableHLineEndedProfitLiveSLModify)
       return;
 
+   double mult = (InpHLineEndedModifyUsesMultiplier && balancelomultipler > 0) ? (double)balancelomultipler : 1.0;
+   double minProfit = InpHLineEndedProfitThresholdUSD * mult;
+   if(minProfit <= 0.0)
+      minProfit = 0.50 * mult;
+
    // 1. Detect state transitions (line active on last tick -> no longer active on current tick)
    static bool     s_prevRedActive   = false;
    static datetime s_prevRedStart    = 0;
@@ -35289,8 +35294,8 @@ void ManageHorizontalLineEndedProfitLiveStopLoss()
       g_lastHLineEndedType      = "RED";
       g_lastHLineEndedLineStart = s_prevRedStart;
       g_lastHLineEndedPrice     = s_prevRedPrice;
-      PrintFormat(">>> [HLINE ENDED TRIGGER] RED Line ended (Start: %s, Price=%.2f). Market unpredictable -> Modifying open orders (profit > $%.2f) SL to live price!",
-                  TimeToString(s_prevRedStart, TIME_DATE|TIME_SECONDS), s_prevRedPrice, InpHLineEndedProfitThresholdUSD);
+      PrintFormat(">>> [HLINE ENDED TRIGGER] RED Line ended (Start: %s, Price=%.2f). Market unpredictable -> Modifying open orders (profit > $%.2f [Base=$%.2f x Mult=%.0f]) SL to live price!",
+                  TimeToString(s_prevRedStart, TIME_DATE|TIME_SECONDS), s_prevRedPrice, minProfit, InpHLineEndedProfitThresholdUSD, mult);
      }
 
    // Check if Green line ended on this tick
@@ -35300,8 +35305,8 @@ void ManageHorizontalLineEndedProfitLiveStopLoss()
       g_lastHLineEndedType      = "GREEN";
       g_lastHLineEndedLineStart = s_prevGreenStart;
       g_lastHLineEndedPrice     = s_prevGreenPrice;
-      PrintFormat(">>> [HLINE ENDED TRIGGER] GREEN Line ended (Start: %s, Price=%.2f). Market unpredictable -> Modifying open orders (profit > $%.2f) SL to live price!",
-                  TimeToString(s_prevGreenStart, TIME_DATE|TIME_SECONDS), s_prevGreenPrice, InpHLineEndedProfitThresholdUSD);
+      PrintFormat(">>> [HLINE ENDED TRIGGER] GREEN Line ended (Start: %s, Price=%.2f). Market unpredictable -> Modifying open orders (profit > $%.2f [Base=$%.2f x Mult=%.0f]) SL to live price!",
+                  TimeToString(s_prevGreenStart, TIME_DATE|TIME_SECONDS), s_prevGreenPrice, minProfit, InpHLineEndedProfitThresholdUSD, mult);
      }
 
    // Synchronize with ended line tracking from UpdateLiquiditySweepDetectorOnChart
@@ -35345,11 +35350,6 @@ void ManageHorizontalLineEndedProfitLiveStopLoss()
       return;
 
    RefreshRates();
-
-   double mult = (InpHLineEndedModifyUsesMultiplier && balancelomultipler > 0) ? (double)balancelomultipler : 1.0;
-   double minProfit = InpHLineEndedProfitThresholdUSD * mult;
-   if(minProfit <= 0.0)
-      minProfit = 0.50;
 
    double curBid = MarketInfo(Symbol(), MODE_BID);
    double curAsk = MarketInfo(Symbol(), MODE_ASK);
