@@ -43,7 +43,7 @@ CheckBasketProfitClose  Total open basket profit
 
 */
 
-string glbVersion = "V-SMALL-1082- HLine Profit 0.50 Live Price SL";
+string glbVersion = "V-SMALL-1083- HLine Ended Profit 0.50 Live Price SL";
 
 int AccountMultiplierLOT = 500;//100;//1000;//400;//200;//500; ALWAYS multiples of 1000 is better for best results
 //balance multiplier
@@ -360,6 +360,10 @@ double InpLinePriceSLOffsetRaw                    = 3000;//1000;//200;//100;//50
 bool   InpEnableHLineProfitLiveSLModify   = true;  // USER RULE: On opposite horizontal line start: modify profitable order SL to live price
 double InpHLineModifyProfitThresholdUSD   = 0.50;  // Minimum order profit in USD ($0.50) to modify SL to live price on opposite horizontal line
 bool   InpHLineModifyUsesMultiplier       = false; // Multiply profit threshold by balancelomultipler (false = strict $0.50, true = $0.50 * mult)
+bool   InpEnableHLineEndedProfitLiveSLModify      = true;          // USER RULE: When ANY horizontal line ends (Red or Green): modify open order SL to live price if profit > $0.50
+double InpHLineEndedProfitThresholdUSD            = 0.50;          // Minimum individual order profit in USD ($0.50) to modify SL to live price on horizontal line ended
+bool   InpHLineEndedModifyUsesMultiplier          = false;         // Multiply profit threshold by balancelomultipler (false = strict $0.50, true = $0.50 * mult)
+int    InpHLineEndedActiveWindowSeconds           = 300;           // Window in seconds (default: 300s = 5min) after line ends to keep protecting orders with live price SL
 bool   InpEnableHorizontalLineRecovery            = true;          // When horizontal line starts: create recovery order for open losing order with smallest loss
 bool   InpOpenLineOrderIfRecoveryCreated          = false;         // If recovery order created, also open standard line order (default: false to enforce 1-order-per-line)
 bool   InpEnableLineEndedBreakoutSLModify         = true;          // When line ends & price moves > $100 past line: modify ALL open orders SL to LinePrice +/- $200
@@ -8187,6 +8191,7 @@ int      SendLsdGreenLineBuyOrder(double buyLot, double linePrice = 0.0);
 void     ManageHorizontalOrderEndedStopLoss();
 void     ManageHorizontalLineEndedBreakoutStopLoss();
 void     ManageHorizontalLineProfitLiveStopLoss();
+void     ManageHorizontalLineEndedProfitLiveStopLoss();
 datetime GetLastClosedFLIPBasketSupportCloseTime();
 bool     HasOppositeOrderTypeLossOver5(int currentDirection, double &outOppositeTotalPL, double &outMaxSingleLoss);
 void     InitializeFLIPBasketSupportTracking();
@@ -12631,6 +12636,10 @@ void TrackEmaFlip()
       g_endedEqLowPrice                   = 0.0;
       g_endedEqLowStart                   = 0;
       g_endedEqLowTime                    = 0;
+      g_lastHLineEndedTime                = 0;
+      g_lastHLineEndedType                = "";
+      g_lastHLineEndedPrice               = 0.0;
+      g_lastHLineEndedLineStart           = 0;
 
       // Reset Sweep state on EMA flip
       g_forceSweepRecalc                  = true;
@@ -13701,6 +13710,12 @@ datetime g_endedEqHighTime                   = 0;      // Timestamp when EQH-R e
 double   g_endedEqLowPrice                   = 0.0;    // Price of last ended EQH-G line
 datetime g_endedEqLowStart                   = 0;      // Start ID of last ended EQH-G line
 datetime g_endedEqLowTime                    = 0;      // Timestamp when EQH-G ended
+
+// Any Horizontal Line Ended Tracking (Live Price SL for individual orders with profit > $0.50)
+datetime g_lastHLineEndedTime                        = 0;      // Timestamp when ANY horizontal line ended
+string   g_lastHLineEndedType                        = "";     // "RED" or "GREEN"
+double   g_lastHLineEndedPrice                       = 0.0;    // Price of the ended horizontal line
+datetime g_lastHLineEndedLineStart                   = 0;      // Start timestamp of the ended horizontal line
 
 // Remembered Liquidity Sweep Signal State (Persists across candles until EMA flip or signal change)
 string   g_rememberedSweepSignal             = "None"; // "BSLS", "SSLS", or "None"
@@ -15720,6 +15735,9 @@ void OnTick()
    // USER RULE: On opposite horizontal line start: modify profitable order SL to live price
    ManageHorizontalLineProfitLiveStopLoss();
 
+   // USER RULE: When ANY horizontal line ends: modify open orders (profit > $0.50) SL to live price
+   ManageHorizontalLineEndedProfitLiveStopLoss();
+
    bool isTradingPausedOrBlocked = (g_dailyEquityTradingBlocked || g_manualTradingPaused || DayProfitLadderTradingStopped || g_dailyEquityAdverseLossHitToday || TradingHaltedUntilNextFlip);
 
    if(isTradingPausedOrBlocked)
@@ -15911,6 +15929,7 @@ void OnTick()
    ManageHorizontalOrderEndedStopLoss(); // USER RULE: When horizontal line ends, modify open horizontal order with $50 gap SL
    ManageHorizontalLineEndedBreakoutStopLoss(); // USER RULE: When horizontal line ends & price breaks past line by $100: modify ALL open orders SL to LinePrice +/- $200
    ManageHorizontalLineProfitLiveStopLoss(); // USER RULE: Opposite horizontal line active + order profit >= $0.50 -> modify SL to live price
+   ManageHorizontalLineEndedProfitLiveStopLoss(); // USER RULE: When ANY horizontal line ends: modify open orders (profit > $0.50) SL to live price
 
    OnTickCore();
    OnTickPerformanceEnd(tickStartMs);
@@ -35236,6 +35255,161 @@ void ManageHorizontalLineProfitLiveStopLoss()
   }
 
 //+------------------------------------------------------------------+
+//| ManageHorizontalLineEndedProfitLiveStopLoss:                     |
+//| USER RULE: "GREEN line ends or RED line ends any horizontal ends |
+//|  means something is unpredictable so, modify all individual open |
+//|  orders stoploss with current live price if any order individual |
+//|  profit is more than $0.50"                                      |
+//+------------------------------------------------------------------+
+void ManageHorizontalLineEndedProfitLiveStopLoss()
+  {
+   if(!InpEnableHLineEndedProfitLiveSLModify)
+      return;
+
+   // 1. Detect state transitions (line active on last tick -> no longer active on current tick)
+   static bool     s_prevRedActive   = false;
+   static datetime s_prevRedStart    = 0;
+   static double   s_prevRedPrice    = 0.0;
+   static bool     s_prevGreenActive = false;
+   static datetime s_prevGreenStart  = 0;
+   static double   s_prevGreenPrice  = 0.0;
+
+   bool curRedActive = (g_lastEqHighPrice > 0.0 && g_lastEqHighLineStart > 0) || IsLsdSweepRedLinePresent() || (GetEQR_R_Price(true) > 0.0);
+   datetime curRedStart = (g_lastEqHighLineStart > 0) ? g_lastEqHighLineStart : GetLsdSweepActiveEqhLineStart();
+   double curRedPrice = (g_lastEqHighPrice > 0.0) ? g_lastEqHighPrice : GetEQR_R_Price(true);
+
+   bool curGreenActive = (g_lastEqLowPrice > 0.0 && g_lastEqLowLineStart > 0) || IsLsdSweepGreenLinePresent() || (GetEQR_G_Price(true) > 0.0);
+   datetime curGreenStart = (g_lastEqLowLineStart > 0) ? g_lastEqLowLineStart : GetLsdSweepActiveEqlLineStart();
+   double curGreenPrice = (g_lastEqLowPrice > 0.0) ? g_lastEqLowPrice : GetEQR_G_Price(true);
+
+   // Check if Red line ended on this tick
+   if(s_prevRedActive && !curRedActive)
+     {
+      g_lastHLineEndedTime      = TimeCurrent();
+      g_lastHLineEndedType      = "RED";
+      g_lastHLineEndedLineStart = s_prevRedStart;
+      g_lastHLineEndedPrice     = s_prevRedPrice;
+      PrintFormat(">>> [HLINE ENDED TRIGGER] RED Line ended (Start: %s, Price=%.2f). Market unpredictable -> Modifying open orders (profit > $%.2f) SL to live price!",
+                  TimeToString(s_prevRedStart, TIME_DATE|TIME_SECONDS), s_prevRedPrice, InpHLineEndedProfitThresholdUSD);
+     }
+
+   // Check if Green line ended on this tick
+   if(s_prevGreenActive && !curGreenActive)
+     {
+      g_lastHLineEndedTime      = TimeCurrent();
+      g_lastHLineEndedType      = "GREEN";
+      g_lastHLineEndedLineStart = s_prevGreenStart;
+      g_lastHLineEndedPrice     = s_prevGreenPrice;
+      PrintFormat(">>> [HLINE ENDED TRIGGER] GREEN Line ended (Start: %s, Price=%.2f). Market unpredictable -> Modifying open orders (profit > $%.2f) SL to live price!",
+                  TimeToString(s_prevGreenStart, TIME_DATE|TIME_SECONDS), s_prevGreenPrice, InpHLineEndedProfitThresholdUSD);
+     }
+
+   // Synchronize with ended line tracking from UpdateLiquiditySweepDetectorOnChart
+   static datetime s_lastHandledEndedEqHighTime = 0;
+   static datetime s_lastHandledEndedEqLowTime  = 0;
+   if(g_endedEqHighTime > 0 && g_endedEqHighTime != s_lastHandledEndedEqHighTime)
+     {
+      s_lastHandledEndedEqHighTime = g_endedEqHighTime;
+      g_lastHLineEndedTime         = g_endedEqHighTime;
+      g_lastHLineEndedType         = "RED";
+      g_lastHLineEndedLineStart    = g_endedEqHighStart;
+      g_lastHLineEndedPrice        = g_endedEqHighPrice;
+     }
+   if(g_endedEqLowTime > 0 && g_endedEqLowTime != s_lastHandledEndedEqLowTime)
+     {
+      s_lastHandledEndedEqLowTime  = g_endedEqLowTime;
+      g_lastHLineEndedTime         = g_endedEqLowTime;
+      g_lastHLineEndedType         = "GREEN";
+      g_lastHLineEndedLineStart    = g_endedEqLowStart;
+      g_lastHLineEndedPrice        = g_endedEqLowPrice;
+     }
+
+   // Update previous tracking state
+   s_prevRedActive   = curRedActive;
+   s_prevRedStart    = curRedStart;
+   s_prevRedPrice    = curRedPrice;
+   s_prevGreenActive = curGreenActive;
+   s_prevGreenStart  = curGreenStart;
+   s_prevGreenPrice  = curGreenPrice;
+
+   // If a new horizontal line is active on chart, the ended-line unpredictable phase is superseded by active line logic
+   if(curRedActive || curGreenActive)
+      return;
+
+   // Check if any horizontal line has ended
+   if(g_lastHLineEndedTime <= 0)
+      return;
+
+   int elapsedSec = (int)(TimeCurrent() - g_lastHLineEndedTime);
+   if(InpHLineEndedActiveWindowSeconds > 0 && elapsedSec > InpHLineEndedActiveWindowSeconds)
+      return;
+
+   RefreshRates();
+
+   double mult = (InpHLineEndedModifyUsesMultiplier && balancelomultipler > 0) ? (double)balancelomultipler : 1.0;
+   double minProfit = InpHLineEndedProfitThresholdUSD * mult;
+   if(minProfit <= 0.0)
+      minProfit = 0.50;
+
+   double curBid = MarketInfo(Symbol(), MODE_BID);
+   double curAsk = MarketInfo(Symbol(), MODE_ASK);
+   double minStopDist = GetRequiredStopDistance();
+   if(minStopDist < Point * 10)
+      minStopDist = Point * 10;
+   double minModGap = GetEffectiveMinSLModifyGap();
+
+   for(int i = OrdersTotal() - 1; i >= 0; i--)
+     {
+      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
+         continue;
+      if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber)
+         continue;
+
+      int oType = OrderType();
+      if(oType != OP_BUY && oType != OP_SELL)
+         continue;
+
+      int tkt = OrderTicket();
+      double netPL = OrderProfit() + OrderSwap() + OrderCommission();
+      if(netPL <= minProfit)
+         continue;
+
+      double oOpen = OrderOpenPrice();
+      double curSL = OrderStopLoss();
+      double curTP = OrderTakeProfit();
+
+      // Case 1: BUY order with individual profit > $0.50 -> modify SL to Live Price (Bid - minStopDist)
+      if(oType == OP_BUY)
+        {
+         double targetSL = NormalizeDouble(curBid - minStopDist, Digits);
+         if(targetSL < curBid && (curSL <= 0.0 || (targetSL > curSL + minModGap)))
+           {
+            bool ok = SafeOrderModify(tkt, oOpen, targetSL, curTP, 0, clrLimeGreen, "HLineLiveSL_Ended_Buy");
+            if(ok)
+              {
+               PrintFormat(">>> [HLINE ENDED LIVE SL] %s Line Ended (elapsed=%ds): BUY #%d SL modified to Live Price (Bid-StopDist=%.2f) | Profit=+$%.2f > $%.2f",
+                           g_lastHLineEndedType, elapsedSec, tkt, targetSL, netPL, minProfit);
+              }
+           }
+        }
+      // Case 2: SELL order with individual profit > $0.50 -> modify SL to Live Price (Ask + minStopDist)
+      else if(oType == OP_SELL)
+        {
+         double targetSL = NormalizeDouble(curAsk + minStopDist, Digits);
+         if(targetSL > curAsk && (curSL <= 0.0 || (targetSL < curSL - minModGap)))
+           {
+            bool ok = SafeOrderModify(tkt, oOpen, targetSL, curTP, 0, clrTomato, "HLineLiveSL_Ended_Sell");
+            if(ok)
+              {
+               PrintFormat(">>> [HLINE ENDED LIVE SL] %s Line Ended (elapsed=%ds): SELL #%d SL modified to Live Price (Ask+StopDist=%.2f) | Profit=+$%.2f > $%.2f",
+                           g_lastHLineEndedType, elapsedSec, tkt, targetSL, netPL, minProfit);
+              }
+           }
+        }
+     }
+  }
+
+//+------------------------------------------------------------------+
 //| TryModifyOrderStopLossToLinePrice:                               |
 //| USER RULE: "BUY order is open and RED horizontal line is started |
 //|  . try to modify BUY order stoploss with Line price.             |
@@ -37614,9 +37788,14 @@ void UpdateLiquiditySweepDetectorOnChart()
          g_endedEqHighPrice = s_prevActiveEqHighPrice;
          g_endedEqHighStart = s_prevActiveEqHighStart;
          g_endedEqHighTime  = TimeCurrent();
+         g_lastHLineEndedTime      = g_endedEqHighTime;
+         g_lastHLineEndedType      = "RED";
+         g_lastHLineEndedLineStart = g_endedEqHighStart;
+         g_lastHLineEndedPrice     = g_endedEqHighPrice;
          Print(">>> [RED LINE ENDED] EQH-R line (Start: ", TimeToStr(g_endedEqHighStart, TIME_DATE|TIME_MINUTES),
                ", Price=", DoubleToString(g_endedEqHighPrice, Digits),
                ") ended. Monitoring for breakout > $", DoubleToString(g_endedEqHighPrice + InpLineEndedBreakoutTriggerGapRaw, 2));
+         ManageHorizontalLineEndedProfitLiveStopLoss();
          s_prevActiveEqHighPrice = 0.0;
          s_prevActiveEqHighStart = 0;
         }
@@ -37637,9 +37816,14 @@ void UpdateLiquiditySweepDetectorOnChart()
          g_endedEqLowPrice = s_prevActiveEqLowPrice;
          g_endedEqLowStart = s_prevActiveEqLowStart;
          g_endedEqLowTime  = TimeCurrent();
+         g_lastHLineEndedTime      = g_endedEqLowTime;
+         g_lastHLineEndedType      = "GREEN";
+         g_lastHLineEndedLineStart = g_endedEqLowStart;
+         g_lastHLineEndedPrice     = g_endedEqLowPrice;
          Print(">>> [GREEN LINE ENDED] EQH-G line (Start: ", TimeToStr(g_endedEqLowStart, TIME_DATE|TIME_MINUTES),
                ", Price=", DoubleToString(g_endedEqLowPrice, Digits),
                ") ended. Monitoring for breakout < $", DoubleToString(g_endedEqLowPrice - InpLineEndedBreakoutTriggerGapRaw, 2));
+         ManageHorizontalLineEndedProfitLiveStopLoss();
          s_prevActiveEqLowPrice = 0.0;
          s_prevActiveEqLowStart = 0;
         }
