@@ -43,7 +43,7 @@ CheckBasketProfitClose  Total open basket profit
 
 */
 
-string glbVersion = "V-SMALL-1095- Green Line Start Live SL Near 50 Range";
+string glbVersion = "V-SMALL-1096- Type 1 Spike Single Candle EMA Flip Condition";
 
 int AccountMultiplierLOT = 500;//100;//1000;//400;//200;//500; ALWAYS multiples of 1000 is better for best results
 //balance multiplier
@@ -657,6 +657,9 @@ void     ClearSweepGlobalVariables();
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
+bool     IsSameCandleEmaFlip(int requestedDirection);
+bool     IsType1BullishSpike(bool checkCandleLimit = true);
+bool     IsType1BearishSpike(bool checkCandleLimit = true);
 datetime GetActualEmaFlipTime(int targetType = 0);
 double   GetEmaFlipPrice();
 double   EMAflipdistance(int orderType = -1);
@@ -1095,6 +1098,8 @@ double InpPendingGapLossMultiplier         = 2.0;   // Pending gap multiplier on
  double InpSpikeCandleMinAtrMult               = 2.5;   // Method 2: Minimum ATR(14) multiplier (2.5x ATR, 0 = disabled)
  double InpSpikeWickPullbackUSD                = 30.0;  // Method 2: Minimum wick pullback/rejection from extreme USD ($30 USD)
  int    InpSpikeMaxOrdersPerCandle             = 1;     // Method 2: Max spike orders per candle bar (1 = max 1 per bar)
+ bool   InpType1SpikeRequireSameCandleEmaFlip  = true;  // Type 1 Spike: Only create spike order on the single candle that flipped EMA direction
+ int    InpType1SpikeMaxOrdersPerCandle        = 1;     // Type 1 Spike: Max orders on flip candle (1 = max 1 order per flip candle, 0 = unlimited)
  bool   InpFollowEmaIgnoreSsl                  = true;  // Trade Direction: Follow EMADirection (Bull=BUY, Bear=SELL) & Ignore SSL Signal
  bool   InpEnableSpikeProfitLadder             = true;  // Spike Ladder: Enable Step Profit Ladder with 50% Protection
  bool   InpSpikeLadderUseMultiplier            = true;  // Spike Ladder: Use Balance Multiplier (1Xmul for min profit & step)
@@ -1357,6 +1362,9 @@ int    GlobalSSLDirection = 0;
 bool   g_isMethod2BullishSpike = false;
 bool   g_isMethod2BearishSpike = false;
 datetime g_lastMethod2SpikeTime = 0;
+datetime g_emaFlipCandleTime    = 0;     // Candle bar Time[0] when current EMA flip occurred
+int      g_emaFlipDirection     = 0;     // Direction of current EMA flip (+1 Bullish, -1 Bearish)
+datetime g_lastType1SpikeTime   = 0;     // Time[0] of last created Type 1 spike order
 double GlobalBuyPL = 0.0;
 double GlobalSellPL = 0.0;
 double Global30MinDiffBuy = 0.0;
@@ -1561,8 +1569,8 @@ bool PassesUserRules(int orderType)
    double currentPL       = (baseMarketType == OP_BUY) ? GlobalBuyPL : GlobalSellPL;
 
    // USER RULE: Spike Order Exception (Legacy Angle Mismatch OR Method 2 Candle Spike Velocity)
-   bool isBullishSpikeOrder = (InpEnableSpikeOrderCreation && requestedDirection == 1 && ((EMADirection == 1 && emaAngle < 0.0) || g_isMethod2BullishSpike));
-   bool isBearishSpikeOrder = (InpEnableSpikeOrderCreation && requestedDirection == -1 && ((EMADirection == -1 && emaAngle > 0.0) || g_isMethod2BearishSpike));
+   bool isBullishSpikeOrder = (InpEnableSpikeOrderCreation && requestedDirection == 1 && ((EMADirection == 1 && emaAngle < 0.0 && (!InpType1SpikeRequireSameCandleEmaFlip || IsSameCandleEmaFlip(1))) || g_isMethod2BullishSpike));
+   bool isBearishSpikeOrder = (InpEnableSpikeOrderCreation && requestedDirection == -1 && ((EMADirection == -1 && emaAngle > 0.0 && (!InpType1SpikeRequireSameCandleEmaFlip || IsSameCandleEmaFlip(-1))) || g_isMethod2BearishSpike));
 
    if(InpFollowEmaIgnoreSsl)
      {
@@ -10031,6 +10039,8 @@ void TrackEmaFlip()
          ApplyEmaFlipWideBreathingProtection(LastTrackedEmaDirection, currentDirection);
         }
       EmaFlipTime = TimeCurrent();
+      g_emaFlipCandleTime = Time[0];
+      g_emaFlipDirection  = currentDirection;
       g_emaFlipPrice = (currentDirection == 1 ? Ask : Bid);
 
       TradingHaltedUntilNextFlip = false;
@@ -13647,11 +13657,13 @@ void OnTickCore()
      {
       isBearishSpike = true;
      }
-   else if(InpEnableSpikeOrderCreation)
+   else if(IsType1BullishSpike(true))
      {
-      // Legacy Rule: Angle mismatch
-      isBullishSpike = (EMADirection == 1 && GlobalEmaAngle30 < 0.0);
-      isBearishSpike = (EMADirection == -1 && GlobalEmaAngle30 > 0.0);
+      isBullishSpike = true;
+     }
+   else if(IsType1BearishSpike(true))
+     {
+      isBearishSpike = true;
      }
 
    if(isBullishSpike)
@@ -13673,6 +13685,8 @@ void OnTickCore()
       if(canCreateSpikeBuy)
         {
          s_lastSpikeBuyTime = TimeCurrent();
+         if(!method2Bullish)
+            g_lastType1SpikeTime = Time[0];
          g_lastMethod2SpikeTime = Time[0];
          OpenBuy("SPIKE_BUY");
         }
@@ -13696,6 +13710,8 @@ void OnTickCore()
       if(canCreateSpikeSell)
         {
          s_lastSpikeSellTime = TimeCurrent();
+         if(!method2Bearish)
+            g_lastType1SpikeTime = Time[0];
          g_lastMethod2SpikeTime = Time[0];
          OpenSell("SPIKE_SELL");
         }
@@ -14273,6 +14289,85 @@ int CountDirectionOrders(int orderType)
          count++;
      }
    return count;
+  }
+
+//+------------------------------------------------------------------+
+//| IsSameCandleEmaFlip                                              |
+//| Verifies if the current candle (Bar 0) is the single candle      |
+//| where the EMA direction flipped from one direction to another.   |
+//| Rejects if more than 1 candle has crossed since the flip.        |
+//+------------------------------------------------------------------+
+bool IsSameCandleEmaFlip(int requestedDirection)
+  {
+   if(Bars < 2)
+      return false;
+
+   double ema0 = iMA(Symbol(), Period(), InpEMA200Period, InpEMAPriceShift, MODE_EMA, PRICE_CLOSE, 0);
+   double ema1 = iMA(Symbol(), Period(), InpEMA200Period, InpEMAPriceShift, MODE_EMA, PRICE_CLOSE, 1);
+   if(ema0 <= 0.0 || ema1 <= 0.0)
+      return false;
+
+   // Direction 1: Bullish (+1) -> price flipped above EMA
+   if(requestedDirection == 1)
+     {
+      // 1. Structural check: previous candle (Bar 1) closed below or at EMA, and Bar 0 is above EMA
+      bool prevWasBearish = (Close[1] <= ema1);
+
+      // 2. Intra-bar runtime check: EMA flipped to Bullish on current candle Bar 0
+      bool runtimeFlipThisBar = (g_emaFlipCandleTime == Time[0] && g_emaFlipDirection == 1);
+
+      // 3. Historical scanner check: actual EMA flip occurred on Bar 0
+      bool scannerFlipThisBar = (GetActualEmaFlipTime(1) == Time[0]);
+
+      return (prevWasBearish || runtimeFlipThisBar || scannerFlipThisBar);
+     }
+   // Direction -1: Bearish (-1) -> price flipped below EMA
+   else if(requestedDirection == -1)
+     {
+      // 1. Structural check: previous candle (Bar 1) closed above or at EMA, and Bar 0 is below EMA
+      bool prevWasBullish = (Close[1] >= ema1);
+
+      // 2. Intra-bar runtime check: EMA flipped to Bearish on current candle Bar 0
+      bool runtimeFlipThisBar = (g_emaFlipCandleTime == Time[0] && g_emaFlipDirection == -1);
+
+      // 3. Historical scanner check: actual EMA flip occurred on Bar 0
+      bool scannerFlipThisBar = (GetActualEmaFlipTime(-1) == Time[0]);
+
+      return (prevWasBullish || runtimeFlipThisBar || scannerFlipThisBar);
+     }
+
+   return false;
+  }
+
+//+------------------------------------------------------------------+
+//| IsType1BullishSpike / IsType1BearishSpike                        |
+//| Evaluates Type 1 Spike condition: Angle mismatch + Single candle |
+//| EMA flip requirement.                                            |
+//+------------------------------------------------------------------+
+bool IsType1BullishSpike(bool checkCandleLimit = true)
+  {
+   if(!InpEnableSpikeOrderCreation)
+      return false;
+   if(EMADirection != 1 || GlobalEmaAngle30 >= 0.0)
+      return false;
+   if(InpType1SpikeRequireSameCandleEmaFlip && !IsSameCandleEmaFlip(1))
+      return false;
+   if(checkCandleLimit && InpType1SpikeMaxOrdersPerCandle > 0 && g_lastType1SpikeTime == Time[0])
+      return false;
+   return true;
+  }
+
+bool IsType1BearishSpike(bool checkCandleLimit = true)
+  {
+   if(!InpEnableSpikeOrderCreation)
+      return false;
+   if(EMADirection != -1 || GlobalEmaAngle30 <= 0.0)
+      return false;
+   if(InpType1SpikeRequireSameCandleEmaFlip && !IsSameCandleEmaFlip(-1))
+      return false;
+   if(checkCandleLimit && InpType1SpikeMaxOrdersPerCandle > 0 && g_lastType1SpikeTime == Time[0])
+      return false;
+   return true;
   }
 
 //+------------------------------------------------------------------+
@@ -18713,7 +18808,7 @@ bool PassesOscillationBoundaryFilter(int orderType)
          return true;
 
       // USER RULE: Bullish Spike Exception (Angle mismatch OR Method 2 Candle Spike -> allow BUY orders)
-      if(InpEnableSpikeOrderCreation && ((EMADirection == 1 && GlobalEmaAngle30 < 0.0) || g_isMethod2BullishSpike))
+      if(InpEnableSpikeOrderCreation && (IsType1BullishSpike(false) || g_isMethod2BullishSpike))
          return true;
 
       // Inside oscillation: Block BUY if price is in Upper Ceiling Zone (>= 65%)
@@ -18759,7 +18854,7 @@ bool PassesOscillationBoundaryFilter(int orderType)
             return true;
 
          // USER RULE: Bearish Spike Exception (Angle mismatch OR Method 2 Candle Spike -> allow SELL orders)
-         if(InpEnableSpikeOrderCreation && ((EMADirection == -1 && GlobalEmaAngle30 > 0.0) || g_isMethod2BearishSpike))
+         if(InpEnableSpikeOrderCreation && (IsType1BearishSpike(false) || g_isMethod2BearishSpike))
             return true;
 
          // Inside oscillation: Block SELL if price is in Lower Floor Zone (<= 35%)
@@ -22220,7 +22315,7 @@ double GetSSLLongShortPendingGapRaw(int orderType, bool logMessage = false)
 //+------------------------------------------------------------------+
 void OpenBuy(string MOMorder="")
   {
-   bool isSpikeOrder = (MOMorder == "SPIKE_BUY" || (InpEnableSpikeOrderCreation && ((EMADirection == 1 && GlobalEmaAngle30 < 0.0) || g_isMethod2BullishSpike)));
+   bool isSpikeOrder = (MOMorder == "SPIKE_BUY" || (InpEnableSpikeOrderCreation && (IsType1BullishSpike(false) || g_isMethod2BullishSpike)));
 
    if(!isSpikeOrder)
      {
@@ -22338,7 +22433,7 @@ double NormalizeLots(double lots)
 //+------------------------------------------------------------------+
 void OpenSell(string MOMorder="")
   {
-   bool isSpikeOrder = (MOMorder == "SPIKE_SELL" || (InpEnableSpikeOrderCreation && ((EMADirection == -1 && GlobalEmaAngle30 > 0.0) || g_isMethod2BearishSpike)));
+   bool isSpikeOrder = (MOMorder == "SPIKE_SELL" || (InpEnableSpikeOrderCreation && (IsType1BearishSpike(false) || g_isMethod2BearishSpike)));
 
    if(!isSpikeOrder)
      {
