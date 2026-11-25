@@ -43,7 +43,7 @@ CheckBasketProfitClose  Total open basket profit
 
 */
 
-string glbVersion = "V-SMALL-1088- Modularize Liquidity Sweep to Include";
+string glbVersion = "V-SMALL-1089- 1Hour HLine Near 50 Pending Orders";
 
 int AccountMultiplierLOT = 500;//100;//1000;//400;//200;//500; ALWAYS multiples of 1000 is better for best results
 //balance multiplier
@@ -364,6 +364,15 @@ bool   InpEnableHLineEndedProfitLiveSLModify      = true;          // USER RULE:
 double InpHLineEndedProfitThresholdUSD            = 0.50;          // Minimum individual order profit in USD ($0.50) to modify SL to live price on horizontal line ended
 bool   InpHLineEndedModifyUsesMultiplier          = true;          // USER RULE: Multiply profit threshold by balancelomultipler ($0.50 * balancelomultipler)
 int    InpHLineEndedActiveWindowSeconds           = 300;           // Window in seconds (default: 300s = 5min) after line ends to keep protecting orders with live price SL
+// ===== 1-HOUR HORIZONTAL LINE PENDING ORDER SETTINGS =====
+bool   InpEnable1HourHLinePendingOrder            = true;          // USER RULE: If horizontal line is live > 1 hour & live price near $50: create pending order
+int    InpHLine1HourMinDurationSeconds            = 3600;          // Minimum line active duration in seconds (3600s = 1 hour)
+double InpHLine1HourNearPriceUSD                  = 50.0;          // Price proximity threshold ($50 raw gap) between live price and horizontal line
+double InpHLine1HourSellLotBase                   = 0.03;          // Base lot for 1-hour Red line Sell pending order (0.03 * multiplier)
+double InpHLine1HourBuyLotBase                    = 0.03;          // Base lot for 1-hour Green line Buy pending order (0.03 * multiplier)
+double InpHLine1HourSLOffsetUSD                   = 50.0;          // StopLoss offset in USD ($50) from Line price (Red: Line+50, Green: Line-50)
+double InpHLine1HourTPRawUSD                      = 500.0;         // TakeProfit distance in raw USD ($500)
+bool   InpDelete1HourPendingOnLineEnded           = true;          // Delete unfilled 1-hour horizontal pending orders when the line ends
 bool   InpEnableHorizontalLineRecovery            = true;          // When horizontal line starts: create recovery order for open losing order with smallest loss
 bool   InpOpenLineOrderIfRecoveryCreated          = false;         // If recovery order created, also open standard line order (default: false to enforce 1-order-per-line)
 bool   InpEnableLineEndedBreakoutSLModify         = true;          // When line ends & price moves > $100 past line: modify ALL open orders SL to LinePrice +/- $200
@@ -8171,6 +8180,7 @@ void     ManageHorizontalOrderEndedStopLoss();
 void     ManageHorizontalLineEndedBreakoutStopLoss();
 void     ManageHorizontalLineProfitLiveStopLoss();
 void     ManageHorizontalLineEndedProfitLiveStopLoss();
+void     Check1HourHorizontalLinePendingOrders();
 datetime GetLastClosedFLIPBasketSupportCloseTime();
 bool     HasOppositeOrderTypeLossOver5(int currentDirection, double &outOppositeTotalPL, double &outMaxSingleLoss);
 void     InitializeFLIPBasketSupportTracking();
@@ -13023,6 +13033,7 @@ void OnTick()
    ManageHorizontalLineEndedBreakoutStopLoss(); // USER RULE: When horizontal line ends & price breaks past line by $100: modify ALL open orders SL to LinePrice +/- $200
    ManageHorizontalLineProfitLiveStopLoss(); // USER RULE: Opposite horizontal line active + order profit >= $0.50 -> modify SL to live price
    ManageHorizontalLineEndedProfitLiveStopLoss(); // USER RULE: When ANY horizontal line ends: modify open orders (profit > $0.50) SL to live price
+   Check1HourHorizontalLinePendingOrders(); // USER RULE: If horizontal line live > 1 hour & live price near $50 -> create pending order (Red: SELL, Green: BUY)
 
    OnTickCore();
    OnTickPerformanceEnd(tickStartMs);

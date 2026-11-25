@@ -2970,6 +2970,288 @@ void ManageHorizontalOrderEndedStopLoss()
   }
 
 //+------------------------------------------------------------------+
+//| Check1HourHorizontalLinePendingOrders:                           |
+//| USER RULE:                                                       |
+//| "if any horizontal line is live more than 1 hour and tick live   |
+//|  price is near $50 then create Horizonal order.                  |
+//|  if red line then create sell horizontal pending order,          |
+//|  if green line create buy horizontal pending order"              |
+//+------------------------------------------------------------------+
+void Check1HourHorizontalLinePendingOrders()
+  {
+   if(!InpEnable1HourHLinePendingOrder)
+      return;
+   if(!EAStartupComplete)
+      return;
+
+   // USER RULE: "do not create any horizontal order when mathabs emaangle is more than >=4"
+   double curEmaAng = (GlobalEmaAngle30 != 0.0) ? GlobalEmaAngle30 : GetEmaAngleDegrees(30);
+   double absEmaAng = MathAbs(curEmaAng);
+   double maxHorizAngle = (InpHorizontalOrderMaxEmaAngle > 0.0) ? InpHorizontalOrderMaxEmaAngle : 4.0;
+   if(absEmaAng >= maxHorizAngle)
+      return;
+
+   RefreshRates();
+   double minStopDist = GetRequiredStopDistance();
+   if(minStopDist < Point * 10)
+      minStopDist = Point * 10;
+
+   double mult             = (balancelomultipler > 0) ? balancelomultipler : 1.0;
+   double nearThresholdUSD = (InpHLine1HourNearPriceUSD > 0.0) ? InpHLine1HourNearPriceUSD : 50.0;
+   int    minDurationSec   = (InpHLine1HourMinDurationSeconds > 0) ? InpHLine1HourMinDurationSeconds : 3600;
+   double slOffset         = (InpHLine1HourSLOffsetUSD > 0.0) ? InpHLine1HourSLOffsetUSD : 50.0;
+   double tpDist           = (InpHLine1HourTPRawUSD > 0.0) ? InpHLine1HourTPRawUSD : 500.0;
+   double defaultSLDist    = (StopLossRawPriceGap > 0.0) ? StopLossRawPriceGap : 3000.0;
+
+   // ----------------------------------------------------------------
+   // Tracking variables (enforces strictly 1 pending order per line lifetime)
+   // ----------------------------------------------------------------
+   static datetime s_last1hPendingRedLineStart   = 0;
+   static int      s_last1hPendingRedTicket      = 0;
+   static datetime s_last1hPendingGreenLineStart = 0;
+   static int      s_last1hPendingGreenTicket    = 0;
+
+   bool hasActiveRed   = (g_lastEqHighPrice > 0.0 && g_lastEqHighLineStart > 0 && g_endedEqHighStart != g_lastEqHighLineStart);
+   bool hasActiveGreen = (g_lastEqLowPrice  > 0.0 && g_lastEqLowLineStart  > 0 && g_endedEqLowStart  != g_lastEqLowLineStart);
+
+   // ----------------------------------------------------------------
+   // Cleanup unfilled pending orders when line ends
+   // ----------------------------------------------------------------
+   if(InpDelete1HourPendingOnLineEnded)
+     {
+      if(!hasActiveRed && s_last1hPendingRedTicket > 0)
+        {
+         if(OrderSelect(s_last1hPendingRedTicket, SELECT_BY_TICKET, MODE_TRADES))
+           {
+            int pType = OrderType();
+            if(pType == OP_SELLLIMIT || pType == OP_SELLSTOP)
+              {
+               PrintFormat(">>> [1H HLINE ENDED] Deleting unfilled Red line Sell pending order #%d (Type=%d, Entry=%.2f, LineStart=%s)",
+                           s_last1hPendingRedTicket, pType, OrderOpenPrice(), TimeToString(s_last1hPendingRedLineStart, TIME_DATE|TIME_MINUTES));
+               SafeOrderDelete(s_last1hPendingRedTicket, clrRed);
+              }
+           }
+         s_last1hPendingRedTicket = 0;
+        }
+
+      if(!hasActiveGreen && s_last1hPendingGreenTicket > 0)
+        {
+         if(OrderSelect(s_last1hPendingGreenTicket, SELECT_BY_TICKET, MODE_TRADES))
+           {
+            int pType = OrderType();
+            if(pType == OP_BUYLIMIT || pType == OP_BUYSTOP)
+              {
+               PrintFormat(">>> [1H HLINE ENDED] Deleting unfilled Green line Buy pending order #%d (Type=%d, Entry=%.2f, LineStart=%s)",
+                           s_last1hPendingGreenTicket, pType, OrderOpenPrice(), TimeToString(s_last1hPendingGreenLineStart, TIME_DATE|TIME_MINUTES));
+               SafeOrderDelete(s_last1hPendingGreenTicket, clrGreen);
+              }
+           }
+         s_last1hPendingGreenTicket = 0;
+        }
+     }
+
+   // ----------------------------------------------------------------
+   // 1. RED LINE: Resistance -> SELL pending order
+   // ----------------------------------------------------------------
+   if(hasActiveRed)
+     {
+      int redElapsedSec = (int)(TimeCurrent() - g_lastEqHighLineStart);
+      if(redElapsedSec >= minDurationSec && s_last1hPendingRedLineStart != g_lastEqHighLineStart)
+        {
+         double distRed = MathAbs(Bid - g_lastEqHighPrice);
+         if(distRed <= nearThresholdUSD)
+           {
+            // Verify no open 1-hour pending Sell order currently exists
+            bool hasExistingRedPending = false;
+            for(int i = OrdersTotal() - 1; i >= 0; i--)
+              {
+               if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
+                  continue;
+               if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber)
+                  continue;
+               int oType = OrderType();
+               if(oType == OP_SELLLIMIT || oType == OP_SELLSTOP)
+                 {
+                  if(StringFind(OrderComment(), "EQH-R 1h") >= 0)
+                    {
+                     hasExistingRedPending = true;
+                     s_last1hPendingRedTicket = OrderTicket();
+                     s_last1hPendingRedLineStart = g_lastEqHighLineStart;
+                     break;
+                    }
+                 }
+              }
+
+            if(!hasExistingRedPending)
+              {
+               int pendingType = OP_SELLLIMIT;
+               double targetPrice = NormalizeDouble(g_lastEqHighPrice, Digits);
+
+               if(Bid < g_lastEqHighPrice)
+                 {
+                  pendingType = OP_SELLLIMIT;
+                  if((targetPrice - Bid) < minStopDist)
+                     targetPrice = NormalizeDouble(Bid + minStopDist, Digits);
+                 }
+               else
+                 {
+                  pendingType = OP_SELLSTOP;
+                  if((Bid - targetPrice) < minStopDist)
+                     targetPrice = NormalizeDouble(Bid - minStopDist, Digits);
+                 }
+
+               double stopLoss = 0.0;
+               double lineSL = NormalizeDouble(targetPrice + slOffset, Digits);
+               if(lineSL > (Ask + minStopDist))
+                  stopLoss = lineSL;
+               else
+                  if(defaultSLDist > 0.0)
+                     stopLoss = NormalizeDouble(targetPrice + defaultSLDist, Digits);
+
+               double takeProfit = (tpDist > 0.0) ? NormalizeDouble(targetPrice - tpDist, Digits) : 0.0;
+
+               double baseLot = (InpHLine1HourSellLotBase > 0.0) ? InpHLine1HourSellLotBase : 0.03;
+               double sellLot = NormalizeLots(baseLot * mult);
+
+               ResetLastError();
+               int tkt = OrderSend(Symbol(), pendingType, sellLot, targetPrice, Slippage, stopLoss, takeProfit, "EQH-R 1h Pending", MagicNumber, 0, SellColor);
+               if(tkt < 0)
+                 {
+                  int err = GetLastError();
+                  if(err == 130 || err == 4107)
+                    {
+                     ResetLastError();
+                     tkt = OrderSend(Symbol(), pendingType, sellLot, targetPrice, Slippage, 0, 0, "EQH-R 1h Pending", MagicNumber, 0, SellColor);
+                     if(tkt > 0 && (stopLoss > 0.0 || takeProfit > 0.0))
+                        SafeOrderModify(tkt, targetPrice, stopLoss, takeProfit, 0, SellColor);
+                    }
+                 }
+
+               if(tkt > 0)
+                 {
+                  s_last1hPendingRedLineStart = g_lastEqHighLineStart;
+                  s_last1hPendingRedTicket    = tkt;
+                  InvalidateTotalEAOrdersCache();
+                  PrintFormat(">>> [1H RED LINE PENDING] Created SELL pending #%d (Type=%s) Lots=%.2f at Price=%.2f (Bid=%.2f Dist=$%.2f <= $%.2f) SL=%.2f TP=%.2f LineStart=%s (Active %d min)",
+                              tkt, (pendingType == OP_SELLLIMIT ? "SELL_LIMIT" : "SELL_STOP"),
+                              sellLot, targetPrice, Bid, distRed, nearThresholdUSD,
+                              stopLoss, takeProfit,
+                              TimeToString(g_lastEqHighLineStart, TIME_DATE|TIME_MINUTES),
+                              redElapsedSec / 60);
+                 }
+               else
+                 {
+                  int sendErr = GetLastError();
+                  PrintFormat(">>> [1H RED LINE PENDING FAILED] Err=%d Type=%d Lots=%.2f Price=%.2f Bid=%.2f SL=%.2f TP=%.2f",
+                              sendErr, pendingType, sellLot, targetPrice, Bid, stopLoss, takeProfit);
+                 }
+              }
+           }
+        }
+     }
+
+   // ----------------------------------------------------------------
+   // 2. GREEN LINE: Support -> BUY pending order
+   // ----------------------------------------------------------------
+   if(hasActiveGreen)
+     {
+      int greenElapsedSec = (int)(TimeCurrent() - g_lastEqLowLineStart);
+      if(greenElapsedSec >= minDurationSec && s_last1hPendingGreenLineStart != g_lastEqLowLineStart)
+        {
+         double distGreen = MathAbs(Ask - g_lastEqLowPrice);
+         if(distGreen <= nearThresholdUSD)
+           {
+            // Verify no open 1-hour pending Buy order currently exists
+            bool hasExistingGreenPending = false;
+            for(int i = OrdersTotal() - 1; i >= 0; i--)
+              {
+               if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
+                  continue;
+               if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber)
+                  continue;
+               int oType = OrderType();
+               if(oType == OP_BUYLIMIT || oType == OP_BUYSTOP)
+                 {
+                  if(StringFind(OrderComment(), "EQH-G 1h") >= 0)
+                    {
+                     hasExistingGreenPending = true;
+                     s_last1hPendingGreenTicket = OrderTicket();
+                     s_last1hPendingGreenLineStart = g_lastEqLowLineStart;
+                     break;
+                    }
+                 }
+              }
+
+            if(!hasExistingGreenPending)
+              {
+               int pendingType = OP_BUYLIMIT;
+               double targetPrice = NormalizeDouble(g_lastEqLowPrice, Digits);
+
+               if(Ask > g_lastEqLowPrice)
+                 {
+                  pendingType = OP_BUYLIMIT;
+                  if((Ask - targetPrice) < minStopDist)
+                     targetPrice = NormalizeDouble(Ask - minStopDist, Digits);
+                 }
+               else
+                 {
+                  pendingType = OP_BUYSTOP;
+                  if((targetPrice - Ask) < minStopDist)
+                     targetPrice = NormalizeDouble(Ask + minStopDist, Digits);
+                 }
+
+               double stopLoss = 0.0;
+               double lineSL = NormalizeDouble(targetPrice - slOffset, Digits);
+               if(lineSL < (Bid - minStopDist))
+                  stopLoss = lineSL;
+               else
+                  if(defaultSLDist > 0.0)
+                     stopLoss = NormalizeDouble(targetPrice - defaultSLDist, Digits);
+
+               double takeProfit = (tpDist > 0.0) ? NormalizeDouble(targetPrice + tpDist, Digits) : 0.0;
+
+               double baseLot = (InpHLine1HourBuyLotBase > 0.0) ? InpHLine1HourBuyLotBase : 0.03;
+               double buyLot = NormalizeLots(baseLot * mult);
+
+               ResetLastError();
+               int tkt = OrderSend(Symbol(), pendingType, buyLot, targetPrice, Slippage, stopLoss, takeProfit, "EQH-G 1h Pending", MagicNumber, 0, BuyColor);
+               if(tkt < 0)
+                 {
+                  int err = GetLastError();
+                  if(err == 130 || err == 4107)
+                    {
+                     ResetLastError();
+                     tkt = OrderSend(Symbol(), pendingType, buyLot, targetPrice, Slippage, 0, 0, "EQH-G 1h Pending", MagicNumber, 0, BuyColor);
+                     if(tkt > 0 && (stopLoss > 0.0 || takeProfit > 0.0))
+                        SafeOrderModify(tkt, targetPrice, stopLoss, takeProfit, 0, BuyColor);
+                    }
+                 }
+
+               if(tkt > 0)
+                 {
+                  s_last1hPendingGreenLineStart = g_lastEqLowLineStart;
+                  s_last1hPendingGreenTicket    = tkt;
+                  InvalidateTotalEAOrdersCache();
+                  PrintFormat(">>> [1H GREEN LINE PENDING] Created BUY pending #%d (Type=%s) Lots=%.2f at Price=%.2f (Ask=%.2f Dist=$%.2f <= $%.2f) SL=%.2f TP=%.2f LineStart=%s (Active %d min)",
+                              tkt, (pendingType == OP_BUYLIMIT ? "BUY_LIMIT" : "BUY_STOP"),
+                              buyLot, targetPrice, Ask, distGreen, nearThresholdUSD,
+                              stopLoss, takeProfit,
+                              TimeToString(g_lastEqLowLineStart, TIME_DATE|TIME_MINUTES),
+                              greenElapsedSec / 60);
+                 }
+               else
+                 {
+                  int sendErr = GetLastError();
+                  PrintFormat(">>> [1H GREEN LINE PENDING FAILED] Err=%d Type=%d Lots=%.2f Price=%.2f Ask=%.2f SL=%.2f TP=%.2f",
+                              sendErr, pendingType, buyLot, targetPrice, Ask, stopLoss, takeProfit);
+                 }
+              }
+           }
+        }
+     }
+  }
+
+//+------------------------------------------------------------------+
 //| ManageHorizontalLineEndedBreakoutStopLoss:                       |
 //| USER RULE:                                                       |
 //| "Red horizontal line started and endded but market price is      |
