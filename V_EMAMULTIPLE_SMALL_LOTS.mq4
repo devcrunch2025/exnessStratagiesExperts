@@ -358,7 +358,7 @@ bool   InpModifyOppositeOrderSLToLinePrice        = true;          // On new/act
 bool   InpModifyLinePriceSLOnlyFirstOrder         = true;          // Modify SL with Line Price ONLY for the FIRST (oldest) open order
 double InpLinePriceSLOffsetRaw                    = 3000;//1000;//200;//100;//50.0;          // Offset in USD ($50) added to Line Price for StopLoss modification (Line Price + 50)
 bool   InpEnableHLineProfitLiveSLModify   = true;  // USER RULE: On horizontal line start: modify profitable order SL to live price
-double InpHLineModifyProfitThresholdUSD   = 0.0;   // Minimum order profit in USD ($0.0) to modify SL to live price on horizontal line start (profit > $0)
+double InpHLineModifyProfitThresholdUSD   = 0.50;   // Minimum order profit in USD ($0.0) to modify SL to live price on horizontal line start (profit > $0)
 bool   InpHLineModifyUsesMultiplier       = false; // Multiply profit threshold by balancelomultipler (default: false for strict > $0)
 double InpHLineModifyGreenLineRangeUSD    = 50.0;  // USER RULE: Only modify SELL SL if live price is near green line within range ($50 USD, 0 = any distance)
 double InpHLineModifyRedLineRangeUSD      = 0.0;   // Range in USD for RED line (0 = any distance / disabled, or custom USD)
