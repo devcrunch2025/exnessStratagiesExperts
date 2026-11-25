@@ -5065,10 +5065,8 @@ void CheckDynamicStepLadder()
 //| 3. If equity falls to a new low, updates LowestEquity baseline.  |
 //| 4. When no orders are open, synchronizes state cleanly.          |
 //+------------------------------------------------------------------+
-double   LowestEquity               = 0.0;
-bool     LowestEquityInitialized    = false;
-double   g_equityLadderNextTarget   = 0.0;
-int      g_equityLadderStepCounter  = 0;
+// State variables LowestEquity, LowestEquityInitialized, g_equityLadderNextTarget, g_equityLadderStepCounter
+// are defined as EA globals in V_EMAMULTIPLE_SMALL_LOTS.mq4
 datetime g_lastEquityLadderHitTime  = 0;
 
 //+------------------------------------------------------------------+
