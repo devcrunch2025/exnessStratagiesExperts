@@ -1088,6 +1088,11 @@ double InpPendingGapLossMultiplier         = 2.0;   // Pending gap multiplier on
  double InpSpikeOrderStopLossRawPriceGap       = 200.0; // Spike Orders: StopLoss raw price gap ($200 USD for spike vs $3000 normal)
  bool   InpSpikeBypassHorizontalLineBlock      = true;  // Spike Orders: Bypass active opposite horizontal line block (EQH-R/EQH-G)
  bool   InpSpikeBypassSweepBlock               = true;  // Spike Orders: Bypass active liquidity sweep block (SSLS/BSLS)
+ bool   InpEnableMethod2CandleSpike            = true;  // Method 2: Enable 1-Bar Candle Spike Velocity Detection
+ double InpSpikeCandleMinSurgeUSD              = 150.0; // Method 2: Minimum candle surge in USD ($150 USD)
+ double InpSpikeCandleMinAtrMult               = 2.5;   // Method 2: Minimum ATR(14) multiplier (2.5x ATR, 0 = disabled)
+ double InpSpikeWickPullbackUSD                = 30.0;  // Method 2: Minimum wick pullback/rejection from extreme USD ($30 USD)
+ int    InpSpikeMaxOrdersPerCandle             = 1;     // Method 2: Max spike orders per candle bar (1 = max 1 per bar)
  bool   InpFollowEmaIgnoreSsl                  = true;  // Trade Direction: Follow EMADirection (Bull=BUY, Bear=SELL) & Ignore SSL Signal
  bool   InpEnableSpikeProfitLadder             = true;  // Spike Ladder: Enable Step Profit Ladder with 50% Protection
  bool   InpSpikeLadderUseMultiplier            = true;  // Spike Ladder: Use Balance Multiplier (1Xmul for min profit & step)
@@ -1347,6 +1352,9 @@ int ProtectedEquityWaitMinutes = 0;
 double GlobalEmaAngle30 = 0.0;
 double GlobalEmaAngle200 = 0.0;
 int    GlobalSSLDirection = 0;
+bool   g_isMethod2BullishSpike = false;
+bool   g_isMethod2BearishSpike = false;
+datetime g_lastMethod2SpikeTime = 0;
 double GlobalBuyPL = 0.0;
 double GlobalSellPL = 0.0;
 double Global30MinDiffBuy = 0.0;
@@ -1550,9 +1558,9 @@ bool PassesUserRules(int orderType)
    int baseMarketType     = (requestedDirection == 1) ? OP_BUY : OP_SELL;
    double currentPL       = (baseMarketType == OP_BUY) ? GlobalBuyPL : GlobalSellPL;
 
-   // USER RULE: Spike Order Exception (EMADirection == 1 with angle < 0 is Bullish Spike; EMADirection == -1 with angle > 0 is Bearish Spike)
-   bool isBullishSpikeOrder = (InpEnableSpikeOrderCreation && requestedDirection == 1 && EMADirection == 1 && emaAngle < 0.0);
-   bool isBearishSpikeOrder = (InpEnableSpikeOrderCreation && requestedDirection == -1 && EMADirection == -1 && emaAngle > 0.0);
+   // USER RULE: Spike Order Exception (Legacy Angle Mismatch OR Method 2 Candle Spike Velocity)
+   bool isBullishSpikeOrder = (InpEnableSpikeOrderCreation && requestedDirection == 1 && ((EMADirection == 1 && emaAngle < 0.0) || g_isMethod2BullishSpike));
+   bool isBearishSpikeOrder = (InpEnableSpikeOrderCreation && requestedDirection == -1 && ((EMADirection == -1 && emaAngle > 0.0) || g_isMethod2BearishSpike));
 
    if(InpFollowEmaIgnoreSsl)
      {
@@ -13619,8 +13627,30 @@ void OnTickCore()
    // "create spike orders without any condition"
    // "EMAdirection is 1 , but ema angle is negative means spike in bullish so create BUY orders. 
    //  similary EMAdirection is -1 but EMAangle is positive value then create SELL orders normal ssl orders with pending orders"
-   bool isBullishSpike = (InpEnableSpikeOrderCreation && EMADirection == 1 && GlobalEmaAngle30 < 0.0);
-   bool isBearishSpike = (InpEnableSpikeOrderCreation && EMADirection == -1 && GlobalEmaAngle30 > 0.0);
+   // Method 2: 1-Bar Candle Spike Velocity (Surge >= $150 or 2.5x ATR with Wick Rejection)
+   bool method2Bullish = false;
+   bool method2Bearish = false;
+   CheckCandleSpikeVelocity(method2Bullish, method2Bearish);
+   g_isMethod2BullishSpike = method2Bullish;
+   g_isMethod2BearishSpike = method2Bearish;
+
+   bool isBullishSpike = false;
+   bool isBearishSpike = false;
+
+   if(method2Bullish)
+     {
+      isBullishSpike = true;
+     }
+   else if(method2Bearish)
+     {
+      isBearishSpike = true;
+     }
+   else if(InpEnableSpikeOrderCreation)
+     {
+      // Legacy Rule: Angle mismatch
+      isBullishSpike = (EMADirection == 1 && GlobalEmaAngle30 < 0.0);
+      isBearishSpike = (EMADirection == -1 && GlobalEmaAngle30 > 0.0);
+     }
 
    if(isBullishSpike)
      {
@@ -13641,6 +13671,7 @@ void OnTickCore()
       if(canCreateSpikeBuy)
         {
          s_lastSpikeBuyTime = TimeCurrent();
+         g_lastMethod2SpikeTime = Time[0];
          OpenBuy("SPIKE_BUY");
         }
      }
@@ -13663,6 +13694,7 @@ void OnTickCore()
       if(canCreateSpikeSell)
         {
          s_lastSpikeSellTime = TimeCurrent();
+         g_lastMethod2SpikeTime = Time[0];
          OpenSell("SPIKE_SELL");
         }
      }
@@ -14239,6 +14271,107 @@ int CountDirectionOrders(int orderType)
          count++;
      }
    return count;
+  }
+
+//+------------------------------------------------------------------+
+//| CheckCandleSpikeVelocity: Method 2 Spike Detection               |
+//| Detects 1-Bar Candle Spike Velocity (ATR or Dollar Range Surge)  |
+//| and Upper/Lower Wick Rejection                                   |
+//| - Upward Surge + Upper Wick Pullback -> Bearish Spike (SELL)     |
+//| - Downward Dump + Lower Wick Bounce  -> Bullish Spike (BUY)      |
+//+------------------------------------------------------------------+
+void CheckCandleSpikeVelocity(bool &outBullishSpike, bool &outBearishSpike)
+  {
+   outBullishSpike = false;
+   outBearishSpike = false;
+
+   if(!InpEnableMethod2CandleSpike || !InpEnableSpikeOrderCreation)
+      return;
+
+   // Prevent multiple spike orders on the same candle if limited
+   if(InpSpikeMaxOrdersPerCandle > 0 && g_lastMethod2SpikeTime == Time[0])
+      return;
+
+   double atr = iATR(Symbol(), Period(), 14, 1);
+   if(atr <= 0)
+      atr = 50.0 * Point;
+
+   // Effective surge threshold: either dollar amount or ATR multiplier
+   double minSurgeUSD = InpSpikeCandleMinSurgeUSD;
+   if(minSurgeUSD <= 0.0)
+      minSurgeUSD = 150.0;
+
+   // 1. LIVE CANDLE (Bar 0) INTRABAR CHECK:
+   // Bearish Spike: Candle surged UP, topped out, and pulled back forming upper wick -> SELL
+   double surgeUp0  = High[0] - Open[0];
+   double range0    = High[0] - Low[0];
+   double pullBack0 = High[0] - Bid;
+   bool isSurgeUp0  = (surgeUp0 >= minSurgeUSD || (InpSpikeCandleMinAtrMult > 0.0 && surgeUp0 >= InpSpikeCandleMinAtrMult * atr) ||
+                       (range0 >= minSurgeUSD && Bid > Open[0]));
+   bool isWickDown0 = (pullBack0 >= InpSpikeWickPullbackUSD);
+
+   if(isSurgeUp0 && isWickDown0)
+     {
+      outBearishSpike = true;
+      static datetime lastLogBear0 = 0;
+      if(TimeCurrent() - lastLogBear0 >= 5)
+        {
+         lastLogBear0 = TimeCurrent();
+         PrintFormat(">>> [METHOD 2 SPIKE DETECTED] BEARISH SPIKE (Bar 0) | SurgeUp=$%.2f (Req=$%.2f), Pullback=$%.2f (Req=$%.2f), ATR=$%.2f -> SELL SPIKE",
+                     surgeUp0, minSurgeUSD, pullBack0, InpSpikeWickPullbackUSD, atr);
+        }
+      return;
+     }
+
+   // Bullish Spike: Candle dumped DOWN, bottomed out, and bounced forming lower wick -> BUY
+   double dumpDown0 = Open[0] - Low[0];
+   double bounce0   = Ask - Low[0];
+   bool isDumpDown0 = (dumpDown0 >= minSurgeUSD || (InpSpikeCandleMinAtrMult > 0.0 && dumpDown0 >= InpSpikeCandleMinAtrMult * atr) ||
+                       (range0 >= minSurgeUSD && Ask < Open[0]));
+   bool isWickUp0   = (bounce0 >= InpSpikeWickPullbackUSD);
+
+   if(isDumpDown0 && isWickUp0)
+     {
+      outBullishSpike = true;
+      static datetime lastLogBull0 = 0;
+      if(TimeCurrent() - lastLogBull0 >= 5)
+        {
+         lastLogBull0 = TimeCurrent();
+         PrintFormat(">>> [METHOD 2 SPIKE DETECTED] BULLISH SPIKE (Bar 0) | DumpDown=$%.2f (Req=$%.2f), Bounce=$%.2f (Req=$%.2f), ATR=$%.2f -> BUY SPIKE",
+                     dumpDown0, minSurgeUSD, bounce0, InpSpikeWickPullbackUSD, atr);
+        }
+      return;
+     }
+
+   // 2. PREVIOUS COMPLETED CANDLE (Bar 1) CHECK (Within first 15 seconds of new candle):
+   if(TimeCurrent() - Time[0] <= 15 && g_lastMethod2SpikeTime != Time[1])
+     {
+      double surgeUp1  = High[1] - Open[1];
+      double wickUp1   = High[1] - MathMax(Open[1], Close[1]);
+      bool isSurgeUp1  = (surgeUp1 >= minSurgeUSD || (InpSpikeCandleMinAtrMult > 0.0 && surgeUp1 >= InpSpikeCandleMinAtrMult * atr));
+      bool isWickDown1 = (wickUp1 >= InpSpikeWickPullbackUSD);
+
+      if(isSurgeUp1 && isWickDown1)
+        {
+         outBearishSpike = true;
+         PrintFormat(">>> [METHOD 2 SPIKE DETECTED] BEARISH SPIKE (Bar 1 Closed) | SurgeUp=$%.2f, Wick=$%.2f -> SELL SPIKE",
+                     surgeUp1, wickUp1);
+         return;
+        }
+
+      double dumpDown1 = Open[1] - Low[1];
+      double wickDown1 = MathMin(Open[1], Close[1]) - Low[1];
+      bool isDumpDown1 = (dumpDown1 >= minSurgeUSD || (InpSpikeCandleMinAtrMult > 0.0 && dumpDown1 >= InpSpikeCandleMinAtrMult * atr));
+      bool isWickUp1   = (wickDown1 >= InpSpikeWickPullbackUSD);
+
+      if(isDumpDown1 && isWickUp1)
+        {
+         outBullishSpike = true;
+         PrintFormat(">>> [METHOD 2 SPIKE DETECTED] BULLISH SPIKE (Bar 1 Closed) | DumpDown=$%.2f, Wick=$%.2f -> BUY SPIKE",
+                     dumpDown1, wickDown1);
+         return;
+        }
+     }
   }
 
 //+------------------------------------------------------------------+
@@ -18577,8 +18710,8 @@ bool PassesOscillationBoundaryFilter(int orderType)
       if(isBullishBreakout)
          return true;
 
-      // USER RULE: Bullish Spike Exception (EMADirection == 1 with negative angle -> allow BUY orders)
-      if(InpEnableSpikeOrderCreation && EMADirection == 1 && GlobalEmaAngle30 < 0.0)
+      // USER RULE: Bullish Spike Exception (Angle mismatch OR Method 2 Candle Spike -> allow BUY orders)
+      if(InpEnableSpikeOrderCreation && ((EMADirection == 1 && GlobalEmaAngle30 < 0.0) || g_isMethod2BullishSpike))
          return true;
 
       // Inside oscillation: Block BUY if price is in Upper Ceiling Zone (>= 65%)
@@ -18623,8 +18756,8 @@ bool PassesOscillationBoundaryFilter(int orderType)
          if(isBearishBreakout)
             return true;
 
-         // USER RULE: Bearish Spike Exception (EMADirection == -1 with positive angle -> allow SELL orders)
-         if(InpEnableSpikeOrderCreation && EMADirection == -1 && GlobalEmaAngle30 > 0.0)
+         // USER RULE: Bearish Spike Exception (Angle mismatch OR Method 2 Candle Spike -> allow SELL orders)
+         if(InpEnableSpikeOrderCreation && ((EMADirection == -1 && GlobalEmaAngle30 > 0.0) || g_isMethod2BearishSpike))
             return true;
 
          // Inside oscillation: Block SELL if price is in Lower Floor Zone (<= 35%)
@@ -22085,7 +22218,7 @@ double GetSSLLongShortPendingGapRaw(int orderType, bool logMessage = false)
 //+------------------------------------------------------------------+
 void OpenBuy(string MOMorder="")
   {
-   bool isSpikeOrder = (MOMorder == "SPIKE_BUY" || (InpEnableSpikeOrderCreation && EMADirection == 1 && GlobalEmaAngle30 < 0.0));
+   bool isSpikeOrder = (MOMorder == "SPIKE_BUY" || (InpEnableSpikeOrderCreation && ((EMADirection == 1 && GlobalEmaAngle30 < 0.0) || g_isMethod2BullishSpike)));
 
    if(!isSpikeOrder)
      {
@@ -22203,7 +22336,7 @@ double NormalizeLots(double lots)
 //+------------------------------------------------------------------+
 void OpenSell(string MOMorder="")
   {
-   bool isSpikeOrder = (MOMorder == "SPIKE_SELL" || (InpEnableSpikeOrderCreation && EMADirection == -1 && GlobalEmaAngle30 > 0.0));
+   bool isSpikeOrder = (MOMorder == "SPIKE_SELL" || (InpEnableSpikeOrderCreation && ((EMADirection == -1 && GlobalEmaAngle30 > 0.0) || g_isMethod2BearishSpike)));
 
    if(!isSpikeOrder)
      {

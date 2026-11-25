@@ -3029,7 +3029,9 @@ void UpdateDashboard(DailyProtectionState &state)
    string emaShortDir = (EMADirection == 1) ? "BULL (+1)" : (EMADirection == -1 ? "BEAR (-1)" : "FLAT (0)");
    bool isEmaWeak = IsEmaWEAKDistanceReduced50PercentFromPeak();
    string emaStrength = isEmaWeak ? "WEAK" : "STRONG";
-   string spikeTag = (EMADirection == 1 && GlobalEmaAngle30 < 0.0) ? ", SPIKE BULL" : ((EMADirection == -1 && GlobalEmaAngle30 > 0.0) ? ", SPIKE BEAR" : "");
+   bool isSpikeBull = ((EMADirection == 1 && GlobalEmaAngle30 < 0.0) || g_isMethod2BullishSpike);
+   bool isSpikeBear = ((EMADirection == -1 && GlobalEmaAngle30 > 0.0) || g_isMethod2BearishSpike);
+   string spikeTag = isSpikeBull ? ", SPIKE BULL" : (isSpikeBear ? ", SPIKE BEAR" : "");
    if(InpEnableSpikeProfitLadder)
      {
       double mult = (InpSpikeLadderUseMultiplier && balancelomultipler > 0) ? (double)balancelomultipler : 1.0;
