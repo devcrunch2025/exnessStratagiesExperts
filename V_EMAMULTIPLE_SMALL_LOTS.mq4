@@ -7979,11 +7979,11 @@ bool   InpMethod6CloseWinnerAtMarket        = true;   // Method 6 full combo: tr
 bool   InpMethod6PrioritizeOppositeLosers   = true;   // Method 6: 1st Priority = Close opposite-type losers, 2nd Priority = Close same-type losers
 double InpMethod6PartialMaxCutLots          = 0.0;    // Method 6: Max partial lots to cut from loser per trigger (0.0 = auto max safe)
 double InpMethod6SteepAngleDegrees          = 4.0;    // Method 6: EMA angle threshold in degrees (if MathAbs > 4: threshold is doubled)
-double InpMethod6SteepAngleMultiplier       = 2.0;    // Method 6: Threshold multiplier when MathAbs(EMA Angle) > 4 (default 2.0 = double)
+double InpMethod6SteepAngleMultiplier       = 1.5;//2.0;    // Method 6: Threshold multiplier when MathAbs(EMA Angle) > 4 (default 2.0 = double)
 double InpMethod6LowAngleThresholdUSD       = 1.0;//5/5;//5;//10;//2.0;    // Method 6: Profit threshold when MathAbs(EMA Angle) < 4 deg ($2.00 * multiplier)
 double InpMethod6LowAngleEmaDegrees         = 0;//4.0;    // Method 6: Dynamic EMA angle boundary in degrees (default 4.0)
-double InpMethod6SameTypeMultiplier         = 3.0;    // Method 6: Threshold multiplier when all orders are same type (2+ BUY or 2+ SELL = 3.0x; if angle > 4 then 3.0 * 2.0 = 6.0x)
-double InpMethod6EmaAlignedMultiplier       = 2.0;    // Method 6: Additional threshold multiplier when all combo orders match EMADirection (default 2.0x -> 3X * 2X = 6X; if angle > 4 then 3X * 2X * 2X = 12X)
+double InpMethod6SameTypeMultiplier         = 1.5;//3.0;    // Method 6: Threshold multiplier when all orders are same type (2+ BUY or 2+ SELL = 3.0x; if angle > 4 then 3.0 * 2.0 = 6.0x)
+double InpMethod6EmaAlignedMultiplier       = 1.5;//2.0;    // Method 6: Additional threshold multiplier when all combo orders match EMADirection (default 2.0x -> 3X * 2X = 6X; if angle > 4 then 3X * 2X * 2X = 12X)
 
 // Universal Trend-Aware StopLoss Modifier (Applies across all order modify methods)
 // User Rule:
