@@ -43,7 +43,7 @@ CheckBasketProfitClose  Total open basket profit
 
 */
 
-string glbVersion = "V-SMALL-1092- HLine Start Live Price SL for Profitable Orders";
+string glbVersion = "V-SMALL-1093- Warning Text Display on Right Side";
 
 int AccountMultiplierLOT = 500;//100;//1000;//400;//200;//500; ALWAYS multiples of 1000 is better for best results
 //balance multiplier
@@ -1246,11 +1246,11 @@ bool ShowDashboardToggleButton      = true;   // Display SHOW/HIDE Dashboard but
 bool g_dashboardsUserHidden         = false;  // Runtime toggle state for SHOW/HIDE Dashboard (true = hidden)
 enum ENUM_NO_MANUAL_WARN_POS
   {
-   WARN_POS_SECOND_LINE        = 0, // Second Line After Buttons (Below Top Buttons)
-   WARN_POS_RIGHT_SIDE         = 1, // Right Side (Next to Right Dashboard)
+   WARN_POS_RIGHT_SIDE         = 0, // Right Side on Second Line (Anchored Near Right Dashboard)
+   WARN_POS_SECOND_LINE_CENTER = 1, // Second Line Center (Centered Below Top Buttons)
    WARN_POS_RIGHT_UPPER_CORNER = 2, // Far Top Right Corner of Chart
    WARN_POS_ABOVE_RIGHT_DASH   = 3, // Above Right Dashboard
-   WARN_POS_TOP_CENTER         = 4, // Top Center (Original)
+   WARN_POS_TOP_CENTER         = 4, // Top Center (Original Row 1)
    WARN_POS_CUSTOM             = 5  // Custom (Use InpNoManualWarningCustomX/Y)
   };
 
@@ -1259,7 +1259,7 @@ enum ENUM_NO_MANUAL_WARN_POS
 //+------------------------------------------------------------------+
 bool                    ShowTopCenterNoManualWarning  = true;                 // Display RED warning message ("DO NOT CREATE MANUAL ORDERS - LOSS ")
 string                  InpTopCenterNoManualText      = "DO NOT CREATE MANUAL ORDERS - LOSS - $200 balance"; // Warning text displayed in RED
-ENUM_NO_MANUAL_WARN_POS InpNoManualWarningPosition    = WARN_POS_SECOND_LINE; // Warning Position [Default: Second Line After Buttons]
+ENUM_NO_MANUAL_WARN_POS InpNoManualWarningPosition    = WARN_POS_RIGHT_SIDE;  // Warning Position [Default: Right Side on Second Line]
 int                     InpNoManualWarningCustomX     = 0;                    // Custom X coordinate (when Position = Custom)
 int                     InpNoManualWarningCustomY     = 0;                    // Custom Y coordinate (when Position = Custom, 0 = Auto)
 bool InpShowLeftDashHourlyEngineRows = false;  // Left Dash: Show 1H Engine rows (1H A/B/C/D, 1H A-D, Dubai Time) [Default: false = HIDDEN]

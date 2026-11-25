@@ -423,36 +423,33 @@ void UpdateNoManualWarningDisplay(int chartWidth, int leftEnd, int rightStart)
          warnY    = InpNoManualWarningCustomY;
          break;
         }
-      case WARN_POS_RIGHT_SIDE:
-        {
-         if(!g_dashboardsUserHidden && (rightStart - leftEnd) < 460)
-           {
-            int rW = (ShowDashboard && ObjectFind(0, DASH_PREFIX + "HEADER") >= 0)
-                     ? (int)ObjectGetInteger(0, DASH_PREFIX + "HEADER", OBJPROP_XSIZE)
-                     : MathMax(DashboardWidth, 375);
-            warnMidX = rightStart + (rW / 2);
-            if(InpNoManualWarningCustomY <= 0)
-               warnY = 4;
-           }
-         else
-           {
-            // Right Side on second line after buttons
-            warnMidX = rightStart - 120;
-            if(warnMidX < leftEnd + 120)
-               warnMidX = leftEnd + 120;
-            if(InpNoManualWarningCustomY <= 0)
-               warnY = secondLineY;
-           }
-         break;
-        }
-      case WARN_POS_SECOND_LINE:
-      default:
+      case WARN_POS_SECOND_LINE_CENTER:
         {
          // Second Line After Buttons: Centered directly below the top buttons
          if(g_dashboardsUserHidden || (rightStart - leftEnd) <= 0)
             warnMidX = chartWidth / 2;
          else
             warnMidX = (leftEnd + rightStart) / 2;
+         if(InpNoManualWarningCustomY <= 0)
+            warnY = secondLineY;
+         break;
+        }
+      case WARN_POS_RIGHT_SIDE:
+      default:
+        {
+         // Right Side on second line after buttons (anchored near Right Dashboard)
+         int rMargin = 15;
+         int halfTextWidth = 175;
+         int targetX = rightStart - rMargin - halfTextWidth;
+         int minX = leftEnd + halfTextWidth;
+         if(targetX < minX)
+           {
+            if(rightStart > leftEnd + 10)
+               targetX = (leftEnd + rightStart) / 2;
+            else
+               targetX = chartWidth / 2;
+           }
+         warnMidX = targetX;
          if(InpNoManualWarningCustomY <= 0)
             warnY = secondLineY;
          break;
