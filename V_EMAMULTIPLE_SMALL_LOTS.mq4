@@ -43,7 +43,7 @@ CheckBasketProfitClose  Total open basket profit
 
 */
 
-string glbVersion = "V-SMALL-1084- HLine Ended Profit Mult Balance";
+string glbVersion = "V-SMALL-1085- HLine Modify Profit Mult Balance";
 
 int AccountMultiplierLOT = 500;//100;//1000;//400;//200;//500; ALWAYS multiples of 1000 is better for best results
 //balance multiplier
@@ -359,7 +359,7 @@ bool   InpModifyLinePriceSLOnlyFirstOrder         = true;          // Modify SL 
 double InpLinePriceSLOffsetRaw                    = 3000;//1000;//200;//100;//50.0;          // Offset in USD ($50) added to Line Price for StopLoss modification (Line Price + 50)
 bool   InpEnableHLineProfitLiveSLModify   = true;  // USER RULE: On opposite horizontal line start: modify profitable order SL to live price
 double InpHLineModifyProfitThresholdUSD   = 0.50;  // Minimum order profit in USD ($0.50) to modify SL to live price on opposite horizontal line
-bool   InpHLineModifyUsesMultiplier       = false; // Multiply profit threshold by balancelomultipler (false = strict $0.50, true = $0.50 * mult)
+bool   InpHLineModifyUsesMultiplier       = true;  // USER RULE: Multiply profit threshold by balancelomultipler ($0.50 * balancelomultipler)
 bool   InpEnableHLineEndedProfitLiveSLModify      = true;          // USER RULE: When ANY horizontal line ends (Red or Green): modify open order SL to live price if profit > $0.50
 double InpHLineEndedProfitThresholdUSD            = 0.50;          // Minimum individual order profit in USD ($0.50) to modify SL to live price on horizontal line ended
 bool   InpHLineEndedModifyUsesMultiplier          = true;          // USER RULE: Multiply profit threshold by balancelomultipler ($0.50 * balancelomultipler)
@@ -35181,7 +35181,7 @@ void ManageHorizontalLineProfitLiveStopLoss()
    double mult = (InpHLineModifyUsesMultiplier && balancelomultipler > 0) ? (double)balancelomultipler : 1.0;
    double minProfit = InpHLineModifyProfitThresholdUSD * mult;
    if(minProfit <= 0.0)
-      minProfit = 0.50;
+      minProfit = 0.50 * mult;
 
    double curBid = MarketInfo(Symbol(), MODE_BID);
    double curAsk = MarketInfo(Symbol(), MODE_ASK);
@@ -35219,8 +35219,8 @@ void ManageHorizontalLineProfitLiveStopLoss()
             bool ok = SafeOrderModify(tkt, oOpen, targetSL, curTP, 0, clrTomato, "HLineLiveSL_Sell");
             if(ok)
               {
-               PrintFormat(">>> [HLINE LIVE SL] Bearish EMADir (-1) + Green Line Started: SELL #%d SL modified to Live Price (Ask+StopDist=%.2f) | Profit=+$%.2f >= $%.2f",
-                           tkt, targetSL, netPL, minProfit);
+               PrintFormat(">>> [HLINE LIVE SL] Bearish EMADir (-1) + Green Line Started: SELL #%d SL modified to Live Price (Ask+StopDist=%.2f) | Profit=+$%.2f >= $%.2f (Base=$%.2f x Mult=%.0f)",
+                           tkt, targetSL, netPL, minProfit, InpHLineModifyProfitThresholdUSD, mult);
               }
            }
         }
@@ -35233,8 +35233,8 @@ void ManageHorizontalLineProfitLiveStopLoss()
             bool ok = SafeOrderModify(tkt, oOpen, targetSL, curTP, 0, clrLimeGreen, "HLineLiveSL_Buy");
             if(ok)
               {
-               PrintFormat(">>> [HLINE LIVE SL] Bullish EMADir (+1) + Red Line Started: BUY #%d SL modified to Live Price (Bid-StopDist=%.2f) | Profit=+$%.2f >= $%.2f",
-                           tkt, targetSL, netPL, minProfit);
+               PrintFormat(">>> [HLINE LIVE SL] Bullish EMADir (+1) + Red Line Started: BUY #%d SL modified to Live Price (Bid-StopDist=%.2f) | Profit=+$%.2f >= $%.2f (Base=$%.2f x Mult=%.0f)",
+                           tkt, targetSL, netPL, minProfit, InpHLineModifyProfitThresholdUSD, mult);
               }
            }
         }
@@ -35246,8 +35246,8 @@ void ManageHorizontalLineProfitLiveStopLoss()
             bool ok = SafeOrderModify(tkt, oOpen, targetSL, curTP, 0, clrTomato, "HLineLiveSL_Sell");
             if(ok)
               {
-               PrintFormat(">>> [HLINE LIVE SL] Bullish EMADir (+1) + Red Line Started: SELL #%d SL modified to Live Price (Ask+StopDist=%.2f) | Profit=+$%.2f >= $%.2f",
-                           tkt, targetSL, netPL, minProfit);
+               PrintFormat(">>> [HLINE LIVE SL] Bullish EMADir (+1) + Red Line Started: SELL #%d SL modified to Live Price (Ask+StopDist=%.2f) | Profit=+$%.2f >= $%.2f (Base=$%.2f x Mult=%.0f)",
+                           tkt, targetSL, netPL, minProfit, InpHLineModifyProfitThresholdUSD, mult);
               }
            }
         }
