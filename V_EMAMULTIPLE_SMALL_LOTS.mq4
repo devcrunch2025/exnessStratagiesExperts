@@ -43,7 +43,7 @@ CheckBasketProfitClose  Total open basket profit
 
 */
 
-string glbVersion = "V-SMALL-1089- 1Hour HLine Near 50 Pending Orders";
+string glbVersion = "V-SMALL-1090- 1Hour HLine Ignore EMA Angle";
 
 int AccountMultiplierLOT = 500;//100;//1000;//400;//200;//500; ALWAYS multiples of 1000 is better for best results
 //balance multiplier
@@ -366,6 +366,7 @@ bool   InpHLineEndedModifyUsesMultiplier          = true;          // USER RULE:
 int    InpHLineEndedActiveWindowSeconds           = 300;           // Window in seconds (default: 300s = 5min) after line ends to keep protecting orders with live price SL
 // ===== 1-HOUR HORIZONTAL LINE PENDING ORDER SETTINGS =====
 bool   InpEnable1HourHLinePendingOrder            = true;          // USER RULE: If horizontal line is live > 1 hour & live price near $50: create pending order
+bool   InpHLine1HourIgnoreEmaAngle                = true;          // USER RULE: "if any horizontal line is live more than 1 hour and tick live price is near $50 ->ignore ema angle condition this situvation"
 int    InpHLine1HourMinDurationSeconds            = 3600;          // Minimum line active duration in seconds (3600s = 1 hour)
 double InpHLine1HourNearPriceUSD                  = 50.0;          // Price proximity threshold ($50 raw gap) between live price and horizontal line
 double InpHLine1HourSellLotBase                   = 0.03;          // Base lot for 1-hour Red line Sell pending order (0.03 * multiplier)

@@ -2984,12 +2984,15 @@ void Check1HourHorizontalLinePendingOrders()
    if(!EAStartupComplete)
       return;
 
-   // USER RULE: "do not create any horizontal order when mathabs emaangle is more than >=4"
+   // USER RULE: "if any horizontal line is live more than 1 hour and tick live price is near $50 ->ignore ema angle condition this situvation"
    double curEmaAng = (GlobalEmaAngle30 != 0.0) ? GlobalEmaAngle30 : GetEmaAngleDegrees(30);
-   double absEmaAng = MathAbs(curEmaAng);
-   double maxHorizAngle = (InpHorizontalOrderMaxEmaAngle > 0.0) ? InpHorizontalOrderMaxEmaAngle : 4.0;
-   if(absEmaAng >= maxHorizAngle)
-      return;
+   if(!InpHLine1HourIgnoreEmaAngle)
+     {
+      double absEmaAng = MathAbs(curEmaAng);
+      double maxHorizAngle = (InpHorizontalOrderMaxEmaAngle > 0.0) ? InpHorizontalOrderMaxEmaAngle : 4.0;
+      if(absEmaAng >= maxHorizAngle)
+         return;
+     }
 
    RefreshRates();
    double minStopDist = GetRequiredStopDistance();
@@ -3132,12 +3135,12 @@ void Check1HourHorizontalLinePendingOrders()
                   s_last1hPendingRedLineStart = g_lastEqHighLineStart;
                   s_last1hPendingRedTicket    = tkt;
                   InvalidateTotalEAOrdersCache();
-                  PrintFormat(">>> [1H RED LINE PENDING] Created SELL pending #%d (Type=%s) Lots=%.2f at Price=%.2f (Bid=%.2f Dist=$%.2f <= $%.2f) SL=%.2f TP=%.2f LineStart=%s (Active %d min)",
+                  PrintFormat(">>> [1H RED LINE PENDING] Created SELL pending #%d (Type=%s) Lots=%.2f at Price=%.2f (Bid=%.2f Dist=$%.2f <= $%.2f) SL=%.2f TP=%.2f LineStart=%s (Active %d min, EMA Angle=%.1f deg [Angle Ignored])",
                               tkt, (pendingType == OP_SELLLIMIT ? "SELL_LIMIT" : "SELL_STOP"),
                               sellLot, targetPrice, Bid, distRed, nearThresholdUSD,
                               stopLoss, takeProfit,
                               TimeToString(g_lastEqHighLineStart, TIME_DATE|TIME_MINUTES),
-                              redElapsedSec / 60);
+                              redElapsedSec / 60, curEmaAng);
                  }
                else
                  {
@@ -3232,12 +3235,12 @@ void Check1HourHorizontalLinePendingOrders()
                   s_last1hPendingGreenLineStart = g_lastEqLowLineStart;
                   s_last1hPendingGreenTicket    = tkt;
                   InvalidateTotalEAOrdersCache();
-                  PrintFormat(">>> [1H GREEN LINE PENDING] Created BUY pending #%d (Type=%s) Lots=%.2f at Price=%.2f (Ask=%.2f Dist=$%.2f <= $%.2f) SL=%.2f TP=%.2f LineStart=%s (Active %d min)",
+                  PrintFormat(">>> [1H GREEN LINE PENDING] Created BUY pending #%d (Type=%s) Lots=%.2f at Price=%.2f (Ask=%.2f Dist=$%.2f <= $%.2f) SL=%.2f TP=%.2f LineStart=%s (Active %d min, EMA Angle=%.1f deg [Angle Ignored])",
                               tkt, (pendingType == OP_BUYLIMIT ? "BUY_LIMIT" : "BUY_STOP"),
                               buyLot, targetPrice, Ask, distGreen, nearThresholdUSD,
                               stopLoss, takeProfit,
                               TimeToString(g_lastEqLowLineStart, TIME_DATE|TIME_MINUTES),
-                              greenElapsedSec / 60);
+                              greenElapsedSec / 60, curEmaAng);
                  }
                else
                  {
