@@ -5478,8 +5478,8 @@ void ManageHorizontalLineProfitLiveStopLoss()
    static datetime s_lastLoggedRedStart   = 0;
    if(curGreenActive && curGreenStart > 0 && curGreenStart != s_lastLoggedGreenStart)
      {
-      PrintFormat(">>> [HLINE LIVE SL] GREEN Line Started (%s @ %.2f) -> Checking all open SELL orders with profit > $0 to modify SL with live price",
-                  TimeToString(curGreenStart, TIME_DATE|TIME_MINUTES), curGreenPrice);
+      PrintFormat(">>> [HLINE LIVE SL] GREEN Line Started (%s @ %.2f) -> Checking all open SELL orders with profit > $0 and live price near green line (range <= $%.2f) to modify SL with live price",
+                  TimeToString(curGreenStart, TIME_DATE|TIME_MINUTES), curGreenPrice, InpHLineModifyGreenLineRangeUSD);
       s_lastLoggedGreenStart = curGreenStart;
      }
    if(curRedActive && curRedStart > 0 && curRedStart != s_lastLoggedRedStart)
@@ -5524,22 +5524,35 @@ void ManageHorizontalLineProfitLiveStopLoss()
       double curTP = OrderTakeProfit();
 
       // Rule 1: GREEN horizontal line started -> modify all open SELL orders (profit > $0) SL with liveprice
+      // USER RULE: Live price is near to green line $50 range only
       if(curGreenActive && oType == OP_SELL)
         {
+         if(InpHLineModifyGreenLineRangeUSD > 0.0)
+           {
+            if(curGreenPrice <= 0.0 || MathAbs(curBid - curGreenPrice) > InpHLineModifyGreenLineRangeUSD)
+               continue;
+           }
+
          double targetSL = NormalizeDouble(curAsk + minStopDist, Digits);
          if(targetSL > curAsk && (curSL <= 0.0 || (targetSL < curSL - minModGap)))
            {
             bool ok = SafeOrderModify(tkt, oOpen, targetSL, curTP, 0, clrTomato, "HLineLiveSL_Sell");
             if(ok)
               {
-               PrintFormat(">>> [HLINE LIVE SL] GREEN Line Started/Active (%s @ %.2f): SELL #%d SL modified to Live Price (Ask+StopDist=%.2f) | Profit=+$%.2f > $%.2f",
-                           TimeToString(curGreenStart, TIME_DATE|TIME_MINUTES), curGreenPrice, tkt, targetSL, netPL, minProfit);
+               PrintFormat(">>> [HLINE LIVE SL] GREEN Line Started/Active (%s @ %.2f): SELL #%d SL modified to Live Price (Ask+StopDist=%.2f) | DistToLine=$%.2f <= $%.2f | Profit=+$%.2f > $%.2f",
+                           TimeToString(curGreenStart, TIME_DATE|TIME_MINUTES), curGreenPrice, tkt, targetSL, MathAbs(curBid - curGreenPrice), InpHLineModifyGreenLineRangeUSD, netPL, minProfit);
               }
            }
         }
       // Rule 2: RED horizontal line started -> modify all open BUY orders (profit > $0) SL with live price
       else if(curRedActive && oType == OP_BUY)
         {
+         if(InpHLineModifyRedLineRangeUSD > 0.0)
+           {
+            if(curRedPrice <= 0.0 || MathAbs(curBid - curRedPrice) > InpHLineModifyRedLineRangeUSD)
+               continue;
+           }
+
          double targetSL = NormalizeDouble(curBid - minStopDist, Digits);
          if(targetSL < curBid && (curSL <= 0.0 || (targetSL > curSL + minModGap)))
            {
