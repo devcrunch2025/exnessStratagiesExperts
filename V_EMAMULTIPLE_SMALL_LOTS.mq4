@@ -43,7 +43,7 @@ CheckBasketProfitClose  Total open basket profit
 
 */
 
-string glbVersion = "V-SMALL-1080- Spike 1Xmul Min Profit 50Pct Ladder";
+string glbVersion = "V-SMALL-1081- Spike SL 200 Normal SL 3000";
 
 int AccountMultiplierLOT = 500;//100;//1000;//400;//200;//500; ALWAYS multiples of 1000 is better for best results
 //balance multiplier
@@ -1068,6 +1068,7 @@ double InpPendingGapLossMultiplier         = 2.0;   // Pending gap multiplier on
  double InpSpikeOrderPendingGapUSD             = 50.0;  // Spike Orders: Pending stop entry gap ($0 = open market orders without pending, >0 = pending stop gap)
  double InpSpikeOrderMinGapUSD                 = 50.0;  // Spike Orders: Minimal gap between consecutive spike orders ($50 USD)
  double InpSpikeOrderStaleCleanupDistUSD       = 100.0; // Spike Orders: Distance to delete stale pending spike order ($100 USD)
+ double InpSpikeOrderStopLossRawPriceGap       = 200.0; // Spike Orders: StopLoss raw price gap ($200 USD for spike vs $3000 normal)
  bool   InpSpikeBypassHorizontalLineBlock      = true;  // Spike Orders: Bypass active opposite horizontal line block (EQH-R/EQH-G)
  bool   InpSpikeBypassSweepBlock               = true;  // Spike Orders: Bypass active liquidity sweep block (SSLS/BSLS)
  bool   InpFollowEmaIgnoreSsl                  = true;  // Trade Direction: Follow EMADirection (Bull=BUY, Bear=SELL) & Ignore SSL Signal
@@ -17959,11 +17960,13 @@ void RegisterPostOrderSLTPVerification(int ticket,double expectedSL,double expec
       lots=OrderLots();
       if(expectedSL<=0.0)
         {
+         bool isSpikeComment = (StringFind(OrderComment(), "SPIKE") >= 0);
+         double rawSLDist = isSpikeComment ? ((InpSpikeOrderStopLossRawPriceGap > 0.0) ? InpSpikeOrderStopLossRawPriceGap : 200.0) : ((StopLossRawPriceGap > 0.0) ? StopLossRawPriceGap : 3000.0);
          if(orderType==OP_BUY)
-            expectedSL=openPrice-Slippage-((StopLossRawPriceGap > 0.0) ? StopLossRawPriceGap : 2000.0);
+            expectedSL=openPrice-Slippage-rawSLDist;
          else
             if(orderType==OP_SELL)
-               expectedSL=openPrice+Slippage+((StopLossRawPriceGap > 0.0) ? StopLossRawPriceGap : 2000.0);
+               expectedSL=openPrice+Slippage+rawSLDist;
         }
       if(expectedTP<=0.0)
         {
@@ -19890,7 +19893,8 @@ int SafeOrderSend(string symbol,int orderType,double lots,double price,int slipp
    double safeSL=stopLoss;
    if(safeSL<=0.0)
      {
-      double rawSLDist = (StopLossRawPriceGap > 0.0) ? StopLossRawPriceGap : 2000.0;
+      bool isSpikeComment = (StringFind(comment, "SPIKE") >= 0);
+      double rawSLDist = isSpikeComment ? ((InpSpikeOrderStopLossRawPriceGap > 0.0) ? InpSpikeOrderStopLossRawPriceGap : 200.0) : ((StopLossRawPriceGap > 0.0) ? StopLossRawPriceGap : 3000.0);
       if(orderType == OP_BUY || orderType == OP_BUYSTOP || orderType == OP_BUYLIMIT)
          safeSL = NormalizeDouble(sendPrice - rawSLDist, Digits);
       else
@@ -27717,12 +27721,12 @@ void OpenBuy(string MOMorder="")
    ChangeLots(GlobalSellPL,"SSL Long",OP_BUY,0,MOMorder);
    
    
-    if(isSpikeOrder)
-   StopLossRawPriceGap=200;
-    else
-   StopLossRawPriceGap=3000;//
-   
-   double slDistance = (StopLossRawPriceGap > 0.0) ? StopLossRawPriceGap : 3000.0;
+   if(isSpikeOrder)
+      StopLossRawPriceGap = (InpSpikeOrderStopLossRawPriceGap > 0.0) ? InpSpikeOrderStopLossRawPriceGap : 200.0;
+   else
+      StopLossRawPriceGap = 3000.0;
+
+   double slDistance = isSpikeOrder ? ((InpSpikeOrderStopLossRawPriceGap > 0.0) ? InpSpikeOrderStopLossRawPriceGap : 200.0) : ((StopLossRawPriceGap > 0.0) ? StopLossRawPriceGap : 3000.0);
    double tpDistance = (TakeProfitRawPriceGap > 0.0) ? TakeProfitRawPriceGap : 500.0;
 
    double stopLoss = (slDistance > 0.0) ? NormalizeDouble(entryPrice - slDistance, Digits) : 0.0;
@@ -27834,12 +27838,12 @@ void OpenSell(string MOMorder="")
    SaveReEntryCounter();
    ChangeLots(GlobalBuyPL,"SSL Short",OP_SELL,0,MOMorder);
    
-    if(isSpikeOrder)
-   StopLossRawPriceGap=200;
+   if(isSpikeOrder)
+      StopLossRawPriceGap = (InpSpikeOrderStopLossRawPriceGap > 0.0) ? InpSpikeOrderStopLossRawPriceGap : 200.0;
    else
-   StopLossRawPriceGap=3000;//
-   
-   double slDistance = (StopLossRawPriceGap > 0.0) ? StopLossRawPriceGap : 3000.0;
+      StopLossRawPriceGap = 3000.0;
+
+   double slDistance = isSpikeOrder ? ((InpSpikeOrderStopLossRawPriceGap > 0.0) ? InpSpikeOrderStopLossRawPriceGap : 200.0) : ((StopLossRawPriceGap > 0.0) ? StopLossRawPriceGap : 3000.0);
    double tpDistance = (TakeProfitRawPriceGap > 0.0) ? TakeProfitRawPriceGap : 500.0;
 
    double stopLoss = (slDistance > 0.0) ? NormalizeDouble(entryPrice + slDistance, Digits) : 0.0;
