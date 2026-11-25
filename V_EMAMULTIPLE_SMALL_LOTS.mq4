@@ -43,7 +43,7 @@ CheckBasketProfitClose  Total open basket profit
 
 */
 
-string glbVersion = "V-SMALL-1081- Spike SL 200 Normal SL 3000";
+string glbVersion = "V-SMALL-1082- HLine Profit 0.50 Live Price SL";
 
 int AccountMultiplierLOT = 500;//100;//1000;//400;//200;//500; ALWAYS multiples of 1000 is better for best results
 //balance multiplier
@@ -357,6 +357,9 @@ int    InpHorizontalLineMinActiveWaitSeconds      = 150;           // Activation
 bool   InpModifyOppositeOrderSLToLinePrice        = true;          // On new/active horizontal line: try to modify opposite order SL to Line price
 bool   InpModifyLinePriceSLOnlyFirstOrder         = true;          // Modify SL with Line Price ONLY for the FIRST (oldest) open order
 double InpLinePriceSLOffsetRaw                    = 3000;//1000;//200;//100;//50.0;          // Offset in USD ($50) added to Line Price for StopLoss modification (Line Price + 50)
+bool   InpEnableHLineProfitLiveSLModify   = true;  // USER RULE: On opposite horizontal line start: modify profitable order SL to live price
+double InpHLineModifyProfitThresholdUSD   = 0.50;  // Minimum order profit in USD ($0.50) to modify SL to live price on opposite horizontal line
+bool   InpHLineModifyUsesMultiplier       = false; // Multiply profit threshold by balancelomultipler (false = strict $0.50, true = $0.50 * mult)
 bool   InpEnableHorizontalLineRecovery            = true;          // When horizontal line starts: create recovery order for open losing order with smallest loss
 bool   InpOpenLineOrderIfRecoveryCreated          = false;         // If recovery order created, also open standard line order (default: false to enforce 1-order-per-line)
 bool   InpEnableLineEndedBreakoutSLModify         = true;          // When line ends & price moves > $100 past line: modify ALL open orders SL to LinePrice +/- $200
@@ -8183,6 +8186,7 @@ void     CheckNewGreenLineCloseSellAndOpenBuy();
 int      SendLsdGreenLineBuyOrder(double buyLot, double linePrice = 0.0);
 void     ManageHorizontalOrderEndedStopLoss();
 void     ManageHorizontalLineEndedBreakoutStopLoss();
+void     ManageHorizontalLineProfitLiveStopLoss();
 datetime GetLastClosedFLIPBasketSupportCloseTime();
 bool     HasOppositeOrderTypeLossOver5(int currentDirection, double &outOppositeTotalPL, double &outMaxSingleLoss);
 void     InitializeFLIPBasketSupportTracking();
@@ -15713,6 +15717,9 @@ void OnTick()
    // Record every tick highest spike bucket profit and protect 50% of profit (runs on every incoming tick)
    ManageSpikeProfitLadder();
 
+   // USER RULE: On opposite horizontal line start: modify profitable order SL to live price
+   ManageHorizontalLineProfitLiveStopLoss();
+
    bool isTradingPausedOrBlocked = (g_dailyEquityTradingBlocked || g_manualTradingPaused || DayProfitLadderTradingStopped || g_dailyEquityAdverseLossHitToday || TradingHaltedUntilNextFlip);
 
    if(isTradingPausedOrBlocked)
@@ -15903,6 +15910,7 @@ void OnTick()
       CheckLsdSweepFlipBasketSupportOrder(); // Stage 2: Line Active support order creation (Disabled)
    ManageHorizontalOrderEndedStopLoss(); // USER RULE: When horizontal line ends, modify open horizontal order with $50 gap SL
    ManageHorizontalLineEndedBreakoutStopLoss(); // USER RULE: When horizontal line ends & price breaks past line by $100: modify ALL open orders SL to LinePrice +/- $200
+   ManageHorizontalLineProfitLiveStopLoss(); // USER RULE: Opposite horizontal line active + order profit >= $0.50 -> modify SL to live price
 
    OnTickCore();
    OnTickPerformanceEnd(tickStartMs);
@@ -20688,7 +20696,7 @@ bool SafeOrderModify(int ticket,double openPrice,double stopLoss,double takeProf
       double oOpen = OrderOpenPrice();
       double oLots = OrderLots();
       double curNetPL = OrderProfit() + OrderSwap() + OrderCommission();
-      bool isMethodCaller = (StringFind(callerName, "Method") >= 0 || callerName == "Emergency90PercentSLCutPlus500SL" || callerName == "Emergency90PercentSLCutDoubleSL" || callerName == "BasketDeRisk_BE_SL" || StringFind(callerName, "Spike") >= 0);
+      bool isMethodCaller = (StringFind(callerName, "Method") >= 0 || callerName == "Emergency90PercentSLCutPlus500SL" || callerName == "Emergency90PercentSLCutDoubleSL" || callerName == "BasketDeRisk_BE_SL" || StringFind(callerName, "Spike") >= 0 || StringFind(callerName, "HLineLiveSL") >= 0);
 
       // USER RULE (VMULTI-1095 & VMULTI-1105): EMA angle calculation & Breakeven Breathing Floor
       double curEmaAng = GlobalEmaAngle30;
@@ -35126,6 +35134,108 @@ int GetFirstOpenOrderTicket(int targetType)
   }
 
 //+------------------------------------------------------------------+
+//| ManageHorizontalLineProfitLiveStopLoss:                          |
+//| USER RULE:                                                       |
+//| - EMAdirection is bearish, SELL order is open with profit >= $0.50|
+//|   Horizontal GREENLINE is started -> modify SELL order stoploss  |
+//|   with current live price                                        |
+//| - EMADIRECTION is bullish, BUY/SELL order is open with profit    |
+//|   >= $0.50, Horizontal REDLINE is started -> modify BUY/SELL     |
+//|   stoploss with current live price                               |
+//+------------------------------------------------------------------+
+void ManageHorizontalLineProfitLiveStopLoss()
+  {
+   if(!InpEnableHLineProfitLiveSLModify)
+      return;
+
+   RefreshRates();
+
+   bool isRedLineActive   = (g_lastEqHighPrice > 0.0 && g_lastEqHighLineStart > 0);
+   bool isGreenLineActive = (g_lastEqLowPrice  > 0.0 && g_lastEqLowLineStart  > 0);
+
+   bool checkSellInBearish = (EMADirection == -1 && isGreenLineActive);
+   bool checkBuyInBullish  = (EMADirection == 1  && isRedLineActive);
+
+   if(!checkSellInBearish && !checkBuyInBullish)
+      return;
+
+   double mult = (InpHLineModifyUsesMultiplier && balancelomultipler > 0) ? (double)balancelomultipler : 1.0;
+   double minProfit = InpHLineModifyProfitThresholdUSD * mult;
+   if(minProfit <= 0.0)
+      minProfit = 0.50;
+
+   double curBid = MarketInfo(Symbol(), MODE_BID);
+   double curAsk = MarketInfo(Symbol(), MODE_ASK);
+   double minStopDist = GetRequiredStopDistance();
+   if(minStopDist < Point * 10)
+      minStopDist = Point * 10;
+   double minModGap = GetEffectiveMinSLModifyGap();
+
+   for(int i = OrdersTotal() - 1; i >= 0; i--)
+     {
+      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
+         continue;
+      if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber)
+         continue;
+
+      int oType = OrderType();
+      if(oType != OP_BUY && oType != OP_SELL)
+         continue;
+
+      int tkt = OrderTicket();
+      double netPL = OrderProfit() + OrderSwap() + OrderCommission();
+      if(netPL < minProfit)
+         continue;
+
+      double oOpen = OrderOpenPrice();
+      double curSL = OrderStopLoss();
+      double curTP = OrderTakeProfit();
+
+      // Case 1: Bearish + Green Line started -> modify SELL order SL to live price
+      if(checkSellInBearish && oType == OP_SELL)
+        {
+         double targetSL = NormalizeDouble(curAsk + minStopDist, Digits);
+         if(targetSL > curAsk && (curSL <= 0.0 || (targetSL < curSL - minModGap)))
+           {
+            bool ok = SafeOrderModify(tkt, oOpen, targetSL, curTP, 0, clrTomato, "HLineLiveSL_Sell");
+            if(ok)
+              {
+               PrintFormat(">>> [HLINE LIVE SL] Bearish EMADir (-1) + Green Line Started: SELL #%d SL modified to Live Price (Ask+StopDist=%.2f) | Profit=+$%.2f >= $%.2f",
+                           tkt, targetSL, netPL, minProfit);
+              }
+           }
+        }
+      // Case 2: Bullish + Red Line started -> modify BUY order SL to live price (and SELL order if open & profitable)
+      else if(checkBuyInBullish && oType == OP_BUY)
+        {
+         double targetSL = NormalizeDouble(curBid - minStopDist, Digits);
+         if(targetSL < curBid && (curSL <= 0.0 || (targetSL > curSL + minModGap)))
+           {
+            bool ok = SafeOrderModify(tkt, oOpen, targetSL, curTP, 0, clrLimeGreen, "HLineLiveSL_Buy");
+            if(ok)
+              {
+               PrintFormat(">>> [HLINE LIVE SL] Bullish EMADir (+1) + Red Line Started: BUY #%d SL modified to Live Price (Bid-StopDist=%.2f) | Profit=+$%.2f >= $%.2f",
+                           tkt, targetSL, netPL, minProfit);
+              }
+           }
+        }
+      else if(checkBuyInBullish && oType == OP_SELL)
+        {
+         double targetSL = NormalizeDouble(curAsk + minStopDist, Digits);
+         if(targetSL > curAsk && (curSL <= 0.0 || (targetSL < curSL - minModGap)))
+           {
+            bool ok = SafeOrderModify(tkt, oOpen, targetSL, curTP, 0, clrTomato, "HLineLiveSL_Sell");
+            if(ok)
+              {
+               PrintFormat(">>> [HLINE LIVE SL] Bullish EMADir (+1) + Red Line Started: SELL #%d SL modified to Live Price (Ask+StopDist=%.2f) | Profit=+$%.2f >= $%.2f",
+                           tkt, targetSL, netPL, minProfit);
+              }
+           }
+        }
+     }
+  }
+
+//+------------------------------------------------------------------+
 //| TryModifyOrderStopLossToLinePrice:                               |
 //| USER RULE: "BUY order is open and RED horizontal line is started |
 //|  . try to modify BUY order stoploss with Line price.             |
@@ -35531,6 +35641,9 @@ void CheckNewRedLineCloseBuyAndOpenSell()
            }
         }
 
+      // Step 2b-2: USER RULE: "EMADIRECTION is bullish , SELL order is open and current tick with profit>=$0.50 , horizontal RED line is started then modify BUY order stoploss with current live price"
+      ManageHorizontalLineProfitLiveStopLoss();
+
       // Step 2c: USER RULE: "When horizantal line is started. create recovery order which is smallest loss amount.
       // if RED line started create immidtate recovery order for lowest open sell order. same logic for GREEN horizontal line"
       if(!blockHorizByAngle && InpEnableHorizontalLineRecovery)
@@ -35930,6 +36043,9 @@ void CheckNewGreenLineCloseSellAndOpenBuy()
             TryModifyOrderStopLossToLinePrice(firstSellTkt, eqlPrice, "EQH-G Green Line");
            }
         }
+
+      // Step 2b-2: USER RULE: "EMAdirection is bearish , SELL order is open and current tick with profit >=$0.50, Horizontal GREENLINE Is started then modify SELL order stoploss with current live price"
+      ManageHorizontalLineProfitLiveStopLoss();
 
       // Step 2c: USER RULE: "When horizantal line is started. create recovery order which is smallest loss amount.
       // if RED line started create immidtate recovery order for lowest open sell order. same logic for GREEN horizontal line"
