@@ -957,22 +957,97 @@ void ExecuteMethod6PartialLotSearch(bool targetOpposite, double threshold, int c
 #endif
 
 //+------------------------------------------------------------------+
-//| ExecuteMethod6ZeroNetRelief:                                     |
-//| User Rule: If 1 or more orders are in profit and any order is   |
-//| in loss (or partial slice) with combo net >= $0.00:              |
-//| Priority 1: Close losing order (full or partial) at market       |
-//| Priority 2: Modify winning order(s) StopLoss to Live Price       |
-//| No extra profit requirement (>= $0.00 pure break-even relief)    |
+//| ApplyMethod6LivePriceStopLoss:                                   |
+//| User Rule: Modify profit orders with StopLoss $50 from live      |
+//| price direction:                                                 |
+//| If EMADirection BULLISH (1)  -> Live Price - $50 (Bid - $50)     |
+//| If EMADirection BEARISH (-1) -> Live Price + $50 (Ask + $50)     |
+//| (Broker compliant: BUY SL < Bid, SELL SL > Ask)                  |
 //+------------------------------------------------------------------+
-bool ExecuteMethod6ZeroNetRelief(int candCount,
-                                 int &candTickets[], int &candTypes[], double &candLots[],
-                                 double &candOpenPrices[], double &candStopLosses[], double &candTakeProfits[],
-                                 double &candProfits[], bool &isProcessed[])
+bool ApplyMethod6LivePriceStopLoss(int ticket, int orderType, double openPrice, double currentSL, double takeProfit)
+  {
+   RefreshRates();
+   double slGap = (InpMethod6LivePriceSLGapUSD > 0.0) ? InpMethod6LivePriceSLGapUSD : 50.0;
+   double minStopDist = GetRequiredStopDistance();
+   if(slGap < minStopDist)
+      slGap = minStopDist;
+
+   double curBid = MarketInfo(Symbol(), MODE_BID);
+   double curAsk = MarketInfo(Symbol(), MODE_ASK);
+   double targetSL = 0.0;
+
+   if(EMADirection == 1)
+     {
+      // Bullish: Live Price - $50
+      targetSL = (orderType == OP_BUY) ? NormalizeDouble(curBid - slGap, Digits)
+                                       : NormalizeDouble(curAsk + slGap, Digits);
+     }
+   else if(EMADirection == -1)
+     {
+      // Bearish: Live Price + $50
+      targetSL = (orderType == OP_SELL) ? NormalizeDouble(curAsk + slGap, Digits)
+                                        : NormalizeDouble(curBid - slGap, Digits);
+     }
+   else
+     {
+      targetSL = (orderType == OP_BUY) ? NormalizeDouble(curBid - slGap, Digits)
+                                       : NormalizeDouble(curAsk + slGap, Digits);
+     }
+
+   // Respect Breakeven Breathing Floor
+   double beFloor = GetEmaAngleBreakevenBreathingSL(orderType, openPrice, openPrice);
+   if(orderType == OP_BUY)
+     {
+      if(targetSL < beFloor)
+         targetSL = beFloor;
+     }
+   else if(orderType == OP_SELL)
+     {
+      if(targetSL > beFloor)
+         targetSL = beFloor;
+     }
+
+   bool needModify = false;
+   if(orderType == OP_BUY)
+     {
+      if(currentSL == 0.0 || targetSL > currentSL + Point)
+         needModify = true;
+     }
+   else if(orderType == OP_SELL)
+     {
+      if(currentSL == 0.0 || targetSL < currentSL - Point)
+         needModify = true;
+     }
+
+   if(needModify)
+     {
+      bool mod = SafeOrderModify(ticket, openPrice, targetSL, takeProfit, 0, (orderType == OP_BUY ? clrLimeGreen : clrTomato), "M6 $50 Live SL");
+      if(mod)
+        {
+         PrintFormat(">>> [METHOD 6 LIVE SL] Ticket #%d (%s) | EMA Dir=%s | SL modified to $50 from live price: %s",
+                     ticket, (orderType == OP_BUY ? "BUY" : "SELL"),
+                     (EMADirection == 1 ? "BULLISH (-$50)" : (EMADirection == -1 ? "BEARISH (+$50)" : "FLAT")),
+                     DoubleToString(targetSL, Digits));
+         return true;
+        }
+     }
+   return false;
+  }
+
+//+------------------------------------------------------------------+
+//| STAGE S0: OPPOSITE LOSER ELIMINATION (>= $0.00)                  |
+//| User Rule: Any Profit Order(s) + Opposite Loss Order (Full or    |
+//| Partial) >= $0.00. Closes opposite loser at market and modifies  |
+//| winning order(s) StopLoss to $50 from live price direction.      |
+//+------------------------------------------------------------------+
+bool ExecuteMethod6StageS0(int candCount,
+                           int &candTickets[], int &candTypes[], double &candLots[],
+                           double &candOpenPrices[], double &candStopLosses[], double &candTakeProfits[],
+                           double &candProfits[], bool &isProcessed[])
   {
    if(!InpMethod6EnableZeroNetLossCutSLModify)
       return false;
 
-   // 1. Identify all winners and losers
    int winIndices[MAX_M6_ORDERS];
    int lossIndices[MAX_M6_ORDERS];
    ArrayInitialize(winIndices, 0);
@@ -1001,7 +1076,6 @@ bool ExecuteMethod6ZeroNetRelief(int candCount,
 
    double minNetUSD = InpMethod6ZeroNetMinProfitUSD; // Default 0.0
 
-   // Variables to track chosen combination
    int selectedWinners[MAX_M6_ORDERS];
    ArrayInitialize(selectedWinners, 0);
    int selectedWinCount = 0;
@@ -1012,19 +1086,148 @@ bool ExecuteMethod6ZeroNetRelief(int candCount,
    double partialCutLots = 0.0;
    double partialLossUSD = 0.0;
 
-   // Two passes: Pass 0 = Opposite losers first (if InpMethod6PrioritizeOppositeLosers), Pass 1 = Same-type losers
-   for(int pass = 0; pass < (InpMethod6PrioritizeOppositeLosers ? 2 : 1); pass++)
+   //------------------------------------------------------------------
+   // PHASE 1: FULL OPPOSITE LOSING ORDER CLOSE
+   //------------------------------------------------------------------
+   // 1 Winner + 1 Opposite Loser
+   for(int l = 0; l < lossCount; l++)
      {
-      bool targetOpposite = (pass == 0 && InpMethod6PrioritizeOppositeLosers);
+      int lIdx = lossIndices[l];
+      if(isProcessed[lIdx])
+         continue;
 
-      //------------------------------------------------------------------
-      // PHASE 1: FULL LOSING ORDER CLOSE (Priority 1)
-      //------------------------------------------------------------------
-      // Check 1 Winner + 1 Loser
+      for(int w = 0; w < winCount; w++)
+        {
+         int wIdx = winIndices[w];
+         if(isProcessed[wIdx])
+            continue;
+
+         // Must be OPPOSITE order types
+         if(candTypes[wIdx] == candTypes[lIdx])
+            continue;
+
+         double netPL = NormalizeDouble(candProfits[wIdx] + candProfits[lIdx], 2);
+         if(netPL >= minNetUSD)
+           {
+            double lossAbs = MathAbs(candProfits[lIdx]);
+            if(lossAbs > bestLossAbs || (lossAbs == bestLossAbs && netPL > bestNetPL))
+              {
+               bestLossAbs = lossAbs;
+               bestNetPL   = netPL;
+               selectedLoserIdx = lIdx;
+               selectedWinCount = 1;
+               selectedWinners[0] = wIdx;
+               isPartialCut = false;
+              }
+           }
+        }
+     }
+
+   // 2 Winners + 1 Opposite Loser
+   if(selectedLoserIdx < 0 && winCount >= 2)
+     {
       for(int l = 0; l < lossCount; l++)
         {
          int lIdx = lossIndices[l];
          if(isProcessed[lIdx])
+            continue;
+
+         for(int w1 = 0; w1 < winCount - 1; w1++)
+           {
+            int w1Idx = winIndices[w1];
+            if(isProcessed[w1Idx])
+               continue;
+
+            for(int w2 = w1 + 1; w2 < winCount; w2++)
+              {
+               int w2Idx = winIndices[w2];
+               if(isProcessed[w2Idx])
+                  continue;
+
+               if(candTypes[w1Idx] == candTypes[lIdx] && candTypes[w2Idx] == candTypes[lIdx])
+                  continue;
+
+               double netPL = NormalizeDouble(candProfits[w1Idx] + candProfits[w2Idx] + candProfits[lIdx], 2);
+               if(netPL >= minNetUSD)
+                 {
+                  double lossAbs = MathAbs(candProfits[lIdx]);
+                  if(lossAbs > bestLossAbs || (lossAbs == bestLossAbs && netPL > bestNetPL))
+                    {
+                     bestLossAbs = lossAbs;
+                     bestNetPL   = netPL;
+                     selectedLoserIdx = lIdx;
+                     selectedWinCount = 2;
+                     selectedWinners[0] = w1Idx;
+                     selectedWinners[1] = w2Idx;
+                     isPartialCut = false;
+                    }
+                 }
+              }
+           }
+        }
+     }
+
+   // 3+ Winners + 1 Opposite Loser
+   if(selectedLoserIdx < 0 && winCount >= 3)
+     {
+      for(int l = 0; l < lossCount; l++)
+        {
+         int lIdx = lossIndices[l];
+         if(isProcessed[lIdx])
+            continue;
+
+         double sumOppWins = 0.0;
+         int oppCount = 0;
+         for(int w = 0; w < winCount; w++)
+           {
+            int wIdx = winIndices[w];
+            if(!isProcessed[wIdx] && candTypes[wIdx] != candTypes[lIdx])
+              {
+               sumOppWins += candProfits[wIdx];
+               oppCount++;
+              }
+           }
+
+         double netPL = NormalizeDouble(sumOppWins + candProfits[lIdx], 2);
+         if(oppCount >= 3 && netPL >= minNetUSD)
+           {
+            selectedLoserIdx = lIdx;
+            selectedWinCount = 0;
+            for(int w = 0; w < winCount && selectedWinCount < MAX_M6_ORDERS; w++)
+              {
+               int wIdx = winIndices[w];
+               if(!isProcessed[wIdx] && candTypes[wIdx] != candTypes[lIdx])
+                 {
+                  selectedWinners[selectedWinCount] = wIdx;
+                  selectedWinCount++;
+                 }
+              }
+            bestNetPL   = netPL;
+            bestLossAbs = MathAbs(candProfits[lIdx]);
+            isPartialCut = false;
+            break;
+           }
+        }
+     }
+
+   //------------------------------------------------------------------
+   // PHASE 2: PARTIAL OPPOSITE LOSING ORDER CUT
+   //------------------------------------------------------------------
+   if(InpMethod6EnablePartialLotCombination && selectedLoserIdx < 0)
+     {
+      for(int l = 0; l < lossCount; l++)
+        {
+         int lIdx = lossIndices[l];
+         if(isProcessed[lIdx])
+            continue;
+
+         double lossTotalLots = candLots[lIdx];
+         if(lossTotalLots <= 0.01)
+            continue;
+
+         double lossPL = candProfits[lIdx];
+         double lossPerLot = MathAbs(lossPL) / lossTotalLots;
+         if(lossPerLot <= 0.0)
             continue;
 
          for(int w = 0; w < winCount; w++)
@@ -1033,207 +1236,50 @@ bool ExecuteMethod6ZeroNetRelief(int candCount,
             if(isProcessed[wIdx])
                continue;
 
-            bool isOpp = (candTypes[wIdx] != candTypes[lIdx]);
-            if(targetOpposite && !isOpp)
-               continue;
-            if(!targetOpposite && isOpp)
+            if(candTypes[wIdx] == candTypes[lIdx])
                continue;
 
-            double netPL = NormalizeDouble(candProfits[wIdx] + candProfits[lIdx], 2);
-            if(netPL >= minNetUSD)
+            double winPL = candProfits[wIdx];
+            double maxAbsorbable = winPL - minNetUSD;
+            if(maxAbsorbable <= 0.0)
+               continue;
+
+            double maxLotsToCut = maxAbsorbable / lossPerLot;
+            double pLots = MathFloor((maxLotsToCut + 0.00001) / 0.01) * 0.01;
+            pLots = NormalizeDouble(pLots, 2);
+
+            double maxAllowedCut = NormalizeDouble(lossTotalLots - 0.01, 2);
+            if(pLots > maxAllowedCut)
+               pLots = maxAllowedCut;
+            if(InpMethod6PartialMaxCutLots > 0.0 && pLots > InpMethod6PartialMaxCutLots)
+               pLots = NormalizeDouble(InpMethod6PartialMaxCutLots, 2);
+            if(pLots < 0.01)
+               continue;
+
+            double pLossUSD = -1.0 * NormalizeDouble(lossPerLot * pLots, 2);
+            double nProfitUSD = NormalizeDouble(winPL + pLossUSD, 2);
+
+            if(nProfitUSD >= minNetUSD)
               {
-               double lossAbs = MathAbs(candProfits[lIdx]);
-               // Prioritize larger loss elimination, then higher net profit
-               if(lossAbs > bestLossAbs || (lossAbs == bestLossAbs && netPL > bestNetPL))
+               if(pLots > partialCutLots || (pLots == partialCutLots && nProfitUSD > bestNetPL))
                  {
-                  bestLossAbs = lossAbs;
-                  bestNetPL   = netPL;
+                  partialCutLots   = pLots;
+                  partialLossUSD   = pLossUSD;
+                  bestNetPL        = nProfitUSD;
                   selectedLoserIdx = lIdx;
                   selectedWinCount = 1;
                   selectedWinners[0] = wIdx;
-                  isPartialCut = false;
+                  isPartialCut     = true;
                  }
               }
            }
-        }
-
-      // Check 2 Winners + 1 Loser if no 1-winner full combo found
-      if(selectedLoserIdx < 0 && winCount >= 2)
-        {
-         for(int l = 0; l < lossCount; l++)
-           {
-            int lIdx = lossIndices[l];
-            if(isProcessed[lIdx])
-               continue;
-
-            for(int w1 = 0; w1 < winCount - 1; w1++)
-              {
-               int w1Idx = winIndices[w1];
-               if(isProcessed[w1Idx])
-                  continue;
-
-               for(int w2 = w1 + 1; w2 < winCount; w2++)
-                 {
-                  int w2Idx = winIndices[w2];
-                  if(isProcessed[w2Idx])
-                     continue;
-
-                  bool isOpp1 = (candTypes[w1Idx] != candTypes[lIdx]);
-                  bool isOpp2 = (candTypes[w2Idx] != candTypes[lIdx]);
-                  if(targetOpposite && (!isOpp1 && !isOpp2))
-                     continue;
-                  if(!targetOpposite && (isOpp1 || isOpp2))
-                     continue;
-
-                  double netPL = NormalizeDouble(candProfits[w1Idx] + candProfits[w2Idx] + candProfits[lIdx], 2);
-                  if(netPL >= minNetUSD)
-                    {
-                     double lossAbs = MathAbs(candProfits[lIdx]);
-                     if(lossAbs > bestLossAbs || (lossAbs == bestLossAbs && netPL > bestNetPL))
-                       {
-                        bestLossAbs = lossAbs;
-                        bestNetPL   = netPL;
-                        selectedLoserIdx = lIdx;
-                        selectedWinCount = 2;
-                        selectedWinners[0] = w1Idx;
-                        selectedWinners[1] = w2Idx;
-                        isPartialCut = false;
-                       }
-                    }
-                 }
-              }
-           }
-        }
-
-      // Check 3 Winners + 1 Loser if still no combo found
-      if(selectedLoserIdx < 0 && winCount >= 3)
-        {
-         for(int l = 0; l < lossCount; l++)
-           {
-            int lIdx = lossIndices[l];
-            if(isProcessed[lIdx])
-               continue;
-
-            double sumAllWins = 0.0;
-            int oppWinCount = 0;
-            for(int w = 0; w < winCount; w++)
-              {
-               int wIdx = winIndices[w];
-               if(!isProcessed[wIdx])
-                 {
-                  if(!targetOpposite || (candTypes[wIdx] != candTypes[lIdx]))
-                    {
-                     sumAllWins += candProfits[wIdx];
-                     oppWinCount++;
-                    }
-                 }
-              }
-
-            double netPL = NormalizeDouble(sumAllWins + candProfits[lIdx], 2);
-            if(oppWinCount >= 3 && netPL >= minNetUSD)
-              {
-               selectedLoserIdx = lIdx;
-               selectedWinCount = 0;
-               for(int w = 0; w < winCount && selectedWinCount < MAX_M6_ORDERS; w++)
-                 {
-                  int wIdx = winIndices[w];
-                  if(!isProcessed[wIdx] && (!targetOpposite || (candTypes[wIdx] != candTypes[lIdx])))
-                    {
-                     selectedWinners[selectedWinCount] = wIdx;
-                     selectedWinCount++;
-                    }
-                 }
-               bestNetPL   = netPL;
-               bestLossAbs = MathAbs(candProfits[lIdx]);
-               isPartialCut = false;
-               break;
-              }
-           }
-        }
-
-      // If full loser close combo found in this pass, break loop
-      if(selectedLoserIdx >= 0 && !isPartialCut)
-         break;
-
-      //------------------------------------------------------------------
-      // PHASE 2: PARTIAL LOSING ORDER CUT (Priority 2, if full close not possible)
-      //------------------------------------------------------------------
-      if(InpMethod6EnablePartialLotCombination && selectedLoserIdx < 0)
-        {
-         for(int l = 0; l < lossCount; l++)
-           {
-            int lIdx = lossIndices[l];
-            if(isProcessed[lIdx])
-               continue;
-
-            double lossTotalLots = candLots[lIdx];
-            if(lossTotalLots <= 0.01)
-               continue; // Cannot partial cut 0.01L in MT4
-
-            double lossPL = candProfits[lIdx];
-            double lossPerLot = MathAbs(lossPL) / lossTotalLots;
-            if(lossPerLot <= 0.0)
-               continue;
-
-            for(int w = 0; w < winCount; w++)
-              {
-               int wIdx = winIndices[w];
-               if(isProcessed[wIdx])
-                  continue;
-
-               bool isOpp = (candTypes[wIdx] != candTypes[lIdx]);
-               if(targetOpposite && !isOpp)
-                  continue;
-               if(!targetOpposite && isOpp)
-                  continue;
-
-               double winPL = candProfits[wIdx];
-               double maxAbsorbable = winPL - minNetUSD;
-               if(maxAbsorbable <= 0.0)
-                  continue;
-
-               double maxLotsToCut = maxAbsorbable / lossPerLot;
-               double pLots = MathFloor((maxLotsToCut + 0.00001) / 0.01) * 0.01;
-               pLots = NormalizeDouble(pLots, 2);
-
-               double maxAllowedCut = NormalizeDouble(lossTotalLots - 0.01, 2);
-               if(pLots > maxAllowedCut)
-                  pLots = maxAllowedCut;
-               if(InpMethod6PartialMaxCutLots > 0.0 && pLots > InpMethod6PartialMaxCutLots)
-                  pLots = NormalizeDouble(InpMethod6PartialMaxCutLots, 2);
-               if(pLots < 0.01)
-                  continue;
-
-               double pLossUSD = -1.0 * NormalizeDouble(lossPerLot * pLots, 2);
-               double nProfitUSD = NormalizeDouble(winPL + pLossUSD, 2);
-
-               if(nProfitUSD >= minNetUSD)
-                 {
-                  if(pLots > partialCutLots || (pLots == partialCutLots && nProfitUSD > bestNetPL))
-                    {
-                     partialCutLots   = pLots;
-                     partialLossUSD   = pLossUSD;
-                     bestNetPL        = nProfitUSD;
-                     selectedLoserIdx = lIdx;
-                     selectedWinCount = 1;
-                     selectedWinners[0] = wIdx;
-                     isPartialCut     = true;
-                    }
-                 }
-              }
-           }
-
-         if(selectedLoserIdx >= 0 && isPartialCut)
-            break;
         }
      }
 
    if(selectedLoserIdx < 0 || selectedWinCount == 0)
       return false;
 
-   //==================================================================
-   // EXECUTE THE SELECTED ZERO-NET ACTION
-   //==================================================================
+   // EXECUTE S0 ACTION:
    int lossTkt  = candTickets[selectedLoserIdx];
    int lossType = candTypes[selectedLoserIdx];
    double lossLots = candLots[selectedLoserIdx];
@@ -1241,15 +1287,14 @@ bool ExecuteMethod6ZeroNetRelief(int candCount,
 
    if(!isPartialCut)
      {
-      // FULL LOSER CLOSE
-      PrintFormat(">>> [METHOD 6 ZERO-NET RELIEF: FULL LOSER CLOSE] Closing Loser Ticket #%d (%s %.2fL, Loss=-$%.2f) | Covered by %d Winner(s) (Net=+$%.2f >= $%.2f)",
+      PrintFormat(">>> [STAGE S0: FULL OPPOSITE LOSER CLOSED] Ticket #%d (%s %.2fL, Loss=-$%.2f) CLOSED at market | Covered by %d Winner(s) (Net=+$%.2f >= $0.00)",
                   lossTkt, (lossType == OP_BUY ? "BUY" : "SELL"), lossLots, MathAbs(lossPL),
-                  selectedWinCount, bestNetPL, minNetUSD);
+                  selectedWinCount, bestNetPL);
 
       bool closed = CloseMarketOrderDirect(lossTkt);
       if(!closed)
         {
-         PrintFormat(">>> [METHOD 6 ZERO-NET RELIEF ERROR] Failed to close loser Ticket #%d. Aborting.", lossTkt);
+         PrintFormat(">>> [STAGE S0 ERROR] Failed to close opposite loser Ticket #%d. Aborting.", lossTkt);
          return false;
         }
 
@@ -1258,10 +1303,9 @@ bool ExecuteMethod6ZeroNetRelief(int candCount,
      }
    else
      {
-      // PARTIAL LOSER CUT
-      PrintFormat(">>> [METHOD 6 ZERO-NET RELIEF: PARTIAL LOSER CUT] Slicing %.2fL of %.2fL from Loser Ticket #%d (%s, Slice Loss=-$%.2f) | Net=+$%.2f >= $%.2f",
+      PrintFormat(">>> [STAGE S0: PARTIAL OPPOSITE LOSER CUT] Slicing %.2fL of %.2fL from Ticket #%d (%s, Slice Loss=-$%.2f) | Net=+$%.2f >= $0.00",
                   partialCutLots, lossLots, lossTkt, (lossType == OP_BUY ? "BUY" : "SELL"),
-                  MathAbs(partialLossUSD), bestNetPL, minNetUSD);
+                  MathAbs(partialLossUSD), bestNetPL);
 
       bool partClosed = false;
       double lossClosePrice = 0.0;
@@ -1274,14 +1318,12 @@ bool ExecuteMethod6ZeroNetRelief(int candCount,
          partClosed = OrderClose(lossTkt, partialCutLots, lossClosePrice, Slippage, (lossType == OP_BUY ? clrRed : clrBlue));
          if(partClosed)
             break;
-         int err = GetLastError();
-         PrintFormat("Method 6 Zero-Net Partial Close attempt %d failed for Ticket #%d | Error=%d", attempt + 1, lossTkt, err);
          Sleep(100);
         }
 
       if(!partClosed)
         {
-         PrintFormat(">>> [METHOD 6 ZERO-NET RELIEF ERROR] Failed to partially close loser Ticket #%d. Aborting.", lossTkt);
+         PrintFormat(">>> [STAGE S0 ERROR] Failed to slice opposite loser Ticket #%d. Aborting.", lossTkt);
          return false;
         }
 
@@ -1289,53 +1331,520 @@ bool ExecuteMethod6ZeroNetRelief(int candCount,
       isProcessed[selectedLoserIdx] = true;
      }
 
-   // MODIFY WINNER(S) STOPLOSS TO LIVE PRICE
-   RefreshRates();
-   double curBid = MarketInfo(Symbol(), MODE_BID);
-   double curAsk = MarketInfo(Symbol(), MODE_ASK);
-   double minStopDist = GetRequiredStopDistance();
-   if(minStopDist < 20.0)
-      minStopDist = 20.0;
-
+   // Modify winner(s) StopLoss with $50 buffer from live price direction
    for(int w = 0; w < selectedWinCount; w++)
      {
       int wIdx = selectedWinners[w];
-      int winTkt = candTickets[wIdx];
-      int winType = candTypes[wIdx];
-      double winOpen = candOpenPrices[wIdx];
-      double winTP = candTakeProfits[wIdx];
-      double winCurSL = candStopLosses[wIdx];
-
-      double targetSL = (winType == OP_BUY) ? NormalizeDouble(curBid - minStopDist, Digits)
-                        : NormalizeDouble(curAsk + minStopDist, Digits);
-
-      double beFloorM6 = GetEmaAngleBreakevenBreathingSL(winType, winOpen, winOpen);
-      if(winType == OP_BUY && targetSL < beFloorM6)
-         targetSL = beFloorM6;
-      else if(winType == OP_SELL && targetSL > beFloorM6)
-         targetSL = beFloorM6;
-
-      bool needModify = false;
-      if(winType == OP_BUY && (winCurSL == 0.0 || targetSL > winCurSL + Point))
-         needModify = true;
-      else if(winType == OP_SELL && (winCurSL == 0.0 || targetSL < winCurSL - Point))
-         needModify = true;
-
-      if(needModify)
-        {
-         SafeOrderModify(winTkt, winOpen, targetSL, winTP, 0, (winType == OP_BUY ? clrLimeGreen : clrTomato), "M6 ZeroNet SL");
-         PrintFormat(">>> [METHOD 6 ZERO-NET RELIEF: WINNER SL LOCKED] Ticket #%d (%s %.2fL) Profit=+$%.2f | SL locked to Live Price: %s",
-                     winTkt, (winType == OP_BUY ? "BUY" : "SELL"), candLots[wIdx], candProfits[wIdx], DoubleToString(targetSL, Digits));
-        }
+      ApplyMethod6LivePriceStopLoss(candTickets[wIdx], candTypes[wIdx], candOpenPrices[wIdx], candStopLosses[wIdx], candTakeProfits[wIdx]);
       isProcessed[wIdx] = true;
      }
 
-   // Draw chart hit icon
    double iconPrice = (lossType == OP_BUY ? Bid : Ask);
    DrawMethod6HitIcon(selectedWinCount + 1, bestNetPL, TimeCurrent(), iconPrice);
    g_lastMethod6ActionTick = CurrentTickSequence;
    InvalidateTotalEAOrdersCache();
    return true;
+  }
+
+//+------------------------------------------------------------------+
+//| STAGE S1: SAME-TYPE LOSER ELIMINATION (>= $0.00)                 |
+//| User Rule: Any Profit Order(s) + Same-Type Loss Order (Full or   |
+//| Partial) >= $0.00. Closes same-type loser at market and modifies |
+//| winning order(s) StopLoss to $50 from live price direction.      |
+//+------------------------------------------------------------------+
+bool ExecuteMethod6StageS1(int candCount,
+                           int &candTickets[], int &candTypes[], double &candLots[],
+                           double &candOpenPrices[], double &candStopLosses[], double &candTakeProfits[],
+                           double &candProfits[], bool &isProcessed[])
+  {
+   if(!InpMethod6EnableZeroNetLossCutSLModify)
+      return false;
+
+   int winIndices[MAX_M6_ORDERS];
+   int lossIndices[MAX_M6_ORDERS];
+   ArrayInitialize(winIndices, 0);
+   ArrayInitialize(lossIndices, 0);
+   int winCount = 0;
+   int lossCount = 0;
+
+   for(int i = 0; i < candCount && i < MAX_M6_ORDERS; i++)
+     {
+      if(isProcessed[i])
+         continue;
+      if(candProfits[i] > 0.0)
+        {
+         winIndices[winCount] = i;
+         winCount++;
+        }
+      else if(candProfits[i] < 0.0)
+        {
+         lossIndices[lossCount] = i;
+         lossCount++;
+        }
+     }
+
+   if(winCount == 0 || lossCount == 0)
+      return false;
+
+   double minNetUSD = InpMethod6ZeroNetMinProfitUSD; // Default 0.0
+
+   int selectedWinners[MAX_M6_ORDERS];
+   ArrayInitialize(selectedWinners, 0);
+   int selectedWinCount = 0;
+   int selectedLoserIdx = -1;
+   double bestNetPL = -999999.0;
+   double bestLossAbs = 0.0;
+   bool isPartialCut = false;
+   double partialCutLots = 0.0;
+   double partialLossUSD = 0.0;
+
+   //------------------------------------------------------------------
+   // PHASE 1: FULL SAME-TYPE LOSING ORDER CLOSE
+   //------------------------------------------------------------------
+   // 1 Winner + 1 Same-Type Loser
+   for(int l = 0; l < lossCount; l++)
+     {
+      int lIdx = lossIndices[l];
+      if(isProcessed[lIdx])
+         continue;
+
+      for(int w = 0; w < winCount; w++)
+        {
+         int wIdx = winIndices[w];
+         if(isProcessed[wIdx])
+            continue;
+
+         // Must be SAME order types
+         if(candTypes[wIdx] != candTypes[lIdx])
+            continue;
+
+         double netPL = NormalizeDouble(candProfits[wIdx] + candProfits[lIdx], 2);
+         if(netPL >= minNetUSD)
+           {
+            double lossAbs = MathAbs(candProfits[lIdx]);
+            if(lossAbs > bestLossAbs || (lossAbs == bestLossAbs && netPL > bestNetPL))
+              {
+               bestLossAbs = lossAbs;
+               bestNetPL   = netPL;
+               selectedLoserIdx = lIdx;
+               selectedWinCount = 1;
+               selectedWinners[0] = wIdx;
+               isPartialCut = false;
+              }
+           }
+        }
+     }
+
+   // 2 Winners + 1 Same-Type Loser
+   if(selectedLoserIdx < 0 && winCount >= 2)
+     {
+      for(int l = 0; l < lossCount; l++)
+        {
+         int lIdx = lossIndices[l];
+         if(isProcessed[lIdx])
+            continue;
+
+         for(int w1 = 0; w1 < winCount - 1; w1++)
+           {
+            int w1Idx = winIndices[w1];
+            if(isProcessed[w1Idx])
+               continue;
+
+            for(int w2 = w1 + 1; w2 < winCount; w2++)
+              {
+               int w2Idx = winIndices[w2];
+               if(isProcessed[w2Idx])
+                  continue;
+
+               if(candTypes[w1Idx] != candTypes[lIdx] || candTypes[w2Idx] != candTypes[lIdx])
+                  continue;
+
+               double netPL = NormalizeDouble(candProfits[w1Idx] + candProfits[w2Idx] + candProfits[lIdx], 2);
+               if(netPL >= minNetUSD)
+                 {
+                  double lossAbs = MathAbs(candProfits[lIdx]);
+                  if(lossAbs > bestLossAbs || (lossAbs == bestLossAbs && netPL > bestNetPL))
+                    {
+                     bestLossAbs = lossAbs;
+                     bestNetPL   = netPL;
+                     selectedLoserIdx = lIdx;
+                     selectedWinCount = 2;
+                     selectedWinners[0] = w1Idx;
+                     selectedWinners[1] = w2Idx;
+                     isPartialCut = false;
+                    }
+                 }
+              }
+           }
+        }
+     }
+
+   // 3+ Winners + 1 Same-Type Loser
+   if(selectedLoserIdx < 0 && winCount >= 3)
+     {
+      for(int l = 0; l < lossCount; l++)
+        {
+         int lIdx = lossIndices[l];
+         if(isProcessed[lIdx])
+            continue;
+
+         double sumSameWins = 0.0;
+         int sameCount = 0;
+         for(int w = 0; w < winCount; w++)
+           {
+            int wIdx = winIndices[w];
+            if(!isProcessed[wIdx] && candTypes[wIdx] == candTypes[lIdx])
+              {
+               sumSameWins += candProfits[wIdx];
+               sameCount++;
+              }
+           }
+
+         double netPL = NormalizeDouble(sumSameWins + candProfits[lIdx], 2);
+         if(sameCount >= 3 && netPL >= minNetUSD)
+           {
+            selectedLoserIdx = lIdx;
+            selectedWinCount = 0;
+            for(int w = 0; w < winCount && selectedWinCount < MAX_M6_ORDERS; w++)
+              {
+               int wIdx = winIndices[w];
+               if(!isProcessed[wIdx] && candTypes[wIdx] == candTypes[lIdx])
+                 {
+                  selectedWinners[selectedWinCount] = wIdx;
+                  selectedWinCount++;
+                 }
+              }
+            bestNetPL   = netPL;
+            bestLossAbs = MathAbs(candProfits[lIdx]);
+            isPartialCut = false;
+            break;
+           }
+        }
+     }
+
+   //------------------------------------------------------------------
+   // PHASE 2: PARTIAL SAME-TYPE LOSING ORDER CUT
+   //------------------------------------------------------------------
+   if(InpMethod6EnablePartialLotCombination && selectedLoserIdx < 0)
+     {
+      for(int l = 0; l < lossCount; l++)
+        {
+         int lIdx = lossIndices[l];
+         if(isProcessed[lIdx])
+            continue;
+
+         double lossTotalLots = candLots[lIdx];
+         if(lossTotalLots <= 0.01)
+            continue;
+
+         double lossPL = candProfits[lIdx];
+         double lossPerLot = MathAbs(lossPL) / lossTotalLots;
+         if(lossPerLot <= 0.0)
+            continue;
+
+         for(int w = 0; w < winCount; w++)
+           {
+            int wIdx = winIndices[w];
+            if(isProcessed[wIdx])
+               continue;
+
+            if(candTypes[wIdx] != candTypes[lIdx])
+               continue;
+
+            double winPL = candProfits[wIdx];
+            double maxAbsorbable = winPL - minNetUSD;
+            if(maxAbsorbable <= 0.0)
+               continue;
+
+            double maxLotsToCut = maxAbsorbable / lossPerLot;
+            double pLots = MathFloor((maxLotsToCut + 0.00001) / 0.01) * 0.01;
+            pLots = NormalizeDouble(pLots, 2);
+
+            double maxAllowedCut = NormalizeDouble(lossTotalLots - 0.01, 2);
+            if(pLots > maxAllowedCut)
+               pLots = maxAllowedCut;
+            if(InpMethod6PartialMaxCutLots > 0.0 && pLots > InpMethod6PartialMaxCutLots)
+               pLots = NormalizeDouble(InpMethod6PartialMaxCutLots, 2);
+            if(pLots < 0.01)
+               continue;
+
+            double pLossUSD = -1.0 * NormalizeDouble(lossPerLot * pLots, 2);
+            double nProfitUSD = NormalizeDouble(winPL + pLossUSD, 2);
+
+            if(nProfitUSD >= minNetUSD)
+              {
+               if(pLots > partialCutLots || (pLots == partialCutLots && nProfitUSD > bestNetPL))
+                 {
+                  partialCutLots   = pLots;
+                  partialLossUSD   = pLossUSD;
+                  bestNetPL        = nProfitUSD;
+                  selectedLoserIdx = lIdx;
+                  selectedWinCount = 1;
+                  selectedWinners[0] = wIdx;
+                  isPartialCut     = true;
+                 }
+              }
+           }
+        }
+     }
+
+   if(selectedLoserIdx < 0 || selectedWinCount == 0)
+      return false;
+
+   // EXECUTE S1 ACTION:
+   int lossTkt  = candTickets[selectedLoserIdx];
+   int lossType = candTypes[selectedLoserIdx];
+   double lossLots = candLots[selectedLoserIdx];
+   double lossPL   = candProfits[selectedLoserIdx];
+
+   if(!isPartialCut)
+     {
+      PrintFormat(">>> [STAGE S1: FULL SAME-TYPE LOSER CLOSED] Ticket #%d (%s %.2fL, Loss=-$%.2f) CLOSED at market | Covered by %d Winner(s) (Net=+$%.2f >= $0.00)",
+                  lossTkt, (lossType == OP_BUY ? "BUY" : "SELL"), lossLots, MathAbs(lossPL),
+                  selectedWinCount, bestNetPL);
+
+      bool closed = CloseMarketOrderDirect(lossTkt);
+      if(!closed)
+        {
+         PrintFormat(">>> [STAGE S1 ERROR] Failed to close same-type loser Ticket #%d. Aborting.", lossTkt);
+         return false;
+        }
+
+      RecordMethodModification(lossTkt, 6, selectedWinCount + 1, lossPL);
+      isProcessed[selectedLoserIdx] = true;
+     }
+   else
+     {
+      PrintFormat(">>> [STAGE S1: PARTIAL SAME-TYPE LOSER CUT] Slicing %.2fL of %.2fL from Ticket #%d (%s, Slice Loss=-$%.2f) | Net=+$%.2f >= $0.00",
+                  partialCutLots, lossLots, lossTkt, (lossType == OP_BUY ? "BUY" : "SELL"),
+                  MathAbs(partialLossUSD), bestNetPL);
+
+      bool partClosed = false;
+      double lossClosePrice = 0.0;
+      for(int attempt = 0; attempt < 3; attempt++)
+        {
+         RefreshRates();
+         lossClosePrice = (lossType == OP_BUY) ? Bid : Ask;
+         lossClosePrice = NormalizeDouble(lossClosePrice, Digits);
+         ResetLastError();
+         partClosed = OrderClose(lossTkt, partialCutLots, lossClosePrice, Slippage, (lossType == OP_BUY ? clrRed : clrBlue));
+         if(partClosed)
+            break;
+         Sleep(100);
+        }
+
+      if(!partClosed)
+        {
+         PrintFormat(">>> [STAGE S1 ERROR] Failed to slice same-type loser Ticket #%d. Aborting.", lossTkt);
+         return false;
+        }
+
+      RecordMethodModification(lossTkt, 6, 2, partialLossUSD);
+      isProcessed[selectedLoserIdx] = true;
+     }
+
+   // Modify winner(s) StopLoss with $50 buffer from live price direction
+   for(int w = 0; w < selectedWinCount; w++)
+     {
+      int wIdx = selectedWinners[w];
+      ApplyMethod6LivePriceStopLoss(candTickets[wIdx], candTypes[wIdx], candOpenPrices[wIdx], candStopLosses[wIdx], candTakeProfits[wIdx]);
+      isProcessed[wIdx] = true;
+     }
+
+   double iconPrice = (lossType == OP_BUY ? Bid : Ask);
+   DrawMethod6HitIcon(selectedWinCount + 1, bestNetPL, TimeCurrent(), iconPrice);
+   g_lastMethod6ActionTick = CurrentTickSequence;
+   InvalidateTotalEAOrdersCache();
+   return true;
+  }
+
+//+------------------------------------------------------------------+
+//| STAGE S2 & S3: PROFIT COMBINATIONS (RANGE vs STRONG TREND)       |
+//| S2: MathAbs(EMA Angle) <= 4.0 -> Target = $InpMethod6ProfitThresholdUSD ($2.00) |
+//| S3: MathAbs(EMA Angle) >  4.0 -> Target = $InpMethod6ProfitThresholdUSD * 1.5 ($3.00) |
+//+------------------------------------------------------------------+
+bool ExecuteMethod6StageS2_S3(int candCount,
+                              int &candTickets[], int &candTypes[], double &candLots[],
+                              double &candOpenPrices[], double &candStopLosses[], double &candTakeProfits[],
+                              double &candProfits[], bool &isProcessed[])
+  {
+   int mult = (balancelomultipler > 0) ? balancelomultipler : 1;
+   double curEmaAng = (GlobalEmaAngle30 != 0.0) ? GlobalEmaAngle30 : GetEmaAngleDegrees(30);
+   double absEmaAng = MathAbs(curEmaAng);
+   double baseThreshold = (InpMethod6ProfitThresholdUSD > 0.0) ? InpMethod6ProfitThresholdUSD : 2.0;
+
+   bool isSteep = (absEmaAng > InpMethod6SteepAngleDegrees);
+   double angleMultiplier = isSteep ? ((InpMethod6SteepAngleMultiplier > 0.0) ? InpMethod6SteepAngleMultiplier : 1.5) : 1.0;
+
+   // S2 Target ($2.00 * mult) vs S3 Target ($3.00 * mult)
+   double requiredTarget = NormalizeDouble(baseThreshold * angleMultiplier * mult, 2);
+   string stageLabel = isSteep ? "STAGE S3 (STRONG TREND >4 deg)" : "STAGE S2 (RANGE <=4 deg)";
+
+   int selectedIndices[MAX_M6_ORDERS];
+   ArrayInitialize(selectedIndices, 0);
+   int selectedCount = 0;
+   double bestComboPL = 0.0;
+
+   // 1. Same-Type Pairs
+   int searchLimit2 = MathMin(candCount, 30);
+   for(int i = 0; i < searchLimit2 - 1; i++)
+     {
+      if(isProcessed[i] || candProfits[i] <= 0.0)
+         continue;
+      for(int j = i + 1; j < searchLimit2; j++)
+        {
+         if(isProcessed[j] || candProfits[j] <= 0.0)
+            continue;
+         if(candTypes[i] != candTypes[j])
+            continue;
+
+         double sum2 = NormalizeDouble(candProfits[i] + candProfits[j], 2);
+         if(sum2 >= requiredTarget)
+           {
+            selectedIndices[0] = i;
+            selectedIndices[1] = j;
+            selectedCount = 2;
+            bestComboPL = sum2;
+            break;
+           }
+        }
+      if(selectedCount > 0)
+         break;
+     }
+
+   // 2. Same-Type Triplets if no pair reached target
+   if(selectedCount == 0 && candCount >= 3)
+     {
+      int searchLimit3 = MathMin(candCount, 20);
+      for(int i = 0; i < searchLimit3 - 2; i++)
+        {
+         if(isProcessed[i] || candProfits[i] <= 0.0)
+            continue;
+         for(int j = i + 1; j < searchLimit3 - 1; j++)
+           {
+            if(isProcessed[j] || candProfits[j] <= 0.0)
+               continue;
+            if(candTypes[i] != candTypes[j])
+               continue;
+
+            for(int k = j + 1; k < searchLimit3; k++)
+              {
+               if(isProcessed[k] || candProfits[k] <= 0.0)
+                  continue;
+               if(candTypes[i] != candTypes[k])
+                  continue;
+
+               double sum3 = NormalizeDouble(candProfits[i] + candProfits[j] + candProfits[k], 2);
+               if(sum3 >= requiredTarget)
+                 {
+                  selectedIndices[0] = i;
+                  selectedIndices[1] = j;
+                  selectedIndices[2] = k;
+                  selectedCount = 3;
+                  bestComboPL = sum3;
+                  break;
+                 }
+              }
+            if(selectedCount > 0)
+               break;
+           }
+         if(selectedCount > 0)
+            break;
+        }
+     }
+
+   // 3. All Open Winning Basket if not triggered yet
+   if(selectedCount == 0 && candCount >= 2)
+     {
+      double sumBasket = 0.0;
+      int basketCount = 0;
+      int bIndices[MAX_M6_ORDERS];
+      ArrayInitialize(bIndices, 0);
+
+      for(int b = 0; b < candCount && b < MAX_M6_ORDERS; b++)
+        {
+         if(!isProcessed[b] && candProfits[b] > 0.0)
+           {
+            bIndices[basketCount] = b;
+            sumBasket += candProfits[b];
+            basketCount++;
+           }
+        }
+
+      sumBasket = NormalizeDouble(sumBasket, 2);
+      if(basketCount >= 2 && sumBasket >= requiredTarget)
+        {
+         for(int b = 0; b < basketCount; b++)
+            selectedIndices[b] = bIndices[b];
+         selectedCount = basketCount;
+         bestComboPL = sumBasket;
+        }
+     }
+
+   if(selectedCount == 0)
+      return false;
+
+   // EXECUTE S2/S3 ACTION:
+   PrintFormat(">>> [METHOD 6 %s TRIGGERED] %d Orders Hit Combo Profit = +$%.2f >= Required $%.2f (EMA Angle=%.1f deg)",
+               stageLabel, selectedCount, bestComboPL, requiredTarget, curEmaAng);
+
+   int closedWinType = candTypes[selectedIndices[0]];
+
+   if(InpMethod6CloseWinnerAtMarket)
+     {
+      for(int c = 0; c < selectedCount; c++)
+        {
+         int idx = selectedIndices[c];
+         int tkt = candTickets[idx];
+         double profitUSD = candProfits[idx];
+         bool closed = CloseMarketOrderDirect(tkt);
+         if(closed)
+           {
+            RecordMethodModification(tkt, 6, selectedCount, profitUSD);
+            PrintFormat(">>> [METHOD 6 %s: CLOSED AT MARKET] Ticket #%d (%s %.2fL) Realized Profit = +$%.2f",
+                        stageLabel, tkt, (candTypes[idx] == OP_BUY ? "BUY" : "SELL"), candLots[idx], profitUSD);
+           }
+         isProcessed[idx] = true;
+        }
+
+      if(InpMethod6CreatePendingOnWinnerClose)
+        {
+         CreateMethod6PendingOrderAfterClose(closedWinType);
+        }
+     }
+   else
+     {
+      // Modify StopLoss with $50 buffer from live price direction
+      for(int c = 0; c < selectedCount; c++)
+        {
+         int idx = selectedIndices[c];
+         ApplyMethod6LivePriceStopLoss(candTickets[idx], candTypes[idx], candOpenPrices[idx], candStopLosses[idx], candTakeProfits[idx]);
+         isProcessed[idx] = true;
+        }
+     }
+
+   double iconPrice = (closedWinType == OP_BUY ? Bid : Ask);
+   DrawMethod6HitIcon(selectedCount, bestComboPL, TimeCurrent(), iconPrice);
+   g_lastMethod6ActionTick = CurrentTickSequence;
+   InvalidateTotalEAOrdersCache();
+   return true;
+  }
+
+//+------------------------------------------------------------------+
+//| ExecuteMethod6ZeroNetRelief: Backward-compatibility wrapper      |
+//+------------------------------------------------------------------+
+bool ExecuteMethod6ZeroNetRelief(int candCount,
+                                 int &candTickets[], int &candTypes[], double &candLots[],
+                                 double &candOpenPrices[], double &candStopLosses[], double &candTakeProfits[],
+                                 double &candProfits[], bool &isProcessed[])
+  {
+   if(ExecuteMethod6StageS0(candCount, candTickets, candTypes, candLots,
+                            candOpenPrices, candStopLosses, candTakeProfits,
+                            candProfits, isProcessed))
+      return true;
+   return ExecuteMethod6StageS1(candCount, candTickets, candTypes, candLots,
+                                candOpenPrices, candStopLosses, candTakeProfits,
+                                candProfits, isProcessed);
   }
 
 //+------------------------------------------------------------------+
@@ -1364,24 +1873,6 @@ void ModifyMethod6MultiOrderCombinationsOver5USD()
    ArrayInitialize(isProcessed, false);
    int candCount = 0;
 
-   int mult = (balancelomultipler > 0) ? balancelomultipler : 1;
-   double curEmaAng = (GlobalEmaAngle30 != 0.0) ? GlobalEmaAngle30 : GetEmaAngleDegrees(30);
-   double absEmaAng = MathAbs(curEmaAng);
-   double baseThreshold = InpMethod6ProfitThresholdUSD;
-   if(baseThreshold <= 0.0)
-      baseThreshold = 2.0;
-   // USER RULE: If MathAbs(EMA Angle) > 4 -> angle multiplier is 2.0x (InpMethod6SteepAngleMultiplier)
-   double angleMult = (absEmaAng > InpMethod6SteepAngleDegrees) ? InpMethod6SteepAngleMultiplier : 1.0;
-   double thresholdOpposite = baseThreshold * angleMult * mult;
-
-   // USER RULE (VMULTI-1295): If all orders in combo are same type (2+ BUY or 2+ SELL) -> 3X (or 6X if angle > 4: 3X * 2X = 6X)
-   double sameTypeMult = (InpMethod6SameTypeMultiplier > 0.0) ? InpMethod6SameTypeMultiplier : 3.0;
-   double thresholdSameType = baseThreshold * sameTypeMult * angleMult * mult;
-   double emaAlignMult = (InpMethod6EmaAlignedMultiplier > 0.0) ? InpMethod6EmaAlignedMultiplier : 2.0;
-   double thresholdSameTypeEmaAligned = thresholdSameType * emaAlignMult;
-
-   double threshold     = thresholdOpposite;
-   double fullThreshold = thresholdSameType;
    int minOrders = (InpMethod6MinOrderCount >= 2) ? InpMethod6MinOrderCount : 2;
 
    for(int i = OrdersTotal() - 1; i >= 0 && candCount < MAX_M6_ORDERS; i--)
@@ -1422,386 +1913,34 @@ void ModifyMethod6MultiOrderCombinationsOver5USD()
       return;
 
 //====================================================================
-// STEP 0: ZERO-NET LOSS RELIEF (NET >= $0.00: CLOSE LOSER & MODIFY WINNER SL TO LIVE PRICE)
-// USER RULE: If 1+ orders are in profit and any order is in loss (or partial slice) with combo net >= $0.00:
-// Close losing order (or partial cut) on priority, and modify winning order(s) SL to live price without extra profit requirement.
+// STAGE S0: OPPOSITE LOSER ELIMINATION (>= $0.00)
+// USER RULE: Any Profit order(s) + Opposite Loss order (full or partial) >= $0.00
+// Always close losing order (or partial cut) on priority; modify profit order SL to $50 from live price.
 //====================================================================
-   if(InpMethod6EnableZeroNetLossCutSLModify)
-     {
-      if(ExecuteMethod6ZeroNetRelief(candCount, candTickets, candTypes, candLots,
-                                     candOpenPrices, candStopLosses, candTakeProfits,
-                                     candProfits, isProcessed))
-         return;
-     }
+   if(ExecuteMethod6StageS0(candCount, candTickets, candTypes, candLots,
+                            candOpenPrices, candStopLosses, candTakeProfits,
+                            candProfits, isProcessed))
+      return;
 
 //====================================================================
-// STEP 1: CLOSE OPPOSITE LOSERS FIRST
+// STAGE S1: SAME-TYPE LOSER ELIMINATION (>= $0.00)
+// USER RULE: Any Profit order(s) + Same-type Loss order (full or partial) >= $0.00
+// Always close losing order (or partial cut) on priority; modify profit order SL to $50 from live price.
 //====================================================================
-
-// --- PLAN A: FULL ORDER LOT (Opposite Losers) ---
-
-// 1A-1. Opposite Pairs (Full Lot)
-   if(minOrders <= 2)
-     {
-      int searchLimit2 = MathMin(candCount, 30);
-      for(int i = 0; i < searchLimit2 - 1; i++)
-        {
-         if(isProcessed[i])
-            continue;
-         for(int j = i + 1; j < searchLimit2; j++)
-           {
-            if(isProcessed[j])
-               continue;
-
-            if((candProfits[i] < 0.0 || candProfits[j] < 0.0) && (candTypes[i] != candTypes[j]))
-              {
-               double sum2 = candProfits[i] + candProfits[j];
-               if(sum2 >= threshold)
-                 {
-                  int combo[2];
-                  combo[0] = i;
-                  combo[1] = j;
-                  ExecuteMethod6CombinationAction(combo, 2, sum2, candTickets, candTypes, candLots,
-                                                  candOpenPrices, candTakeProfits, candProfits, isProcessed);
-                  break;
-                 }
-              }
-           }
-        }
-     }
-
-// 1A-2. Opposite Triplets (Full Lot)
-   int searchLimit3 = MathMin(candCount, 20);
-   for(int i = 0; i < searchLimit3 - 2; i++)
-     {
-      if(isProcessed[i])
-         continue;
-      for(int j = i + 1; j < searchLimit3 - 1; j++)
-        {
-         if(isProcessed[j])
-            continue;
-         for(int k = j + 1; k < searchLimit3; k++)
-           {
-            if(isProcessed[k])
-               continue;
-
-            if(candProfits[i] < 0.0 || candProfits[j] < 0.0 || candProfits[k] < 0.0)
-              {
-               bool hasBuy  = (candTypes[i] == OP_BUY  || candTypes[j] == OP_BUY  || candTypes[k] == OP_BUY);
-               bool hasSell = (candTypes[i] == OP_SELL || candTypes[j] == OP_SELL || candTypes[k] == OP_SELL);
-               if(hasBuy && hasSell) // Opposite order types present in combination
-                 {
-                  double sum3 = candProfits[i] + candProfits[j] + candProfits[k];
-                  if(sum3 >= threshold)
-                    {
-                     int combo[3];
-                     combo[0] = i;
-                     combo[1] = j;
-                     combo[2] = k;
-                     ExecuteMethod6CombinationAction(combo, 3, sum3, candTickets, candTypes, candLots,
-                                                     candOpenPrices, candTakeProfits, candProfits, isProcessed);
-                     break;
-                    }
-                 }
-              }
-           }
-         if(isProcessed[i])
-            break;
-        }
-     }
-
-// 1A-3. Opposite Quartets (Full Lot)
-   int searchLimit4 = MathMin(candCount, 12);
-   for(int i = 0; i < searchLimit4 - 3; i++)
-     {
-      if(isProcessed[i])
-         continue;
-      for(int j = i + 1; j < searchLimit4 - 2; j++)
-        {
-         if(isProcessed[j])
-            continue;
-         for(int k = j + 1; k < searchLimit4 - 1; k++)
-           {
-            if(isProcessed[k])
-               continue;
-            for(int m = k + 1; m < searchLimit4; m++)
-              {
-               if(isProcessed[m])
-                  continue;
-
-               if(candProfits[i] < 0.0 || candProfits[j] < 0.0 || candProfits[k] < 0.0 || candProfits[m] < 0.0)
-                 {
-                  bool hasBuy  = (candTypes[i] == OP_BUY  || candTypes[j] == OP_BUY  || candTypes[k] == OP_BUY  || candTypes[m] == OP_BUY);
-                  bool hasSell = (candTypes[i] == OP_SELL || candTypes[j] == OP_SELL || candTypes[k] == OP_SELL || candTypes[m] == OP_SELL);
-                  if(hasBuy && hasSell) // Opposite order types present
-                    {
-                     double sum4 = candProfits[i] + candProfits[j] + candProfits[k] + candProfits[m];
-                     if(sum4 >= threshold)
-                       {
-                        int combo[4];
-                        combo[0] = i;
-                        combo[1] = j;
-                        combo[2] = k;
-                        combo[3] = m;
-                        ExecuteMethod6CombinationAction(combo, 4, sum4, candTickets, candTypes, candLots,
-                                                        candOpenPrices, candTakeProfits, candProfits, isProcessed);
-                        break;
-                       }
-                    }
-                 }
-              }
-            if(isProcessed[i])
-               break;
-           }
-         if(isProcessed[i])
-            break;
-        }
-     }
-
-// --- PLAN B: PARTIAL ORDER LOT (Opposite Losers) ---
-   ExecuteMethod6PartialLotSearch(true, threshold, candCount, candTickets, candTypes, candLots,
-                                  candOpenPrices, candTakeProfits, candProfits, isProcessed);
-
+   if(ExecuteMethod6StageS1(candCount, candTickets, candTypes, candLots,
+                            candOpenPrices, candStopLosses, candTakeProfits,
+                            candProfits, isProcessed))
+      return;
 
 //====================================================================
-// STEP 2: CLOSE SAME-TYPE LOSERS SECOND
+// STAGE S2 & S3: PROFIT COMBINATIONS (RANGE <=4 deg vs STRONG TREND >4 deg)
+// USER RULE: S2: Profit combinations > InpMethod6ProfitThresholdUSD ($2.00) if MathAbs(EMA Angle) <= 4 deg.
+//            S3: Profit combinations > InpMethod6ProfitThresholdUSD * 1.5 ($3.00) if MathAbs(EMA Angle) > 4 deg.
 //====================================================================
-
-// --- PLAN A: FULL ORDER LOT (Same-Type Losers) ---
-
-// 2A-1. Same-Type Pairs (Full Lot)
-   if(minOrders <= 2)
-     {
-      int searchLimit2 = MathMin(candCount, 30);
-      for(int i = 0; i < searchLimit2 - 1; i++)
-        {
-         if(isProcessed[i])
-            continue;
-         for(int j = i + 1; j < searchLimit2; j++)
-           {
-            if(isProcessed[j])
-               continue;
-
-            if((candProfits[i] < 0.0 || candProfits[j] < 0.0) && (candTypes[i] == candTypes[j]))
-              {
-               double sum2 = candProfits[i] + candProfits[j];
-               bool isAligned = ((candTypes[i] == OP_BUY && EMADirection == 1) || (candTypes[i] == OP_SELL && EMADirection == -1));
-               double reqThresh = isAligned ? thresholdSameTypeEmaAligned : thresholdSameType;
-               if(sum2 >= reqThresh)
-                 {
-                  int combo[2];
-                  combo[0] = i;
-                  combo[1] = j;
-                  ExecuteMethod6CombinationAction(combo, 2, sum2, candTickets, candTypes, candLots,
-                                                  candOpenPrices, candTakeProfits, candProfits, isProcessed);
-                  break;
-                 }
-              }
-           }
-        }
-     }
-
-// 2A-2. Same-Type Triplets (Full Lot)
-   for(int i = 0; i < searchLimit3 - 2; i++)
-     {
-      if(isProcessed[i])
-         continue;
-      for(int j = i + 1; j < searchLimit3 - 1; j++)
-        {
-         if(isProcessed[j])
-            continue;
-         for(int k = j + 1; k < searchLimit3; k++)
-           {
-            if(isProcessed[k])
-               continue;
-
-            if(candProfits[i] < 0.0 || candProfits[j] < 0.0 || candProfits[k] < 0.0)
-              {
-               bool hasBuy  = (candTypes[i] == OP_BUY  || candTypes[j] == OP_BUY  || candTypes[k] == OP_BUY);
-               bool hasSell = (candTypes[i] == OP_SELL || candTypes[j] == OP_SELL || candTypes[k] == OP_SELL);
-               if(!hasBuy || !hasSell) // All same order type
-                 {
-                  double sum3 = candProfits[i] + candProfits[j] + candProfits[k];
-                  int comboType = hasBuy ? OP_BUY : OP_SELL;
-                  bool isAligned = ((comboType == OP_BUY && EMADirection == 1) || (comboType == OP_SELL && EMADirection == -1));
-                  double reqThresh = isAligned ? thresholdSameTypeEmaAligned : thresholdSameType;
-                  if(sum3 >= reqThresh)
-                    {
-                     int combo[3];
-                     combo[0] = i;
-                     combo[1] = j;
-                     combo[2] = k;
-                     ExecuteMethod6CombinationAction(combo, 3, sum3, candTickets, candTypes, candLots,
-                                                     candOpenPrices, candTakeProfits, candProfits, isProcessed);
-                     break;
-                    }
-                 }
-              }
-           }
-         if(isProcessed[i])
-            break;
-        }
-     }
-
-// 2A-3. Same-Type Quartets (Full Lot)
-   for(int i = 0; i < searchLimit4 - 3; i++)
-     {
-      if(isProcessed[i])
-         continue;
-      for(int j = i + 1; j < searchLimit4 - 2; j++)
-        {
-         if(isProcessed[j])
-            continue;
-         for(int k = j + 1; k < searchLimit4 - 1; k++)
-           {
-            if(isProcessed[k])
-               continue;
-            for(int m = k + 1; m < searchLimit4; m++)
-              {
-               if(isProcessed[m])
-                  continue;
-
-               if(candProfits[i] < 0.0 || candProfits[j] < 0.0 || candProfits[k] < 0.0 || candProfits[m] < 0.0)
-                 {
-                  bool hasBuy  = (candTypes[i] == OP_BUY  || candTypes[j] == OP_BUY  || candTypes[k] == OP_BUY  || candTypes[m] == OP_BUY);
-                  bool hasSell = (candTypes[i] == OP_SELL || candTypes[j] == OP_SELL || candTypes[k] == OP_SELL || candTypes[m] == OP_SELL);
-                  if(!hasBuy || !hasSell) // All same order type
-                    {
-                     double sum4 = candProfits[i] + candProfits[j] + candProfits[k] + candProfits[m];
-                     int comboType = hasBuy ? OP_BUY : OP_SELL;
-                     bool isAligned = ((comboType == OP_BUY && EMADirection == 1) || (comboType == OP_SELL && EMADirection == -1));
-                     double reqThresh = isAligned ? thresholdSameTypeEmaAligned : thresholdSameType;
-                     if(sum4 >= reqThresh)
-                       {
-                        int combo[4];
-                        combo[0] = i;
-                        combo[1] = j;
-                        combo[2] = k;
-                        combo[3] = m;
-                        ExecuteMethod6CombinationAction(combo, 4, sum4, candTickets, candTypes, candLots,
-                                                        candOpenPrices, candTakeProfits, candProfits, isProcessed);
-                        break;
-                       }
-                    }
-                 }
-              }
-            if(isProcessed[i])
-               break;
-           }
-         if(isProcessed[i])
-            break;
-        }
-     }
-
-// --- PLAN B: PARTIAL ORDER LOT (Same-Type Losers) ---
-   ExecuteMethod6PartialLotSearch(false, thresholdSameType, candCount, candTickets, candTypes, candLots,
-                                  candOpenPrices, candTakeProfits, candProfits, isProcessed);
-
-
-//====================================================================
-// STEP 3: PURE WINNING COMBINATIONS (No Losers)
-//====================================================================
-
-// 5. ANY REMAINING PAIRS (e.g. 2 Wins >= threshold)
-   if(minOrders <= 2)
-     {
-      int searchLimit2 = MathMin(candCount, 30);
-      for(int i = 0; i < searchLimit2 - 1; i++)
-        {
-         if(isProcessed[i])
-            continue;
-         for(int j = i + 1; j < searchLimit2; j++)
-           {
-            if(isProcessed[j])
-               continue;
-
-            // USER RULE: Same Type (Both Profit) -> use full InpMethod6ProfitThresholdUSD ($5 * mult), not $2
-            bool isSameTypeBothProfit = (candTypes[i] == candTypes[j] && candProfits[i] >= 0.0 && candProfits[j] >= 0.0);
-            bool isAligned = isSameTypeBothProfit && ((candTypes[i] == OP_BUY && EMADirection == 1) || (candTypes[i] == OP_SELL && EMADirection == -1));
-            double reqThreshold = isSameTypeBothProfit ? (isAligned ? thresholdSameTypeEmaAligned : fullThreshold) : threshold;
-
-            double sum2 = candProfits[i] + candProfits[j];
-            if(sum2 >= reqThreshold)
-              {
-               int combo[2];
-               combo[0] = i;
-               combo[1] = j;
-               ExecuteMethod6CombinationAction(combo, 2, sum2, candTickets, candTypes, candLots,
-                                               candOpenPrices, candTakeProfits, candProfits, isProcessed);
-               break;
-              }
-           }
-        }
-     }
-
-// 6. ANY REMAINING TRIPLETS (e.g. 3 Wins >= threshold)
-   for(int i = 0; i < searchLimit3 - 2; i++)
-     {
-      if(isProcessed[i])
-         continue;
-      for(int j = i + 1; j < searchLimit3 - 1; j++)
-        {
-         if(isProcessed[j])
-            continue;
-         for(int k = j + 1; k < searchLimit3; k++)
-           {
-            if(isProcessed[k])
-               continue;
-
-            // USER RULE: Same Type (All Profit) -> use full InpMethod6ProfitThresholdUSD ($5 * mult), not $2
-            bool isSameTypeAllProfit = (candTypes[i] == candTypes[j] && candTypes[j] == candTypes[k] &&
-                                        candProfits[i] >= 0.0 && candProfits[j] >= 0.0 && candProfits[k] >= 0.0);
-            bool isAligned = isSameTypeAllProfit && ((candTypes[i] == OP_BUY && EMADirection == 1) || (candTypes[i] == OP_SELL && EMADirection == -1));
-            double reqThreshold = isSameTypeAllProfit ? (isAligned ? thresholdSameTypeEmaAligned : fullThreshold) : threshold;
-
-            double sum3 = candProfits[i] + candProfits[j] + candProfits[k];
-            if(sum3 >= reqThreshold)
-              {
-               int combo[3];
-               combo[0] = i;
-               combo[1] = j;
-               combo[2] = k;
-               ExecuteMethod6CombinationAction(combo, 3, sum3, candTickets, candTypes, candLots,
-                                               candOpenPrices, candTakeProfits, candProfits, isProcessed);
-               break;
-              }
-           }
-         if(isProcessed[i])
-            break;
-        }
-     }
-
-// 7. TOTAL BASKET CHECK (All remaining un-processed open orders)
-   int remainingCount = 0;
-   double totalBasketPL = 0.0;
-   int basketIndices[MAX_M6_ORDERS];
-   bool basketAllSameTypeProfit = true;
-   int firstType = -1;
-   for(int b = 0; b < candCount; b++)
-     {
-      if(!isProcessed[b])
-        {
-         basketIndices[remainingCount] = b;
-         totalBasketPL += candProfits[b];
-         if(candProfits[b] < 0.0)
-            basketAllSameTypeProfit = false;
-         if(firstType < 0)
-            firstType = candTypes[b];
-         else
-            if(candTypes[b] != firstType)
-               basketAllSameTypeProfit = false;
-         remainingCount++;
-        }
-     }
-
-// USER RULE: Same Type (All Profit) -> use full InpMethod6ProfitThresholdUSD ($5 * mult), not $2
-   bool isAlignedBasket = basketAllSameTypeProfit && ((firstType == OP_BUY && EMADirection == 1) || (firstType == OP_SELL && EMADirection == -1));
-   double reqBasketThreshold = (remainingCount >= 2 && basketAllSameTypeProfit) ? (isAlignedBasket ? thresholdSameTypeEmaAligned : fullThreshold) : threshold;
-   if(remainingCount >= minOrders && totalBasketPL >= reqBasketThreshold)
-     {
-      ExecuteMethod6CombinationAction(basketIndices, remainingCount, totalBasketPL, candTickets, candTypes, candLots,
-                                      candOpenPrices, candTakeProfits, candProfits, isProcessed);
-     }
+   if(ExecuteMethod6StageS2_S3(candCount, candTickets, candTypes, candLots,
+                               candOpenPrices, candStopLosses, candTakeProfits,
+                               candProfits, isProcessed))
+      return;
   }
 
 //+------------------------------------------------------------------+

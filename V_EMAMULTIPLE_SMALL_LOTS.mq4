@@ -43,7 +43,7 @@ CheckBasketProfitClose  Total open basket profit
 
 */
 
-string glbVersion = "V-SMALL-1102- Method 6 Zero-Net Relief Loser Close and Winner SL Modify";
+string glbVersion = "V-SMALL-1103- Method 6 S0-S3 4-Stage Pipeline 50 USD Live SL";
 
 int AccountMultiplierLOT = 500;//100;//1000;//400;//200;//500; ALWAYS multiples of 1000 is better for best results
 //balance multiplier
@@ -7961,31 +7961,32 @@ bool   InpEnableOverallBasketProfitModify   =false;// true;   // Method 5: Enabl
 double InpOverallBasketProfitTargetUSD      = 5;//1.0;    // Method 5: Overall hedged basket profit target in USD ($1.00 * multiplier)
 double InpOverallBasketSLGapUSD             = 100.0;  // Method 5: Overall hedged basket StopLoss gap in USD points ($150)
 
-// Method 6: Multi-Order Combinations (> 2 orders, Profit or Loss mix) > $20 Profit SL Modifier
-bool   InpEnableMethod6CombinationSLModify  = true;   // Method 6: Check combinations of >2 orders (profit/loss mix) > $20 profit
-double InpMethod6ProfitThresholdUSD         = 2.0;//10/5;//5;//10;//20.0;   // Method 6: Base profit threshold in USD ($2.00 * multiplier)
+// Method 6: Multi-Order Combinations (S0-S3 4-Stage Pipeline)
+bool   InpEnableMethod6CombinationSLModify  = true;   // Method 6: Enable Multi-Order Combination Engine (S0-S3)
+double InpMethod6ProfitThresholdUSD         = 2.0;//10/5;//5;//10;//20.0;   // S2 Base Threshold: Range profit threshold in USD ($2.00 * multiplier)
 double InpMethod6SLDistanceUSD              = 20.0;  // Method 6: StopLoss gap in USD points ($150)
-int    InpMethod6MinOrderCount              = 2;      // Method 6: Minimum number of orders in combination (default 2 or 3)
+int    InpMethod6MinOrderCount              = 2;      // Method 6: Minimum number of orders in combination (default 2)
 bool   InpDrawMethod6HitIcon                = true;   // Method 6: Draw chart icon when combination profit threshold is hit
 color  InpMethod6HitIconColor               = clrGold;// Method 6: Chart icon & text color
 int    InpMethod6HitFontSize                = 10;     // Method 6: Chart icon text font size
-int    InpMethod6HitIconCode                = 159;    // Method 6: Chart icon Wingdings code (159=circle dot, 171=star, 251=check)
+int    InpMethod6HitIconCode                = 159;    // Method 6: Chart icon Wingdings code (159=circle dot)
 void   DrawMethod6HitIcon(int orderCount, double comboProfit, datetime hitTime = 0, double hitPrice = 0.0);
 bool   InpMethod6EnablePartialLotCombination= true;   // Method 6: Allow partial LOT combination close when full combo cannot reach threshold
 bool   InpMethod6PartialCloseWinnerAtMarket = true;   // Method 6: Close winning order at market (true) or tighten SL to live price (false)
 bool   InpMethod6PartialHalfCloseWinner     = true;   // Method 6 partial combo: if winner > 0.01L close half lot; if 0.01L full close
 bool   InpMethod6CreatePendingOnWinnerClose = true;   // Method 6: Create new pending order (SSL Long/Short) in same direction after closing profit order (only when open order count == 0)
-bool   InpMethod6CloseWinnerAtMarket        = true;   // Method 6 full combo: true = close winner at market and create pending with regular SSL gap; false = modify SL to live price
+bool   InpMethod6CloseWinnerAtMarket        = true;   // Method 6 S2/S3: true = close winners at market to bank cash; false = modify SL to live price
 bool   InpMethod6PrioritizeOppositeLosers   = true;   // Method 6: 1st Priority = Close opposite-type losers, 2nd Priority = Close same-type losers
 double InpMethod6PartialMaxCutLots          = 0.0;    // Method 6: Max partial lots to cut from loser per trigger (0.0 = auto max safe)
-double InpMethod6SteepAngleDegrees          = 4.0;    // Method 6: EMA angle threshold in degrees (if MathAbs > 4: threshold is doubled)
-double InpMethod6SteepAngleMultiplier       = 1.5;//2.0;    // Method 6: Threshold multiplier when MathAbs(EMA Angle) > 4 (default 2.0 = double)
+double InpMethod6SteepAngleDegrees          = 4.0;    // S2/S3 Angle Boundary: EMA angle threshold in degrees (4.0 deg)
+double InpMethod6SteepAngleMultiplier       = 1.5;//2.0;    // S3 Multiplier: Threshold multiplier when MathAbs(EMA Angle) > 4 (1.5x = $3.00)
 double InpMethod6LowAngleThresholdUSD       = 1.0;//5/5;//5;//10;//2.0;    // Method 6: Profit threshold when MathAbs(EMA Angle) < 4 deg ($2.00 * multiplier)
 double InpMethod6LowAngleEmaDegrees         = 0;//4.0;    // Method 6: Dynamic EMA angle boundary in degrees (default 4.0)
 double InpMethod6SameTypeMultiplier         = 1.5;//3.0;    // Method 6: Threshold multiplier when all orders are same type (2+ BUY or 2+ SELL = 3.0x; if angle > 4 then 3.0 * 2.0 = 6.0x)
 double InpMethod6EmaAlignedMultiplier       = 1.5;//2.0;    // Method 6: Additional threshold multiplier when all combo orders match EMADirection (default 2.0x -> 3X * 2X = 6X; if angle > 4 then 3X * 2X * 2X = 12X)
-bool   InpMethod6EnableZeroNetLossCutSLModify = true;   // Method 6: Close losing order (or partial cut) when combo net >= $0 & modify winner SL to live price
-double InpMethod6ZeroNetMinProfitUSD          = 0.0;    // Method 6: Zero-Net Relief minimum net profit ($0.00 = pure break-even relief, no extra profit required)
+bool   InpMethod6EnableZeroNetLossCutSLModify = true;   // Method 6 S0/S1: Close losing order (or partial cut) when combo net >= $0 & modify winner SL to $50
+double InpMethod6ZeroNetMinProfitUSD          = 0.0;    // Method 6 S0/S1: Zero-Net Relief minimum net profit ($0.00 = pure break-even relief, no extra profit required)
+double InpMethod6LivePriceSLGapUSD          = 50.0;   // Method 6: StopLoss buffer from live price ($50 USD: Bullish = Bid - $50, Bearish = Ask + $50)
 
 // Universal Trend-Aware StopLoss Modifier (Applies across all order modify methods)
 // User Rule:
@@ -8090,6 +8091,10 @@ double GetEquityLadder2HourPriceDiff();
 void   MonitorLowestEquityRecovery();
 void   CheckBasketProfitClose();
 void   ModifyMethod6MultiOrderCombinationsOver5USD();
+bool   ApplyMethod6LivePriceStopLoss(int ticket, int orderType, double openPrice, double currentSL, double takeProfit);
+bool   ExecuteMethod6StageS0(int candCount, int &candTickets[], int &candTypes[], double &candLots[], double &candOpenPrices[], double &candStopLosses[], double &candTakeProfits[], double &candProfits[], bool &isProcessed[]);
+bool   ExecuteMethod6StageS1(int candCount, int &candTickets[], int &candTypes[], double &candLots[], double &candOpenPrices[], double &candStopLosses[], double &candTakeProfits[], double &candProfits[], bool &isProcessed[]);
+bool   ExecuteMethod6StageS2_S3(int candCount, int &candTickets[], int &candTypes[], double &candLots[], double &candOpenPrices[], double &candStopLosses[], double &candTakeProfits[], double &candProfits[], bool &isProcessed[]);
 bool   ExecuteMethod6ZeroNetRelief(int candCount,
                                   int &candTickets[], int &candTypes[], double &candLots[],
                                   double &candOpenPrices[], double &candStopLosses[], double &candTakeProfits[],
