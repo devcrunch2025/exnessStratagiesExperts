@@ -43,7 +43,7 @@ CheckBasketProfitClose  Total open basket profit
 
 */
 
-string glbVersion = "V-SMALL-1104- Dynamic Trend Loss Gap Halving";
+string glbVersion = "V-SMALL-1105- Opposite Basket Loss Gap Reduction";
 
 int AccountMultiplierLOT = 500;//100;//1000;//400;//200;//500; ALWAYS multiples of 1000 is better for best results
 //balance multiplier
@@ -1113,11 +1113,11 @@ double InpPendingGapLossMultiplier         = 2.0;   // Pending gap multiplier on
 // double MinimumSameOrderGapRawSSLLongShort =50;// 50;
 double InpDynamicGapAngleThreshold        = 4.0;   // Dynamic Order Gap: EMA angle boundary (if MathAbs(EMA Angle) < 4.0: Required Gap = Base Gap; if >= 4.0: Base Gap * Drawdown Mult * Sweep Mult)
 bool   InpDisableDDAndSweepGapWhenEmaUnmatched = true; // Dynamic Order Gap: Disable DD Scaling & Sweep Guard when MathAbs(EMA Angle) >= 4.0 and OrderType != EMADirection
-bool   InpEnableTrendLossGapHalving           = true;  // Option 1: Halve regular order gap when trend is strong & directional basket in loss
-double InpTrendLossGapMinAngleDegrees         = 3.0;   // Option 1: Minimum EMA angle to halve gap (3.0 deg)
-double InpTrendLossGapThresholdUSD            = 5.0;   // Option 1: Directional basket loss threshold ($5.00 * multiplier)
-double InpTrendLossGapReductionMult           = 0.5;   // Option 1: Gap reduction multiplier (0.5 = halved gap)
-double InpTrendLossGapFloorUSD                = 25.0;  // Option 1: Minimum floor distance for halved gap ($25.0 USD)
+bool   InpEnableTrendLossGapHalving           = true;  // Dynamic Order Gap: Reduce gap when opposite basket is in loss & trend aligned (BUY gap halved on SELL loss; SELL gap halved on BUY loss)
+double InpTrendLossGapMinAngleDegrees         = 3.0;   // Dynamic Order Gap: Minimum EMA angle to reduce gap (3.0 deg, 0 = ignore angle)
+double InpTrendLossGapThresholdUSD            = 5.0;   // Dynamic Order Gap: Opposite basket floating loss threshold ($5.00 * multiplier)
+double InpTrendLossGapReductionMult           = 0.5;   // Dynamic Order Gap: Gap reduction multiplier (0.5 = halved gap to $25)
+double InpTrendLossGapFloorUSD                = 25.0;  // Dynamic Order Gap: Minimum floor distance for reduced gap ($25.0 USD)
 bool   InpEnableSpikeOrderCreation            = true; // Spike Orders: When EMADirection is 1 but angle < 0 create BUY; when -1 and angle > 0 create SELL
 int    InpSpikeOrderCooldownSec               = 5;    // Spike Orders: Cooldown seconds between consecutive spike order attempts (default 5s)
 int    InpMaxSpikePendingOrders               = 1;    // Spike Orders: Max simultaneous pending stop orders (default 1)
@@ -19253,23 +19253,44 @@ double GetDynamicOrderGapDetails(int orderType, double &rawGapBeforeCap, string 
                         reasonStr = StringFormat("Unmatched (Ang %.1f>=%.1f)", absEmaAng, angleThreshold);
      }
 
-// USER RULE (Option 1): Halve regular order gap when trend is strong (>3 deg) & directional basket in loss (< -$5 * mult)
-   if(InpEnableTrendLossGapHalving && isEmaDirMatched)
+// USER RULE:
+// 1. SELL basket in loss & EMADirection is Bullish (1) -> Reduce BUY order gap only.
+// 2. BUY basket in loss & EMADirection is Bearish (-1) -> Reduce SELL order gap only.
+   if(InpEnableTrendLossGapHalving)
      {
-      double dirEmaAngle = (GlobalEmaAngle30 != 0.0) ? GlobalEmaAngle30 : GetEmaAngleDegrees(30);
-      if(MathAbs(dirEmaAngle) > InpTrendLossGapMinAngleDegrees)
+      bool isBuyOrder = (orderType == OP_BUY || orderType == OP_BUYSTOP || orderType == OP_BUYLIMIT);
+      bool isSellOrder = (orderType == OP_SELL || orderType == OP_SELLSTOP || orderType == OP_SELLLIMIT);
+
+      bool triggerOppositeRelief = false;
+      double oppPL = 0.0;
+      int bMult = (balancelomultipler > 0) ? balancelomultipler : 1;
+      double lossLimit = -InpTrendLossGapThresholdUSD * bMult;
+
+      if(isBuyOrder && EMADirection == 1)
         {
-         int bMult = (balancelomultipler > 0) ? balancelomultipler : 1;
-         double dirOpenPL = GetOpenPL(orderType);
-         if(dirOpenPL < -InpTrendLossGapThresholdUSD * bMult)
+         oppPL = GetOpenPL(OP_SELL);
+         if(oppPL < lossLimit)
+            triggerOppositeRelief = true;
+        }
+      else if(isSellOrder && EMADirection == -1)
+        {
+         oppPL = GetOpenPL(OP_BUY);
+         if(oppPL < lossLimit)
+            triggerOppositeRelief = true;
+        }
+
+      if(triggerOppositeRelief)
+        {
+         double dirEmaAngle = (GlobalEmaAngle30 != 0.0) ? GlobalEmaAngle30 : GetEmaAngleDegrees(30);
+         if(InpTrendLossGapMinAngleDegrees <= 0.0 || MathAbs(dirEmaAngle) >= InpTrendLossGapMinAngleDegrees)
            {
             double halvedGap = resultGap * InpTrendLossGapReductionMult;
             double minFloor = MathMax(InpTrendLossGapFloorUSD, GetRequiredStopDistance());
             if(halvedGap < minFloor)
                halvedGap = minFloor;
             resultGap = halvedGap;
-            reasonStr += StringFormat(" [Trend Loss Halved: PL=$%.1f < -$%.1f, Ang=%.1f>%.1f -> $%.1f]",
-                                      dirOpenPL, -InpTrendLossGapThresholdUSD * bMult, MathAbs(dirEmaAngle), InpTrendLossGapMinAngleDegrees, resultGap);
+            reasonStr += StringFormat(" [OppLoss Gap Reduced: %s Loss=$%.1f < -$%.1f, Ang=%.1f -> $%.1f]",
+                                      (isBuyOrder ? "SELL" : "BUY"), oppPL, lossLimit, MathAbs(dirEmaAngle), resultGap);
            }
         }
      }
@@ -19873,7 +19894,7 @@ void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep,s
 
    if(buyOpenPL <-10* bMult && sellOpenPL<=-10* bMult && (buyOpenPL + sellOpenPL) <= -20.0 * bMult && Lots <= 0.01 &&  EMADirection==requestedDirection)
      {
-      Lots = 0.02;
+      //Lots = 0.02;
       Print(">>> [CHANGE_LOTS BOOST] Basket loss <= -$", DoubleToString(30.0 * bMult, 2),
             " (BuyPL: ", DoubleToString(buyOpenPL, 2), ", SellPL: ", DoubleToString(sellOpenPL, 2),
             ", TotalPL: ", DoubleToString(buyOpenPL + sellOpenPL, 2),
@@ -22294,17 +22315,36 @@ void CreateProfitReEntryStop(int closedOrderType, double closedPrice, DailyProte
             reEntryGap *= (InpLsdAdverseSweepGapMultiplier > 0.0 ? InpLsdAdverseSweepGapMultiplier : 2.0);
      }
 
-// USER RULE (Option 1): Halve re-entry gap dynamically when trend is strong & directional basket in loss
+// USER RULE:
+// 1. SELL basket in loss & EMADirection is Bullish (1) -> Reduce BUY re-entry gap only.
+// 2. BUY basket in loss & EMADirection is Bearish (-1) -> Reduce SELL re-entry gap only.
    if(InpEnableTrendLossGapHalving)
      {
-      bool isReEntryEmaMatched = (EMADirection == 1 && (closedOrderType == OP_BUY || closedOrderType == OP_BUYSTOP)) ||
-                                 (EMADirection == -1 && (closedOrderType == OP_SELL || closedOrderType == OP_SELLSTOP));
-      double curReEntryAngle = (GlobalEmaAngle30 != 0.0) ? GlobalEmaAngle30 : GetEmaAngleDegrees(30);
-      if(isReEntryEmaMatched && MathAbs(curReEntryAngle) > InpTrendLossGapMinAngleDegrees)
+      bool isBuyReEntry = (closedOrderType == OP_BUY || closedOrderType == OP_BUYSTOP);
+      bool isSellReEntry = (closedOrderType == OP_SELL || closedOrderType == OP_SELLSTOP);
+
+      bool triggerOppositeReliefReEntry = false;
+      double oppPL = 0.0;
+      int bMult = (balancelomultipler > 0) ? balancelomultipler : 1;
+      double lossLimit = -InpTrendLossGapThresholdUSD * bMult;
+
+      if(isBuyReEntry && EMADirection == 1)
         {
-         int bMult = (balancelomultipler > 0) ? balancelomultipler : 1;
-         double dirPL = GetOpenPL(closedOrderType);
-         if(dirPL < -InpTrendLossGapThresholdUSD * bMult)
+         oppPL = GetOpenPL(OP_SELL);
+         if(oppPL < lossLimit)
+            triggerOppositeReliefReEntry = true;
+        }
+      else if(isSellReEntry && EMADirection == -1)
+        {
+         oppPL = GetOpenPL(OP_BUY);
+         if(oppPL < lossLimit)
+            triggerOppositeReliefReEntry = true;
+        }
+
+      if(triggerOppositeReliefReEntry)
+        {
+         double curReEntryAngle = (GlobalEmaAngle30 != 0.0) ? GlobalEmaAngle30 : GetEmaAngleDegrees(30);
+         if(InpTrendLossGapMinAngleDegrees <= 0.0 || MathAbs(curReEntryAngle) >= InpTrendLossGapMinAngleDegrees)
            {
             double halvedReEntry = reEntryGap * InpTrendLossGapReductionMult;
             if(halvedReEntry < InpTrendLossGapFloorUSD)
