@@ -43,7 +43,7 @@ CheckBasketProfitClose  Total open basket profit
 
 */
 
-string glbVersion = "V-SMALL-1105- Opposite Basket Loss Gap Reduction";
+string glbVersion = "V-SMALL-1106- Informative Method 6 Hit Tooltip";
 
 int AccountMultiplierLOT = 500;//100;//1000;//400;//200;//500; ALWAYS multiples of 1000 is better for best results
 //balance multiplier
@@ -8035,7 +8035,8 @@ bool   InpDrawMethod6HitIcon                = true;   // Method 6: Draw chart ic
 color  InpMethod6HitIconColor               = clrGold;// Method 6: Chart icon & text color
 int    InpMethod6HitFontSize                = 10;     // Method 6: Chart icon text font size
 int    InpMethod6HitIconCode                = 159;    // Method 6: Chart icon Wingdings code (159=circle dot)
-void   DrawMethod6HitIcon(int orderCount, double comboProfit, datetime hitTime = 0, double hitPrice = 0.0);
+void   DrawMethod6HitIcon(int orderCount, double comboProfit, datetime hitTime = 0, double hitPrice = 0.0,
+                          string stageName = "", double reqThreshold = -999999.0, string actionDesc = "");
 bool   InpMethod6EnablePartialLotCombination= true;   // Method 6: Allow partial LOT combination close when full combo cannot reach threshold
 bool   InpMethod6PartialCloseWinnerAtMarket = true;   // Method 6: Close winning order at market (true) or tighten SL to live price (false)
 bool   InpMethod6PartialHalfCloseWinner     = true;   // Method 6 partial combo: if winner > 0.01L close half lot; if 0.01L full close
@@ -8875,7 +8876,8 @@ void DrawMultiOrderClosedIcon(int orderCount, datetime closeTime, double closePr
 //| Draws chart icon and text label when Method 6 combination hits:  |
 //| InpEnableMethod6CombinationSLModify + InpMethod6ProfitThresholdUSD|
 //+------------------------------------------------------------------+
-void DrawMethod6HitIcon(int orderCount, double comboProfit, datetime hitTime = 0, double hitPrice = 0.0)
+void DrawMethod6HitIcon(int orderCount, double comboProfit, datetime hitTime = 0, double hitPrice = 0.0,
+                        string stageName = "", double reqThreshold = -999999.0, string actionDesc = "")
   {
    if(!InpDrawMethod6HitIcon)
       return;
@@ -8905,9 +8907,14 @@ void DrawMethod6HitIcon(int orderCount, double comboProfit, datetime hitTime = 0
 
    string txtName = baseName + "_TXT";
    string labelText = StringFormat("M6 +%d ($%.2f)", orderCount, comboProfit);
-   string tooltip   = StringFormat("Method 6 Combination Hit (>2 Orders >$5) | Orders: +%d | Profit: +$%.2f (Threshold: $%.2f) | SL Gap: $%.1f | Time: %s",
-                                   orderCount, comboProfit, InpMethod6ProfitThresholdUSD, InpMethod6SLDistanceUSD,
-                                   TimeToString(hitTime, TIME_DATE|TIME_MINUTES|TIME_SECONDS));
+
+   string stageTitle = (stageName != "") ? stageName : "Method 6 Combination Hit";
+   double targetPL   = (reqThreshold > -999990.0) ? reqThreshold : InpMethod6ProfitThresholdUSD;
+   string actionStr  = (actionDesc != "") ? StringFormat(" | Action: %s", actionDesc) : "";
+
+   string tooltip = StringFormat("[%s] Orders: +%d | Net P/L: +$%.2f (Threshold: >=$%.2f)%s | Time: %s",
+                                 stageTitle, orderCount, comboProfit, targetPL, actionStr,
+                                 TimeToString(hitTime, TIME_DATE|TIME_MINUTES|TIME_SECONDS));
 
 // 1. Solid Marker Icon
    ObjectCreate(0, baseName, OBJ_ARROW, 0, barTime, markerPrice);

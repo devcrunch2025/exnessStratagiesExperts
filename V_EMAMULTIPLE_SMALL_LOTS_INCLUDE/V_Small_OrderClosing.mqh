@@ -1340,7 +1340,10 @@ bool ExecuteMethod6StageS0(int candCount,
      }
 
    double iconPrice = (lossType == OP_BUY ? Bid : Ask);
-   DrawMethod6HitIcon(selectedWinCount + 1, bestNetPL, TimeCurrent(), iconPrice);
+   string s0Action = isPartialCut ? "1 Opposite Loser Sliced + Winner SL Modified ($50 Live)"
+                                  : "1 Opposite Loser Closed at Market + Winner SL Modified ($50 Live)";
+   DrawMethod6HitIcon(selectedWinCount + 1, bestNetPL, TimeCurrent(), iconPrice,
+                      "Method 6 Stage S0: Zero-Net Relief", InpMethod6ZeroNetMinProfitUSD, s0Action);
    g_lastMethod6ActionTick = CurrentTickSequence;
    InvalidateTotalEAOrdersCache();
    return true;
@@ -1652,7 +1655,10 @@ bool ExecuteMethod6StageS1(int candCount,
      }
 
    double iconPrice = (lossType == OP_BUY ? Bid : Ask);
-   DrawMethod6HitIcon(selectedWinCount + 1, bestNetPL, TimeCurrent(), iconPrice);
+   string s1Action = isPartialCut ? "1 Same-Type Loser Sliced + Winner SL Modified ($50 Live)"
+                                  : "1 Same-Type Loser Closed at Market + Winner SL Modified ($50 Live)";
+   DrawMethod6HitIcon(selectedWinCount + 1, bestNetPL, TimeCurrent(), iconPrice,
+                      "Method 6 Stage S1: Same-Type Relief", InpMethod6ZeroNetMinProfitUSD, s1Action);
    g_lastMethod6ActionTick = CurrentTickSequence;
    InvalidateTotalEAOrdersCache();
    return true;
@@ -1824,7 +1830,9 @@ bool ExecuteMethod6StageS2_S3(int candCount,
      }
 
    double iconPrice = (closedWinType == OP_BUY ? Bid : Ask);
-   DrawMethod6HitIcon(selectedCount, bestComboPL, TimeCurrent(), iconPrice);
+   string s2s3Action = InpMethod6CloseWinnerAtMarket ? "Winners Closed at Market" : "Winners SL Modified ($50 Live)";
+   DrawMethod6HitIcon(selectedCount, bestComboPL, TimeCurrent(), iconPrice,
+                      StringFormat("Method 6 Stage %s", stageLabel), requiredTarget, s2s3Action);
    g_lastMethod6ActionTick = CurrentTickSequence;
    InvalidateTotalEAOrdersCache();
    return true;
