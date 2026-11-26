@@ -43,7 +43,7 @@ CheckBasketProfitClose  Total open basket profit
 
 */
 
-string glbVersion = "V-SMALL-1106- Informative Method 6 Hit Tooltip";
+string glbVersion = "V-SMALL-1107- Method 2 Spike Min EMA Angle 3 Deg";
 
 int AccountMultiplierLOT = 500;//100;//1000;//400;//200;//500; ALWAYS multiples of 1000 is better for best results
 //balance multiplier
@@ -1133,6 +1133,7 @@ double InpSpikeCandleMinSurgeUSD              = 300.0; // Method 2: Minimum cand
 double InpSpikeCandleMinAtrMult               = 2.5;   // Method 2: Minimum ATR(14) multiplier (2.5x ATR, 0 = disabled)
 double InpSpikeWickPullbackUSD                = 30.0;  // Method 2: Minimum wick pullback/rejection from extreme USD ($30 USD)
 int    InpSpikeMaxOrdersPerCandle             = 1;     // Method 2: Max spike orders per candle bar (1 = max 1 per bar)
+double InpMethod2SpikeMinAngleDegrees         = 3.0;   // Method 2: Minimum MathAbs(EMA Angle) to create spike order (3.0 deg, 0 = disabled)
 bool   InpType1SpikeRequireSameCandleEmaFlip  = true;  // Type 1 Spike: Only create spike order on the single candle that flipped EMA direction
 int    InpType1SpikeMaxOrdersPerCandle        = 1;     // Type 1 Spike: Max orders on flip candle (1 = max 1 order per flip candle, 0 = unlimited)
 bool   InpFollowEmaIgnoreSsl                  = true;  // Trade Direction: Follow EMADirection (Bull=BUY, Bear=SELL) & Ignore SSL Signal
@@ -14488,6 +14489,11 @@ void CheckCandleSpikeVelocity(bool &outBullishSpike, bool &outBearishSpike)
    outBearishSpike = false;
 
    if(!InpEnableMethod2CandleSpike || !InpEnableSpikeOrderCreation)
+      return;
+
+// USER RULE: MathAbs minimum EMA angle is 3.0 degrees
+   double curEmaAngle = (GlobalEmaAngle30 != 0.0) ? GlobalEmaAngle30 : GetEmaAngleDegrees(30);
+   if(InpMethod2SpikeMinAngleDegrees > 0.0 && MathAbs(curEmaAngle) < InpMethod2SpikeMinAngleDegrees)
       return;
 
 // Prevent multiple spike orders on the same candle if limited
