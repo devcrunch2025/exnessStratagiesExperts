@@ -43,7 +43,7 @@ CheckBasketProfitClose  Total open basket profit
 
 */
 
-string glbVersion = "V-SMALL-1107- Method 2 Spike Min EMA Angle 3 Deg";
+string glbVersion = "V-SMALL-1108- Disable HLine Profit Live SL Modify";
 
 int AccountMultiplierLOT = 500;//100;//1000;//400;//200;//500; ALWAYS multiples of 1000 is better for best results
 //balance multiplier
@@ -357,7 +357,7 @@ int    InpHorizontalLineMinActiveWaitSeconds      = 150;           // Activation
 bool   InpModifyOppositeOrderSLToLinePrice        = true;          // On new/active horizontal line: try to modify opposite order SL to Line price
 bool   InpModifyLinePriceSLOnlyFirstOrder         = true;          // Modify SL with Line Price ONLY for the FIRST (oldest) open order
 double InpLinePriceSLOffsetRaw                    = 3000;//1000;//200;//100;//50.0;          // Offset in USD ($50) added to Line Price for StopLoss modification (Line Price + 50)
-bool   InpEnableHLineProfitLiveSLModify   = true;  // USER RULE: On horizontal line start: modify profitable order SL to live price
+bool   InpEnableHLineProfitLiveSLModify   = false;// true;  // USER RULE: On horizontal line start: modify profitable order SL to live price
 double InpHLineModifyProfitThresholdUSD   = 2;//0.50;   // Minimum order profit in USD ($0.0) to modify SL to live price on horizontal line start (profit > $0)
 bool   InpHLineModifyUsesMultiplier       = false; // Multiply profit threshold by balancelomultipler (default: false for strict > $0)
 double InpHLineModifyGreenLineRangeUSD    = 50.0;  // USER RULE: Only modify SELL SL if live price is near green line within range ($50 USD, 0 = any distance)
