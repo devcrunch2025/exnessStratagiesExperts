@@ -43,7 +43,7 @@ CheckBasketProfitClose  Total open basket profit
 
 */
 
-string glbVersion = "V-SMALL-1100- Type 1 Spike Single Candle EMA Flip Condition";
+string glbVersion = "V-SMALL-1101- Spike Candle Surge and Dump Min $300";
 
 int AccountMultiplierLOT = 500;//100;//1000;//400;//200;//500; ALWAYS multiples of 1000 is better for best results
 //balance multiplier
@@ -1094,7 +1094,7 @@ double InpPendingGapLossMultiplier         = 2.0;   // Pending gap multiplier on
  bool   InpSpikeBypassHorizontalLineBlock      = true;  // Spike Orders: Bypass active opposite horizontal line block (EQH-R/EQH-G)
  bool   InpSpikeBypassSweepBlock               = true;  // Spike Orders: Bypass active liquidity sweep block (SSLS/BSLS)
  bool   InpEnableMethod2CandleSpike            = true;  // Method 2: Enable 1-Bar Candle Spike Velocity Detection
- double InpSpikeCandleMinSurgeUSD              = 150.0; // Method 2: Minimum candle surge in USD ($150 USD)
+ double InpSpikeCandleMinSurgeUSD              = 300.0; // Method 2: Minimum candle surge in USD ($300 USD)
  double InpSpikeCandleMinAtrMult               = 2.5;   // Method 2: Minimum ATR(14) multiplier (2.5x ATR, 0 = disabled)
  double InpSpikeWickPullbackUSD                = 30.0;  // Method 2: Minimum wick pullback/rejection from extreme USD ($30 USD)
  int    InpSpikeMaxOrdersPerCandle             = 1;     // Method 2: Max spike orders per candle bar (1 = max 1 per bar)
@@ -13639,7 +13639,7 @@ void OnTickCore()
    // "create spike orders without any condition"
    // "EMAdirection is 1 , but ema angle is negative means spike in bullish so create BUY orders. 
    //  similary EMAdirection is -1 but EMAangle is positive value then create SELL orders normal ssl orders with pending orders"
-   // Method 2: 1-Bar Candle Spike Velocity (Surge >= $150 or 2.5x ATR with Wick Rejection)
+   // Method 2: 1-Bar Candle Spike Velocity (Surge >= $300 with Wick Rejection)
    bool method2Bullish = false;
    bool method2Bearish = false;
    CheckCandleSpikeVelocity(method2Bullish, method2Bearish);
@@ -14393,18 +14393,18 @@ void CheckCandleSpikeVelocity(bool &outBullishSpike, bool &outBearishSpike)
    if(atr <= 0)
       atr = 50.0 * Point;
 
-   // Effective surge threshold: either dollar amount or ATR multiplier
+   // Effective surge threshold: minimum dollar amount required ($300 default)
    double minSurgeUSD = InpSpikeCandleMinSurgeUSD;
    if(minSurgeUSD <= 0.0)
-      minSurgeUSD = 150.0;
+      minSurgeUSD = 300.0;
 
    // 1. LIVE CANDLE (Bar 0) INTRABAR CHECK:
    // Bearish Spike: Candle surged UP, topped out, and pulled back forming upper wick -> SELL
    double surgeUp0  = High[0] - Open[0];
    double range0    = High[0] - Low[0];
    double pullBack0 = High[0] - Bid;
-   bool isSurgeUp0  = (surgeUp0 >= minSurgeUSD || (InpSpikeCandleMinAtrMult > 0.0 && surgeUp0 >= InpSpikeCandleMinAtrMult * atr) ||
-                       (range0 >= minSurgeUSD && Bid > Open[0]));
+   bool isSurgeUp0  = ((surgeUp0 >= minSurgeUSD || (range0 >= minSurgeUSD && Bid > Open[0])) &&
+                       (InpSpikeCandleMinAtrMult <= 0.0 || surgeUp0 >= InpSpikeCandleMinAtrMult * atr));
    bool isWickDown0 = (pullBack0 >= InpSpikeWickPullbackUSD);
 
    if(isSurgeUp0 && isWickDown0)
@@ -14423,8 +14423,8 @@ void CheckCandleSpikeVelocity(bool &outBullishSpike, bool &outBearishSpike)
    // Bullish Spike: Candle dumped DOWN, bottomed out, and bounced forming lower wick -> BUY
    double dumpDown0 = Open[0] - Low[0];
    double bounce0   = Ask - Low[0];
-   bool isDumpDown0 = (dumpDown0 >= minSurgeUSD || (InpSpikeCandleMinAtrMult > 0.0 && dumpDown0 >= InpSpikeCandleMinAtrMult * atr) ||
-                       (range0 >= minSurgeUSD && Ask < Open[0]));
+   bool isDumpDown0 = ((dumpDown0 >= minSurgeUSD || (range0 >= minSurgeUSD && Ask < Open[0])) &&
+                       (InpSpikeCandleMinAtrMult <= 0.0 || dumpDown0 >= InpSpikeCandleMinAtrMult * atr));
    bool isWickUp0   = (bounce0 >= InpSpikeWickPullbackUSD);
 
    if(isDumpDown0 && isWickUp0)
@@ -14445,7 +14445,8 @@ void CheckCandleSpikeVelocity(bool &outBullishSpike, bool &outBearishSpike)
      {
       double surgeUp1  = High[1] - Open[1];
       double wickUp1   = High[1] - MathMax(Open[1], Close[1]);
-      bool isSurgeUp1  = (surgeUp1 >= minSurgeUSD || (InpSpikeCandleMinAtrMult > 0.0 && surgeUp1 >= InpSpikeCandleMinAtrMult * atr));
+      bool isSurgeUp1  = ((surgeUp1 >= minSurgeUSD || (High[1] - Low[1] >= minSurgeUSD && Close[1] > Open[1])) &&
+                          (InpSpikeCandleMinAtrMult <= 0.0 || surgeUp1 >= InpSpikeCandleMinAtrMult * atr));
       bool isWickDown1 = (wickUp1 >= InpSpikeWickPullbackUSD);
 
       if(isSurgeUp1 && isWickDown1)
@@ -14458,7 +14459,8 @@ void CheckCandleSpikeVelocity(bool &outBullishSpike, bool &outBearishSpike)
 
       double dumpDown1 = Open[1] - Low[1];
       double wickDown1 = MathMin(Open[1], Close[1]) - Low[1];
-      bool isDumpDown1 = (dumpDown1 >= minSurgeUSD || (InpSpikeCandleMinAtrMult > 0.0 && dumpDown1 >= InpSpikeCandleMinAtrMult * atr));
+      bool isDumpDown1 = ((dumpDown1 >= minSurgeUSD || (High[1] - Low[1] >= minSurgeUSD && Close[1] < Open[1])) &&
+                          (InpSpikeCandleMinAtrMult <= 0.0 || dumpDown1 >= InpSpikeCandleMinAtrMult * atr));
       bool isWickUp1   = (wickDown1 >= InpSpikeWickPullbackUSD);
 
       if(isDumpDown1 && isWickUp1)
