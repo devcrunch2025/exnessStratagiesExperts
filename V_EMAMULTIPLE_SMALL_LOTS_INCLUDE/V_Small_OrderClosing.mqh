@@ -952,6 +952,392 @@ void ExecuteMethod6PartialLotSearch(bool targetOpposite, double threshold, int c
      }
   }
 
+#ifndef MAX_M6_ORDERS
+#define MAX_M6_ORDERS 100
+#endif
+
+//+------------------------------------------------------------------+
+//| ExecuteMethod6ZeroNetRelief:                                     |
+//| User Rule: If 1 or more orders are in profit and any order is   |
+//| in loss (or partial slice) with combo net >= $0.00:              |
+//| Priority 1: Close losing order (full or partial) at market       |
+//| Priority 2: Modify winning order(s) StopLoss to Live Price       |
+//| No extra profit requirement (>= $0.00 pure break-even relief)    |
+//+------------------------------------------------------------------+
+bool ExecuteMethod6ZeroNetRelief(int candCount,
+                                 int &candTickets[], int &candTypes[], double &candLots[],
+                                 double &candOpenPrices[], double &candStopLosses[], double &candTakeProfits[],
+                                 double &candProfits[], bool &isProcessed[])
+  {
+   if(!InpMethod6EnableZeroNetLossCutSLModify)
+      return false;
+
+   // 1. Identify all winners and losers
+   int winIndices[MAX_M6_ORDERS];
+   int lossIndices[MAX_M6_ORDERS];
+   ArrayInitialize(winIndices, 0);
+   ArrayInitialize(lossIndices, 0);
+   int winCount = 0;
+   int lossCount = 0;
+
+   for(int i = 0; i < candCount && i < MAX_M6_ORDERS; i++)
+     {
+      if(isProcessed[i])
+         continue;
+      if(candProfits[i] > 0.0)
+        {
+         winIndices[winCount] = i;
+         winCount++;
+        }
+      else if(candProfits[i] < 0.0)
+        {
+         lossIndices[lossCount] = i;
+         lossCount++;
+        }
+     }
+
+   if(winCount == 0 || lossCount == 0)
+      return false;
+
+   double minNetUSD = InpMethod6ZeroNetMinProfitUSD; // Default 0.0
+
+   // Variables to track chosen combination
+   int selectedWinners[MAX_M6_ORDERS];
+   ArrayInitialize(selectedWinners, 0);
+   int selectedWinCount = 0;
+   int selectedLoserIdx = -1;
+   double bestNetPL = -999999.0;
+   double bestLossAbs = 0.0;
+   bool isPartialCut = false;
+   double partialCutLots = 0.0;
+   double partialLossUSD = 0.0;
+
+   // Two passes: Pass 0 = Opposite losers first (if InpMethod6PrioritizeOppositeLosers), Pass 1 = Same-type losers
+   for(int pass = 0; pass < (InpMethod6PrioritizeOppositeLosers ? 2 : 1); pass++)
+     {
+      bool targetOpposite = (pass == 0 && InpMethod6PrioritizeOppositeLosers);
+
+      //------------------------------------------------------------------
+      // PHASE 1: FULL LOSING ORDER CLOSE (Priority 1)
+      //------------------------------------------------------------------
+      // Check 1 Winner + 1 Loser
+      for(int l = 0; l < lossCount; l++)
+        {
+         int lIdx = lossIndices[l];
+         if(isProcessed[lIdx])
+            continue;
+
+         for(int w = 0; w < winCount; w++)
+           {
+            int wIdx = winIndices[w];
+            if(isProcessed[wIdx])
+               continue;
+
+            bool isOpp = (candTypes[wIdx] != candTypes[lIdx]);
+            if(targetOpposite && !isOpp)
+               continue;
+            if(!targetOpposite && isOpp)
+               continue;
+
+            double netPL = NormalizeDouble(candProfits[wIdx] + candProfits[lIdx], 2);
+            if(netPL >= minNetUSD)
+              {
+               double lossAbs = MathAbs(candProfits[lIdx]);
+               // Prioritize larger loss elimination, then higher net profit
+               if(lossAbs > bestLossAbs || (lossAbs == bestLossAbs && netPL > bestNetPL))
+                 {
+                  bestLossAbs = lossAbs;
+                  bestNetPL   = netPL;
+                  selectedLoserIdx = lIdx;
+                  selectedWinCount = 1;
+                  selectedWinners[0] = wIdx;
+                  isPartialCut = false;
+                 }
+              }
+           }
+        }
+
+      // Check 2 Winners + 1 Loser if no 1-winner full combo found
+      if(selectedLoserIdx < 0 && winCount >= 2)
+        {
+         for(int l = 0; l < lossCount; l++)
+           {
+            int lIdx = lossIndices[l];
+            if(isProcessed[lIdx])
+               continue;
+
+            for(int w1 = 0; w1 < winCount - 1; w1++)
+              {
+               int w1Idx = winIndices[w1];
+               if(isProcessed[w1Idx])
+                  continue;
+
+               for(int w2 = w1 + 1; w2 < winCount; w2++)
+                 {
+                  int w2Idx = winIndices[w2];
+                  if(isProcessed[w2Idx])
+                     continue;
+
+                  bool isOpp1 = (candTypes[w1Idx] != candTypes[lIdx]);
+                  bool isOpp2 = (candTypes[w2Idx] != candTypes[lIdx]);
+                  if(targetOpposite && (!isOpp1 && !isOpp2))
+                     continue;
+                  if(!targetOpposite && (isOpp1 || isOpp2))
+                     continue;
+
+                  double netPL = NormalizeDouble(candProfits[w1Idx] + candProfits[w2Idx] + candProfits[lIdx], 2);
+                  if(netPL >= minNetUSD)
+                    {
+                     double lossAbs = MathAbs(candProfits[lIdx]);
+                     if(lossAbs > bestLossAbs || (lossAbs == bestLossAbs && netPL > bestNetPL))
+                       {
+                        bestLossAbs = lossAbs;
+                        bestNetPL   = netPL;
+                        selectedLoserIdx = lIdx;
+                        selectedWinCount = 2;
+                        selectedWinners[0] = w1Idx;
+                        selectedWinners[1] = w2Idx;
+                        isPartialCut = false;
+                       }
+                    }
+                 }
+              }
+           }
+        }
+
+      // Check 3 Winners + 1 Loser if still no combo found
+      if(selectedLoserIdx < 0 && winCount >= 3)
+        {
+         for(int l = 0; l < lossCount; l++)
+           {
+            int lIdx = lossIndices[l];
+            if(isProcessed[lIdx])
+               continue;
+
+            double sumAllWins = 0.0;
+            int oppWinCount = 0;
+            for(int w = 0; w < winCount; w++)
+              {
+               int wIdx = winIndices[w];
+               if(!isProcessed[wIdx])
+                 {
+                  if(!targetOpposite || (candTypes[wIdx] != candTypes[lIdx]))
+                    {
+                     sumAllWins += candProfits[wIdx];
+                     oppWinCount++;
+                    }
+                 }
+              }
+
+            double netPL = NormalizeDouble(sumAllWins + candProfits[lIdx], 2);
+            if(oppWinCount >= 3 && netPL >= minNetUSD)
+              {
+               selectedLoserIdx = lIdx;
+               selectedWinCount = 0;
+               for(int w = 0; w < winCount && selectedWinCount < MAX_M6_ORDERS; w++)
+                 {
+                  int wIdx = winIndices[w];
+                  if(!isProcessed[wIdx] && (!targetOpposite || (candTypes[wIdx] != candTypes[lIdx])))
+                    {
+                     selectedWinners[selectedWinCount] = wIdx;
+                     selectedWinCount++;
+                    }
+                 }
+               bestNetPL   = netPL;
+               bestLossAbs = MathAbs(candProfits[lIdx]);
+               isPartialCut = false;
+               break;
+              }
+           }
+        }
+
+      // If full loser close combo found in this pass, break loop
+      if(selectedLoserIdx >= 0 && !isPartialCut)
+         break;
+
+      //------------------------------------------------------------------
+      // PHASE 2: PARTIAL LOSING ORDER CUT (Priority 2, if full close not possible)
+      //------------------------------------------------------------------
+      if(InpMethod6EnablePartialLotCombination && selectedLoserIdx < 0)
+        {
+         for(int l = 0; l < lossCount; l++)
+           {
+            int lIdx = lossIndices[l];
+            if(isProcessed[lIdx])
+               continue;
+
+            double lossTotalLots = candLots[lIdx];
+            if(lossTotalLots <= 0.01)
+               continue; // Cannot partial cut 0.01L in MT4
+
+            double lossPL = candProfits[lIdx];
+            double lossPerLot = MathAbs(lossPL) / lossTotalLots;
+            if(lossPerLot <= 0.0)
+               continue;
+
+            for(int w = 0; w < winCount; w++)
+              {
+               int wIdx = winIndices[w];
+               if(isProcessed[wIdx])
+                  continue;
+
+               bool isOpp = (candTypes[wIdx] != candTypes[lIdx]);
+               if(targetOpposite && !isOpp)
+                  continue;
+               if(!targetOpposite && isOpp)
+                  continue;
+
+               double winPL = candProfits[wIdx];
+               double maxAbsorbable = winPL - minNetUSD;
+               if(maxAbsorbable <= 0.0)
+                  continue;
+
+               double maxLotsToCut = maxAbsorbable / lossPerLot;
+               double pLots = MathFloor((maxLotsToCut + 0.00001) / 0.01) * 0.01;
+               pLots = NormalizeDouble(pLots, 2);
+
+               double maxAllowedCut = NormalizeDouble(lossTotalLots - 0.01, 2);
+               if(pLots > maxAllowedCut)
+                  pLots = maxAllowedCut;
+               if(InpMethod6PartialMaxCutLots > 0.0 && pLots > InpMethod6PartialMaxCutLots)
+                  pLots = NormalizeDouble(InpMethod6PartialMaxCutLots, 2);
+               if(pLots < 0.01)
+                  continue;
+
+               double pLossUSD = -1.0 * NormalizeDouble(lossPerLot * pLots, 2);
+               double nProfitUSD = NormalizeDouble(winPL + pLossUSD, 2);
+
+               if(nProfitUSD >= minNetUSD)
+                 {
+                  if(pLots > partialCutLots || (pLots == partialCutLots && nProfitUSD > bestNetPL))
+                    {
+                     partialCutLots   = pLots;
+                     partialLossUSD   = pLossUSD;
+                     bestNetPL        = nProfitUSD;
+                     selectedLoserIdx = lIdx;
+                     selectedWinCount = 1;
+                     selectedWinners[0] = wIdx;
+                     isPartialCut     = true;
+                    }
+                 }
+              }
+           }
+
+         if(selectedLoserIdx >= 0 && isPartialCut)
+            break;
+        }
+     }
+
+   if(selectedLoserIdx < 0 || selectedWinCount == 0)
+      return false;
+
+   //==================================================================
+   // EXECUTE THE SELECTED ZERO-NET ACTION
+   //==================================================================
+   int lossTkt  = candTickets[selectedLoserIdx];
+   int lossType = candTypes[selectedLoserIdx];
+   double lossLots = candLots[selectedLoserIdx];
+   double lossPL   = candProfits[selectedLoserIdx];
+
+   if(!isPartialCut)
+     {
+      // FULL LOSER CLOSE
+      PrintFormat(">>> [METHOD 6 ZERO-NET RELIEF: FULL LOSER CLOSE] Closing Loser Ticket #%d (%s %.2fL, Loss=-$%.2f) | Covered by %d Winner(s) (Net=+$%.2f >= $%.2f)",
+                  lossTkt, (lossType == OP_BUY ? "BUY" : "SELL"), lossLots, MathAbs(lossPL),
+                  selectedWinCount, bestNetPL, minNetUSD);
+
+      bool closed = CloseMarketOrderDirect(lossTkt);
+      if(!closed)
+        {
+         PrintFormat(">>> [METHOD 6 ZERO-NET RELIEF ERROR] Failed to close loser Ticket #%d. Aborting.", lossTkt);
+         return false;
+        }
+
+      RecordMethodModification(lossTkt, 6, selectedWinCount + 1, lossPL);
+      isProcessed[selectedLoserIdx] = true;
+     }
+   else
+     {
+      // PARTIAL LOSER CUT
+      PrintFormat(">>> [METHOD 6 ZERO-NET RELIEF: PARTIAL LOSER CUT] Slicing %.2fL of %.2fL from Loser Ticket #%d (%s, Slice Loss=-$%.2f) | Net=+$%.2f >= $%.2f",
+                  partialCutLots, lossLots, lossTkt, (lossType == OP_BUY ? "BUY" : "SELL"),
+                  MathAbs(partialLossUSD), bestNetPL, minNetUSD);
+
+      bool partClosed = false;
+      double lossClosePrice = 0.0;
+      for(int attempt = 0; attempt < 3; attempt++)
+        {
+         RefreshRates();
+         lossClosePrice = (lossType == OP_BUY) ? Bid : Ask;
+         lossClosePrice = NormalizeDouble(lossClosePrice, Digits);
+         ResetLastError();
+         partClosed = OrderClose(lossTkt, partialCutLots, lossClosePrice, Slippage, (lossType == OP_BUY ? clrRed : clrBlue));
+         if(partClosed)
+            break;
+         int err = GetLastError();
+         PrintFormat("Method 6 Zero-Net Partial Close attempt %d failed for Ticket #%d | Error=%d", attempt + 1, lossTkt, err);
+         Sleep(100);
+        }
+
+      if(!partClosed)
+        {
+         PrintFormat(">>> [METHOD 6 ZERO-NET RELIEF ERROR] Failed to partially close loser Ticket #%d. Aborting.", lossTkt);
+         return false;
+        }
+
+      RecordMethodModification(lossTkt, 6, 2, partialLossUSD);
+      isProcessed[selectedLoserIdx] = true;
+     }
+
+   // MODIFY WINNER(S) STOPLOSS TO LIVE PRICE
+   RefreshRates();
+   double curBid = MarketInfo(Symbol(), MODE_BID);
+   double curAsk = MarketInfo(Symbol(), MODE_ASK);
+   double minStopDist = GetRequiredStopDistance();
+   if(minStopDist < 20.0)
+      minStopDist = 20.0;
+
+   for(int w = 0; w < selectedWinCount; w++)
+     {
+      int wIdx = selectedWinners[w];
+      int winTkt = candTickets[wIdx];
+      int winType = candTypes[wIdx];
+      double winOpen = candOpenPrices[wIdx];
+      double winTP = candTakeProfits[wIdx];
+      double winCurSL = candStopLosses[wIdx];
+
+      double targetSL = (winType == OP_BUY) ? NormalizeDouble(curBid - minStopDist, Digits)
+                        : NormalizeDouble(curAsk + minStopDist, Digits);
+
+      double beFloorM6 = GetEmaAngleBreakevenBreathingSL(winType, winOpen, winOpen);
+      if(winType == OP_BUY && targetSL < beFloorM6)
+         targetSL = beFloorM6;
+      else if(winType == OP_SELL && targetSL > beFloorM6)
+         targetSL = beFloorM6;
+
+      bool needModify = false;
+      if(winType == OP_BUY && (winCurSL == 0.0 || targetSL > winCurSL + Point))
+         needModify = true;
+      else if(winType == OP_SELL && (winCurSL == 0.0 || targetSL < winCurSL - Point))
+         needModify = true;
+
+      if(needModify)
+        {
+         SafeOrderModify(winTkt, winOpen, targetSL, winTP, 0, (winType == OP_BUY ? clrLimeGreen : clrTomato), "M6 ZeroNet SL");
+         PrintFormat(">>> [METHOD 6 ZERO-NET RELIEF: WINNER SL LOCKED] Ticket #%d (%s %.2fL) Profit=+$%.2f | SL locked to Live Price: %s",
+                     winTkt, (winType == OP_BUY ? "BUY" : "SELL"), candLots[wIdx], candProfits[wIdx], DoubleToString(targetSL, Digits));
+        }
+      isProcessed[wIdx] = true;
+     }
+
+   // Draw chart hit icon
+   double iconPrice = (lossType == OP_BUY ? Bid : Ask);
+   DrawMethod6HitIcon(selectedWinCount + 1, bestNetPL, TimeCurrent(), iconPrice);
+   g_lastMethod6ActionTick = CurrentTickSequence;
+   InvalidateTotalEAOrdersCache();
+   return true;
+  }
+
 //+------------------------------------------------------------------+
 //| ModifyMethod6MultiOrderCombinationsOver5USD                      |
 //+------------------------------------------------------------------+
@@ -960,7 +1346,6 @@ void ModifyMethod6MultiOrderCombinationsOver5USD()
    if(!InpEnableMethod6CombinationSLModify)
       return;
 
-#define MAX_M6_ORDERS 100
    int    candTickets[MAX_M6_ORDERS];
    int    candTypes[MAX_M6_ORDERS];
    double candLots[MAX_M6_ORDERS];
@@ -1035,6 +1420,19 @@ void ModifyMethod6MultiOrderCombinationsOver5USD()
 
    if(candCount < minOrders)
       return;
+
+//====================================================================
+// STEP 0: ZERO-NET LOSS RELIEF (NET >= $0.00: CLOSE LOSER & MODIFY WINNER SL TO LIVE PRICE)
+// USER RULE: If 1+ orders are in profit and any order is in loss (or partial slice) with combo net >= $0.00:
+// Close losing order (or partial cut) on priority, and modify winning order(s) SL to live price without extra profit requirement.
+//====================================================================
+   if(InpMethod6EnableZeroNetLossCutSLModify)
+     {
+      if(ExecuteMethod6ZeroNetRelief(candCount, candTickets, candTypes, candLots,
+                                     candOpenPrices, candStopLosses, candTakeProfits,
+                                     candProfits, isProcessed))
+         return;
+     }
 
 //====================================================================
 // STEP 1: CLOSE OPPOSITE LOSERS FIRST

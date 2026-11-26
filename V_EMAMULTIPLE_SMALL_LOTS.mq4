@@ -43,7 +43,7 @@ CheckBasketProfitClose  Total open basket profit
 
 */
 
-string glbVersion = "V-SMALL-1101- Spike Candle Surge and Dump Min $300";
+string glbVersion = "V-SMALL-1102- Method 6 Zero-Net Relief Loser Close and Winner SL Modify";
 
 int AccountMultiplierLOT = 500;//100;//1000;//400;//200;//500; ALWAYS multiples of 1000 is better for best results
 //balance multiplier
@@ -7984,6 +7984,8 @@ double InpMethod6LowAngleThresholdUSD       = 1.0;//5/5;//5;//10;//2.0;    // Me
 double InpMethod6LowAngleEmaDegrees         = 0;//4.0;    // Method 6: Dynamic EMA angle boundary in degrees (default 4.0)
 double InpMethod6SameTypeMultiplier         = 1.5;//3.0;    // Method 6: Threshold multiplier when all orders are same type (2+ BUY or 2+ SELL = 3.0x; if angle > 4 then 3.0 * 2.0 = 6.0x)
 double InpMethod6EmaAlignedMultiplier       = 1.5;//2.0;    // Method 6: Additional threshold multiplier when all combo orders match EMADirection (default 2.0x -> 3X * 2X = 6X; if angle > 4 then 3X * 2X * 2X = 12X)
+bool   InpMethod6EnableZeroNetLossCutSLModify = true;   // Method 6: Close losing order (or partial cut) when combo net >= $0 & modify winner SL to live price
+double InpMethod6ZeroNetMinProfitUSD          = 0.0;    // Method 6: Zero-Net Relief minimum net profit ($0.00 = pure break-even relief, no extra profit required)
 
 // Universal Trend-Aware StopLoss Modifier (Applies across all order modify methods)
 // User Rule:
@@ -8088,6 +8090,10 @@ double GetEquityLadder2HourPriceDiff();
 void   MonitorLowestEquityRecovery();
 void   CheckBasketProfitClose();
 void   ModifyMethod6MultiOrderCombinationsOver5USD();
+bool   ExecuteMethod6ZeroNetRelief(int candCount,
+                                  int &candTickets[], int &candTypes[], double &candLots[],
+                                  double &candOpenPrices[], double &candStopLosses[], double &candTakeProfits[],
+                                  double &candProfits[], bool &isProcessed[]);
 void   CreateMethod6PendingOrderAfterClose(int winType);
 void   ExecuteMethod6PartialLotSearch(bool targetOpposite, double threshold, int candCount,
                                       int &candTickets[], int &candTypes[], double &candLots[],
