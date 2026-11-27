@@ -482,7 +482,10 @@ void ExecuteMethod6CombinationAction(int &comboIndices[], int comboCount, double
 
 // Draw chart icon
    double iconPrice = (candTypes[comboIndices[0]] == OP_BUY ? MarketInfo(Symbol(), MODE_BID) : MarketInfo(Symbol(), MODE_ASK));
-   DrawMethod6HitIcon(comboCount, comboSum, TimeCurrent(), iconPrice);
+   string m6Action = InpMethod6CloseWinnerAtMarket ? "Losers Closed at Market + Winners Closed at Market"
+                                                   : "Losers Closed at Market + Winners SL Modified (Live Price)";
+   DrawMethod6HitIcon(comboCount, comboSum, TimeCurrent(), iconPrice,
+                      "Method 6 Multi-Order Combination", activeThresholdUSD, m6Action);
    g_lastMethod6ActionTick = CurrentTickSequence;
    InvalidateTotalEAOrdersCache();
   }
@@ -836,7 +839,8 @@ void ExecuteMethod6PartialLotAction(int winIdx, int lossIdx, double partialLots,
    isProcessed[lossIdx] = true;
 
    double iconPrice = (winType == OP_BUY ? MarketInfo(Symbol(), MODE_BID) : MarketInfo(Symbol(), MODE_ASK));
-   DrawMethod6HitIcon(2, netProfitUSD, TimeCurrent(), iconPrice);
+   DrawMethod6HitIcon(2, netProfitUSD, TimeCurrent(), iconPrice,
+                      "Method 6 Partial Lot Slice", activeThresholdUSD, actionDesc);
    g_lastMethod6ActionTick = CurrentTickSequence;
    InvalidateTotalEAOrdersCache();
   }

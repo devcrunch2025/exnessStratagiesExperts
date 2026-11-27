@@ -43,7 +43,7 @@ CheckBasketProfitClose  Total open basket profit
 
 */
 
-string glbVersion = "V-SMALL-1110- Display V-Shape Armed Target in Left Dashboard";
+string glbVersion = "V-SMALL-1111- Left Dash Day Eq Target Zero Overlap and Method 6 Tooltips";
 
 int AccountMultiplierLOT = 500;//100;//1000;//400;//200;//500; ALWAYS multiples of 1000 is better for best results
 //balance multiplier

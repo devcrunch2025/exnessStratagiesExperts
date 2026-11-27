@@ -1014,14 +1014,26 @@ void UpdateDayEquityTargetBarStandalone()
 
    int deqFontSize  = (InpLeftDashDayEqTargetFontSize > 0) ? InpLeftDashDayEqTargetFontSize : 16;
    int deqBarHeight = (InpShowLeftDashDayEqTargetRow && deqFontSize >= 14) ? 36 : 22;
-   int minDashWidth = (InpShowLeftDashDayEqTargetRow && deqFontSize >= 14) ? 740 : 640;
+   int minDashWidth = (InpShowLeftDashDayEqTargetRow && deqFontSize >= 14) ? 840 : 760;
    int x = LeftDashboardX;
    int curY = LeftDashboardY + 38;
    int tx = x + 12;
    int width = MathMax(LeftDashboardWidth + 310, minDashWidth);
    int deqTextY       = curY + ((deqBarHeight - deqFontSize) / 2) - 1;
-   int deqRightOffset = (deqFontSize >= 14) ? 290 : 250;
+   int deqRightOffset = (deqFontSize >= 14) ? 310 : 280;
    int deqRightX      = x + width - deqRightOffset;
+
+   // Anti-collision guard: ensure right label never overlaps left label
+   int approxLeftLenPx = StringLen(deqLeftTxt) * (deqFontSize >= 14 ? 12 : 9);
+   int minRightX = tx + approxLeftLenPx + 20;
+   if(deqRightX < minRightX)
+     {
+      deqRightX = minRightX;
+      int approxRightLenPx = StringLen(deqRightTxt) * (deqFontSize >= 14 ? 11 : 8);
+      int reqWidth = (deqRightX - x) + approxRightLenPx + 15;
+      if(width < reqWidth)
+         width = reqWidth;
+     }
 
    CreateLeftLivePanel(LEFT_LIVE_PREFIX+"DEQTGT_BAR", x, curY, width, deqBarHeight, deqBarClr);
    CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"DEQTGT_L",   deqLeftTxt,  tx,        deqTextY, deqFontSize, deqTxtClr,   InpLeftDashDayEqTargetFont);
@@ -1124,7 +1136,7 @@ void UpdateLeftLiveOrdersDashboard(bool force = false)
    int deqFontSize  = (InpLeftDashDayEqTargetFontSize > 0) ? InpLeftDashDayEqTargetFontSize : 16;
    int deqBarHeight = (InpShowLeftDashDayEqTargetRow && deqFontSize >= 14) ? 36 : 22;
    int deqBarExtraY = InpShowLeftDashDayEqTargetRow ? (deqBarHeight - 22) : 0;
-   int minDashWidth = (InpShowLeftDashDayEqTargetRow && deqFontSize >= 14) ? 740 : 640;
+   int minDashWidth = (InpShowLeftDashDayEqTargetRow && deqFontSize >= 14) ? 840 : 760;
    int x=LeftDashboardX, y=LeftDashboardY, tx=x+12, width=MathMax(LeftDashboardWidth+310, minDashWidth);
 
    int intermediateBarsCount = 0;
@@ -2321,8 +2333,20 @@ void UpdateLeftLiveOrdersDashboard(bool force = false)
    if(InpShowLeftDashDayEqTargetRow)
      {
       int deqTextY       = curY + ((deqBarHeight - deqFontSize) / 2) - 1;
-      int deqRightOffset = (deqFontSize >= 14) ? 290 : 250;
+      int deqRightOffset = (deqFontSize >= 14) ? 310 : 280;
       int deqRightX      = x + width - deqRightOffset;
+
+      // Anti-collision guard: ensure right label never overlaps left label
+      int approxLeftLenPx = StringLen(deqLeftTxt) * (deqFontSize >= 14 ? 12 : 9);
+      int minRightX = tx + approxLeftLenPx + 20;
+      if(deqRightX < minRightX)
+        {
+         deqRightX = minRightX;
+         int approxRightLenPx = StringLen(deqRightTxt) * (deqFontSize >= 14 ? 11 : 8);
+         int reqWidth = (deqRightX - x) + approxRightLenPx + 15;
+         if(width < reqWidth)
+            width = reqWidth;
+        }
 
       CreateLeftLivePanel(LEFT_LIVE_PREFIX+"DEQTGT_BAR", x, curY, width, deqBarHeight, deqBarClr);
       CreateLeftLiveLabel(LEFT_LIVE_PREFIX+"DEQTGT_L",   deqLeftTxt,  tx,        deqTextY, deqFontSize, deqTxtClr,   InpLeftDashDayEqTargetFont);
