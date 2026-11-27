@@ -845,6 +845,17 @@ void UpdateDayEquityTargetBarStandalone()
    double deqFloorPct   = GetDailyEquityRetraceFloorPct(deqPeakProfit);
    double deqFloorUSD   = deqPeakProfit * (deqFloorPct / 100.0);
 
+   double baseThreshold = (g_deepDrawdownCycleStartBalance > 0.0) ? g_deepDrawdownCycleStartBalance : deqOpenBase;
+   double vArmedTgt     = (g_deepDrawdownArmedTarget > 0.0) ? g_deepDrawdownArmedTarget : (baseThreshold - (InpDeepDrawdownRecoveryBufferUSD * deqMult));
+   double curEmaAng     = (GlobalEmaAngle30 != 0.0) ? GlobalEmaAngle30 : GetEmaAngleDegrees(30);
+   double effTarget     = vArmedTgt;
+   string angTag        = "";
+   if(InpDeepDrawdownSteepAngleDeg > 0.0 && MathAbs(curEmaAng) > InpDeepDrawdownSteepAngleDeg)
+     {
+      effTarget = vArmedTgt * (InpDeepDrawdownSteepAngleTargetPct / 100.0);
+      angTag    = StringFormat(" [90%%Ang:%.1f°]", curEmaAng);
+     }
+
    if(g_dailyEquityTradingBlocked)
      {
       deqStatusTxt = "PAUSED";
@@ -863,7 +874,38 @@ void UpdateDayEquityTargetBarStandalone()
                                  deqStatusTxt, pauseBaseUSD, pauseTgtUSD, DailyEquityStopUSD * deqMult, pauseMultTag);
      }
    else
-      if(g_dailyEquityIsResumedLeg && InpResumeDayTradingTargetMode == RESUME_MODE_TRAIL_STEP)
+      if(g_deepDrawdownLiveSlClamped)
+        {
+         deqStatusTxt = "V-CLAMP";
+         deqBarClr    = C'20,45,20';
+         deqTxtClr    = clrLime;
+         deqRightTxt  = StringFormat("P/L:%s$%.2f  V-RECOVERY CLAMPED (TRAIL SL)", deqSign, deqProfit);
+         deqRightClr  = clrLime;
+         deqLeftTxt   = StringFormat("DAY: [%s] B:$%.0f  T:$%.0f | V-Tgt:$%.0f", deqStatusTxt, deqOpenBase, deqTarget, effTarget);
+        }
+      else
+         if(g_deepDrawdownCooldownUntil > 0 && TimeCurrent() < g_deepDrawdownCooldownUntil)
+           {
+            int remainMin = (int)((g_deepDrawdownCooldownUntil - TimeCurrent()) / 60) + 1;
+            deqStatusTxt = "V-PAUSE";
+            deqBarClr    = C'40,30,10';
+            deqTxtClr    = clrYellow;
+            deqRightTxt  = StringFormat("P/L:%s$%.2f  V-COOLDOWN (%dm REMAINING)", deqSign, deqProfit, remainMin);
+            deqRightClr  = clrGold;
+            deqLeftTxt   = StringFormat("DAY: [%s] B:$%.0f  T:$%.0f (%dm pause)", deqStatusTxt, deqOpenBase, deqTarget, remainMin);
+           }
+         else
+            if(g_deepDrawdownCycleArmed)
+              {
+               deqStatusTxt = "V-ARMED";
+               deqBarClr    = C'45,25,10';
+               deqTxtClr    = clrGold;
+               deqRightTxt  = StringFormat("P/L:%s$%.2f  V-ARMED (TGT:$%.0f%s)", deqSign, deqProfit, effTarget, angTag);
+               deqRightClr  = clrGold;
+               deqLeftTxt   = StringFormat("DAY: [%s] B:$%.0f  T:$%.0f | V-Tgt:$%.0f", deqStatusTxt, deqOpenBase, deqTarget, effTarget);
+              }
+            else
+               if(g_dailyEquityIsResumedLeg && InpResumeDayTradingTargetMode == RESUME_MODE_TRAIL_STEP)
         {
          double resStepUSD = DailyEquityTrailStepUSD * deqMult;
          double resProfit  = deqCurrent - g_dailyEquityResumeEquity;
@@ -957,32 +999,28 @@ void UpdateDayEquityTargetBarStandalone()
                      deqRightClr  = clrWhite;
                     }
 
-   if(!g_dailyEquityIsResumedLeg || InpResumeDayTradingTargetMode != RESUME_MODE_TRAIL_STEP)
+                   if(InpEnableDeepDrawdownRecoveryShield && (deqProfit < -0.01 || OrdersTotal() > 0))
+                     {
+                      deqLeftTxt = StringFormat("DAY: [%s] B:$%.0f  T:$%.0f | V-Tgt:$%.0f", deqStatusTxt, deqOpenBase, deqTarget, effTarget);
+                     }
+
+   if(deqLeftTxt == "")
      {
       string multTag  = (deqMult > 1) ? StringFormat(" [%dX]", (int)deqMult) : "";
-      string decayTag = (deqHoursDecay > 0) ? StringFormat(" (%dH-Decay)", deqHoursDecay) : "";
+      string decayTag = (deqHoursDecay > 0) ? StringFormat(" (%dH)", deqHoursDecay) : "";
       deqLeftTxt  = StringFormat("DAY: [%s] B:$%.0f  T:$%.0f (+$%.0f%s%s)",
                                  deqStatusTxt, deqOpenBase, deqTarget, deqTgtProfit, multTag, decayTag);
      }
 
-   if(deqLeftTxt == "")
-     {
-      double fbBaseUSD = (g_dailyEquityIsResumedLeg && g_dailyEquityResumeEquity > 0.0) ? g_dailyEquityResumeEquity : deqOpenBase;
-      double fbTgtUSD  = (g_dailyEquityIsResumedLeg && g_dailyEquityResumeEquity > 0.0) ? (g_dailyEquityResumeEquity + (DailyEquityStopUSD * deqMult)) : deqTarget;
-      string fbMultTag = (deqMult > 1) ? StringFormat(" [%dX]", (int)deqMult) : "";
-      deqLeftTxt       = StringFormat("DAY: [%s] B:$%.0f  T:$%.0f (+$%.0f%s)",
-                                      deqStatusTxt, fbBaseUSD, fbTgtUSD, DailyEquityStopUSD * deqMult, fbMultTag);
-     }
-
    int deqFontSize  = (InpLeftDashDayEqTargetFontSize > 0) ? InpLeftDashDayEqTargetFontSize : 16;
    int deqBarHeight = (InpShowLeftDashDayEqTargetRow && deqFontSize >= 14) ? 36 : 22;
-   int minDashWidth = (InpShowLeftDashDayEqTargetRow && deqFontSize >= 14) ? 740 : 560;
+   int minDashWidth = (InpShowLeftDashDayEqTargetRow && deqFontSize >= 14) ? 740 : 640;
    int x = LeftDashboardX;
    int curY = LeftDashboardY + 38;
    int tx = x + 12;
-   int width = MathMax(LeftDashboardWidth + 230, minDashWidth);
+   int width = MathMax(LeftDashboardWidth + 310, minDashWidth);
    int deqTextY       = curY + ((deqBarHeight - deqFontSize) / 2) - 1;
-   int deqRightOffset = (deqFontSize >= 14) ? 290 : 248;
+   int deqRightOffset = (deqFontSize >= 14) ? 290 : 250;
    int deqRightX      = x + width - deqRightOffset;
 
    CreateLeftLivePanel(LEFT_LIVE_PREFIX+"DEQTGT_BAR", x, curY, width, deqBarHeight, deqBarClr);
@@ -1086,8 +1124,8 @@ void UpdateLeftLiveOrdersDashboard(bool force = false)
    int deqFontSize  = (InpLeftDashDayEqTargetFontSize > 0) ? InpLeftDashDayEqTargetFontSize : 16;
    int deqBarHeight = (InpShowLeftDashDayEqTargetRow && deqFontSize >= 14) ? 36 : 22;
    int deqBarExtraY = InpShowLeftDashDayEqTargetRow ? (deqBarHeight - 22) : 0;
-   int minDashWidth = (InpShowLeftDashDayEqTargetRow && deqFontSize >= 14) ? 740 : 560;
-   int x=LeftDashboardX, y=LeftDashboardY, tx=x+12, width=MathMax(LeftDashboardWidth+230, minDashWidth);
+   int minDashWidth = (InpShowLeftDashDayEqTargetRow && deqFontSize >= 14) ? 740 : 640;
+   int x=LeftDashboardX, y=LeftDashboardY, tx=x+12, width=MathMax(LeftDashboardWidth+310, minDashWidth);
 
    int intermediateBarsCount = 0;
    if(InpShowLeftDashHourlyEngineRows)
@@ -1964,6 +2002,17 @@ void UpdateLeftLiveOrdersDashboard(bool force = false)
       double deqFloorPct   = GetDailyEquityRetraceFloorPct(deqPeakProfit);
       double deqFloorUSD   = deqPeakProfit * (deqFloorPct / 100.0);
 
+      double baseThreshold = (g_deepDrawdownCycleStartBalance > 0.0) ? g_deepDrawdownCycleStartBalance : deqOpenBase;
+      double vArmedTgt     = (g_deepDrawdownArmedTarget > 0.0) ? g_deepDrawdownArmedTarget : (baseThreshold - (InpDeepDrawdownRecoveryBufferUSD * deqMult));
+      double curEmaAng     = (GlobalEmaAngle30 != 0.0) ? GlobalEmaAngle30 : GetEmaAngleDegrees(30);
+      double effTarget     = vArmedTgt;
+      string angTag        = "";
+      if(InpDeepDrawdownSteepAngleDeg > 0.0 && MathAbs(curEmaAng) > InpDeepDrawdownSteepAngleDeg)
+        {
+         effTarget = vArmedTgt * (InpDeepDrawdownSteepAngleTargetPct / 100.0);
+         angTag    = StringFormat(" [90%%Ang:%.1f°]", curEmaAng);
+        }
+
       if(g_dailyEquityTradingBlocked)
         {
          deqStatusTxt = "PAUSED";
@@ -1984,44 +2033,33 @@ void UpdateLeftLiveOrdersDashboard(bool force = false)
       else
          if(g_deepDrawdownLiveSlClamped)
            {
-            deqStatusTxt = "DD-CLAMP";
+            deqStatusTxt = "V-CLAMP";
             deqBarClr    = C'20,45,20';
             deqTxtClr    = clrLime;
-            deqRightTxt  = StringFormat("P/L:%s$%.2f  DD RECOVERY CLAMPED (TRAIL SL)", deqSign, deqProfit);
+            deqRightTxt  = StringFormat("P/L:%s$%.2f  V-RECOVERY CLAMPED (TRAIL SL)", deqSign, deqProfit);
             deqRightClr  = clrLime;
-            deqLeftTxt   = StringFormat("DAY: [%s] B:$%.0f  T:$%.0f", deqStatusTxt, deqOpenBase, deqTarget);
+            deqLeftTxt   = StringFormat("DAY: [%s] B:$%.0f  T:$%.0f | V-Tgt:$%.0f", deqStatusTxt, deqOpenBase, deqTarget, effTarget);
            }
          else
             if(g_deepDrawdownCooldownUntil > 0 && TimeCurrent() < g_deepDrawdownCooldownUntil)
               {
                int remainMin = (int)((g_deepDrawdownCooldownUntil - TimeCurrent()) / 60) + 1;
-               deqStatusTxt = "DD-PAUSE";
+               deqStatusTxt = "V-PAUSE";
                deqBarClr    = C'40,30,10';
                deqTxtClr    = clrYellow;
-               deqRightTxt  = StringFormat("P/L:%s$%.2f  DD COOLDOWN (%dm REMAINING)", deqSign, deqProfit, remainMin);
+               deqRightTxt  = StringFormat("P/L:%s$%.2f  V-COOLDOWN (%dm REMAINING)", deqSign, deqProfit, remainMin);
                deqRightClr  = clrGold;
-               deqLeftTxt   = StringFormat("DAY: [%s] B:$%.0f  T:$%.0f", deqStatusTxt, deqOpenBase, deqTarget);
+               deqLeftTxt   = StringFormat("DAY: [%s] B:$%.0f  T:$%.0f (%dm pause)", deqStatusTxt, deqOpenBase, deqTarget, remainMin);
               }
             else
                if(g_deepDrawdownCycleArmed)
                  {
-                  double baseThreshold = (g_deepDrawdownCycleStartBalance > 0.0) ? g_deepDrawdownCycleStartBalance : deqOpenBase;
-                  double recTarget = (g_deepDrawdownArmedTarget > 0.0) ? g_deepDrawdownArmedTarget : (baseThreshold - (InpDeepDrawdownRecoveryBufferUSD * deqMult));
-                  double curEmaAng = (GlobalEmaAngle30 != 0.0) ? GlobalEmaAngle30 : GetEmaAngleDegrees(30);
-                  double effTarget = recTarget;
-                  string angTag = "";
-                  if(InpDeepDrawdownSteepAngleDeg > 0.0 && MathAbs(curEmaAng) > InpDeepDrawdownSteepAngleDeg)
-                    {
-                     double armedTgt = (g_deepDrawdownArmedTarget > 0.0) ? g_deepDrawdownArmedTarget : recTarget;
-                     effTarget = armedTgt * (InpDeepDrawdownSteepAngleTargetPct / 100.0);
-                     angTag = StringFormat(" [90%%Ang:%.1f°]", curEmaAng);
-                    }
-                  deqStatusTxt = "DD-ARMED";
+                  deqStatusTxt = "V-ARMED";
                   deqBarClr    = C'45,25,10';
                   deqTxtClr    = clrGold;
-                  deqRightTxt  = StringFormat("P/L:%s$%.2f  DD ARMED (TGT:$%.0f%s)", deqSign, deqProfit, effTarget, angTag);
+                  deqRightTxt  = StringFormat("P/L:%s$%.2f  V-ARMED (TGT:$%.0f%s)", deqSign, deqProfit, effTarget, angTag);
                   deqRightClr  = clrGold;
-                  deqLeftTxt   = StringFormat("DAY: [%s] B:$%.0f  T:$%.0f", deqStatusTxt, baseThreshold, effTarget);
+                  deqLeftTxt   = StringFormat("DAY: [%s] B:$%.0f  T:$%.0f | V-Tgt:$%.0f", deqStatusTxt, deqOpenBase, deqTarget, effTarget);
                  }
                else
                   if(g_dailyEquityIsResumedLeg && InpResumeDayTradingTargetMode == RESUME_MODE_TRAIL_STEP)
@@ -2118,21 +2156,17 @@ void UpdateLeftLiveOrdersDashboard(bool force = false)
                                  deqRightClr  = clrWhite;
                                 }
 
-      if(!g_dailyEquityIsResumedLeg || InpResumeDayTradingTargetMode != RESUME_MODE_TRAIL_STEP)
-        {
-         string multTag  = (deqMult > 1) ? StringFormat(" [%dX]", (int)deqMult) : "";
-         string decayTag = (deqHoursDecay > 0) ? StringFormat(" (%dH-Decay)", deqHoursDecay) : "";
-         deqLeftTxt  = StringFormat("DAY: [%s] B:$%.0f  T:$%.0f (+$%.0f%s%s)",
-                                    deqStatusTxt, deqOpenBase, deqTarget, deqTgtProfit, multTag, decayTag);
-        }
+                   if(InpEnableDeepDrawdownRecoveryShield && (deqProfit < -0.01 || OrdersTotal() > 0))
+                     {
+                      deqLeftTxt = StringFormat("DAY: [%s] B:$%.0f  T:$%.0f | V-Tgt:$%.0f", deqStatusTxt, deqOpenBase, deqTarget, effTarget);
+                     }
 
       if(deqLeftTxt == "")
         {
-         double fbBaseUSD = (g_dailyEquityIsResumedLeg && g_dailyEquityResumeEquity > 0.0) ? g_dailyEquityResumeEquity : deqOpenBase;
-         double fbTgtUSD  = (g_dailyEquityIsResumedLeg && g_dailyEquityResumeEquity > 0.0) ? (g_dailyEquityResumeEquity + (DailyEquityStopUSD * deqMult)) : deqTarget;
-         string fbMultTag = (deqMult > 1) ? StringFormat(" [%dX]", (int)deqMult) : "";
-         deqLeftTxt       = StringFormat("DAY: [%s] B:$%.0f  T:$%.0f (+$%.0f%s)",
-                                         deqStatusTxt, fbBaseUSD, fbTgtUSD, DailyEquityStopUSD * deqMult, fbMultTag);
+         string multTag  = (deqMult > 1) ? StringFormat(" [%dX]", (int)deqMult) : "";
+         string decayTag = (deqHoursDecay > 0) ? StringFormat(" (%dH)", deqHoursDecay) : "";
+         deqLeftTxt  = StringFormat("DAY: [%s] B:$%.0f  T:$%.0f (+$%.0f%s%s)",
+                                    deqStatusTxt, deqOpenBase, deqTarget, deqTgtProfit, multTag, decayTag);
         }
      }
 
@@ -2287,7 +2321,7 @@ void UpdateLeftLiveOrdersDashboard(bool force = false)
    if(InpShowLeftDashDayEqTargetRow)
      {
       int deqTextY       = curY + ((deqBarHeight - deqFontSize) / 2) - 1;
-      int deqRightOffset = (deqFontSize >= 14) ? 290 : 248;
+      int deqRightOffset = (deqFontSize >= 14) ? 290 : 250;
       int deqRightX      = x + width - deqRightOffset;
 
       CreateLeftLivePanel(LEFT_LIVE_PREFIX+"DEQTGT_BAR", x, curY, width, deqBarHeight, deqBarClr);

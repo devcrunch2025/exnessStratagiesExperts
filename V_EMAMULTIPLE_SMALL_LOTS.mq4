@@ -43,7 +43,7 @@ CheckBasketProfitClose  Total open basket profit
 
 */
 
-string glbVersion = "V-SMALL-1109- Method 6 S3 Live SL Modify and Trend SL Hit Pending ReEntry";
+string glbVersion = "V-SMALL-1110- Display V-Shape Armed Target in Left Dashboard";
 
 int AccountMultiplierLOT = 500;//100;//1000;//400;//200;//500; ALWAYS multiples of 1000 is better for best results
 //balance multiplier
