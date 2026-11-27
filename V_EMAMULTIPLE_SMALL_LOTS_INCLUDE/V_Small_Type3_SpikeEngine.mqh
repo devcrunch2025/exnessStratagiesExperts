@@ -719,3 +719,93 @@ void DrawSpikeLifecycleSignal(string stage, int dir, double price, string detail
    PrintFormat(">>> [SPIKE CHART SIGNAL] Placed '%s' at %.2f | Bar=%s | State=%d | Details: %s",
                labelText, price, TimeToString(barTime, TIME_DATE|TIME_MINUTES), s_spikeLifecycleState, details);
   }
+
+//+------------------------------------------------------------------+
+//| CountActiveSpikeMarketOrders: Counts open market SPIKE orders    |
+//+------------------------------------------------------------------+
+int CountActiveSpikeMarketOrders(int orderType)
+  {
+   int count = 0;
+   for(int i = 0; i < OrdersTotal(); i++)
+     {
+      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
+         continue;
+      if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber)
+         continue;
+      if(OrderType() == orderType && StringFind(OrderComment(), "SPIKE") >= 0)
+         count++;
+     }
+   return count;
+  }
+
+//+------------------------------------------------------------------+
+//| GetEffectiveSpikeOrderCooldownSec:                               |
+//| USER RULE:                                                       |
+//| - Previous Spike order (same dir) in PROFIT (>= $0) -> 5 sec     |
+//| - Previous Spike order (same dir) in LOSS   (<  $0) -> 30 sec    |
+//+------------------------------------------------------------------+
+int GetEffectiveSpikeOrderCooldownSec(int orderType, double &outPrevPL, datetime &outLastEventTime, bool &outFoundPrev)
+  {
+   outPrevPL        = 0.0;
+   outLastEventTime = 0;
+   outFoundPrev     = false;
+
+   int    latestTicket = -1;
+   double latestPL     = 0.0;
+
+   // 1. Check active open Spike orders in the requested direction first
+   for(int i = OrdersTotal() - 1; i >= 0; i--)
+     {
+      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
+         continue;
+      if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber)
+         continue;
+      if(OrderType() != orderType || StringFind(OrderComment(), "SPIKE") < 0)
+         continue;
+
+      datetime ot = OrderOpenTime();
+      int tkt     = OrderTicket();
+      if(!outFoundPrev || ot > outLastEventTime || (ot == outLastEventTime && tkt > latestTicket))
+        {
+         outFoundPrev     = true;
+         outLastEventTime = ot;
+         latestTicket     = tkt;
+         latestPL         = OrderProfit() + OrderSwap() + OrderCommission();
+        }
+     }
+
+   // 2. Fallback to most recent closed Spike order in history if no open Spike order exists
+   if(!outFoundPrev)
+     {
+      int histTotal = OrdersHistoryTotal();
+      int minHistIdx = MathMax(0, histTotal - 50);
+      for(int h = histTotal - 1; h >= minHistIdx; h--)
+        {
+         if(!OrderSelect(h, SELECT_BY_POS, MODE_HISTORY))
+            continue;
+         if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber)
+            continue;
+         if(OrderType() != orderType || StringFind(OrderComment(), "SPIKE") < 0)
+            continue;
+
+         datetime ct = OrderCloseTime();
+         int tkt     = OrderTicket();
+         if(!outFoundPrev || ct > outLastEventTime || (ct == outLastEventTime && tkt > latestTicket))
+           {
+            outFoundPrev     = true;
+            outLastEventTime = ct;
+            latestTicket     = tkt;
+            latestPL         = OrderProfit() + OrderSwap() + OrderCommission();
+           }
+        }
+     }
+
+   if(outFoundPrev)
+     {
+      outPrevPL = latestPL;
+      if(latestPL < 0.0)
+         return InpSpikeOrderLossCooldownSec; // 30s when previous Spike order is in loss
+     }
+
+   return InpSpikeOrderCooldownSec; // 5s when previous Spike order is in profit (or first Spike order)
+  }

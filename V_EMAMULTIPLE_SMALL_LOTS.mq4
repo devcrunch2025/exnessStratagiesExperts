@@ -3,8 +3,8 @@
 //|                  TWO-STAGE PROFIT LADDER | CONTINUOUS RESET      |
 //+------------------------------------------------------------------+
 #property strict
-#property version     "11.32"
-#property description "V-SMALL-1132 | Two-Regime EMA Multiple Small Lots EA"
+#property version     "11.33"
+#property description "V-SMALL-1133 | Two-Regime EMA Multiple Small Lots EA"
 
 //$100 to $170
 //https://github.com/devcrunch2025/exnessStratagiesExperts/commit/32fb1ba20d474fc8d4adb38d2558999b2ac82c56
@@ -45,8 +45,8 @@ CheckBasketProfitClose  Total open basket profit
 
 */
 
-string glbVersion      = "V-SMALL-1132- Disable Order Closing on SPIKE END";
-string glbVersionShort = "V-SMALL-1132";
+string glbVersion      = "V-SMALL-1133- Dynamic Spike Cooldown (5s Profit / 30s Loss)";
+string glbVersionShort = "V-SMALL-1133";
 
 int AccountMultiplierLOT = 500;//100;//1000;//400;//200;//500; ALWAYS multiples of 1000 is better for best results
 //balance multiplier
@@ -1122,7 +1122,8 @@ double InpPendingGapLossMultiplier         = 2.0;   // Pending gap multiplier on
  double InpDynamicGapAngleThreshold        = 4.0;   // Dynamic Order Gap: EMA angle boundary (if MathAbs(EMA Angle) < 4.0: Required Gap = Base Gap; if >= 4.0: Base Gap * Drawdown Mult * Sweep Mult)
  bool   InpDisableDDAndSweepGapWhenEmaUnmatched = true; // Dynamic Order Gap: Disable DD Scaling & Sweep Guard when MathAbs(EMA Angle) >= 4.0 and OrderType != EMADirection
  bool   InpEnableSpikeOrderCreation            = true; // Spike Orders: When EMADirection is 1 but angle < 0 create BUY; when -1 and angle > 0 create SELL
- int    InpSpikeOrderCooldownSec               = 5;    // Spike Orders: Cooldown seconds between consecutive spike order attempts (default 5s)
+ int    InpSpikeOrderCooldownSec               = 5;    // Spike Orders: Cooldown seconds when previous spike order is in PROFIT (default 5s)
+ int    InpSpikeOrderLossCooldownSec           = 30;   // Spike Orders: Cooldown seconds when previous spike order is in LOSS (default 30s)
  int    InpMaxSpikePendingOrders               = 1;    // Spike Orders: Max simultaneous pending stop orders (default 1)
  int    InpMaxActiveSpikeOrders                = 2;    // Spike Orders: Max simultaneous active market spike orders per direction (default 2)
  bool   InpSpikeOrderBypassSameTypeGap         = true; // Spike Orders: Bypass wide same-type minimum gap during sudden spike momentum
@@ -8280,6 +8281,8 @@ void     ResetSpikeLifecycleState();
 void     Evaluate5MinEmaDistanceStepGap(bool &outBullSpike, bool &outBearSpike,
                                         double &outCurDistAbove, double &outCurDistBelow,
                                         double &outDeltaAbove, double &outDeltaBelow);
+int      CountActiveSpikeMarketOrders(int orderType);
+int      GetEffectiveSpikeOrderCooldownSec(int orderType, double &outPrevPL, datetime &outLastEventTime, bool &outFoundPrev);
 datetime GetLastClosedFLIPBasketSupportCloseTime();
 bool     HasOppositeOrderTypeLossOver5(int currentDirection, double &outOppositeTotalPL, double &outMaxSingleLoss);
 void     InitializeFLIPBasketSupportTracking();
@@ -13804,30 +13807,41 @@ void OnTickCore()
       // Clean up stale pending spike orders if price drifted away
       CleanupStaleSpikePendingOrders(OP_BUYSTOP, ((InpFastSpikeMarketOrder || InpSpikeOrderPendingGapUSD <= 0.0) ? 0.0 : InpSpikeOrderStaleCleanupDistUSD));
 
-      // Count active market Spike BUY orders
-      int activeSpikeBuyCount = 0;
-      for(int sb = 0; sb < OrdersTotal(); sb++)
-        {
-         if(!OrderSelect(sb, SELECT_BY_POS, MODE_TRADES)) continue;
-         if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber) continue;
-         if(OrderType() == OP_BUY && StringFind(OrderComment(), "SPIKE") >= 0)
-            activeSpikeBuyCount++;
-        }
+      // Count active market Spike BUY orders & determine dynamic cooldown (5s profit / 30s loss)
+      int activeSpikeBuyCount = CountActiveSpikeMarketOrders(OP_BUY);
 
-      static datetime s_lastSpikeBuyTime = 0;
+      static datetime s_lastSpikeBuyTime    = 0;
+      static datetime s_lastSpikeBuyAttempt = 0;
       bool canCreateSpikeBuy = false;
+      int  reqBuyCooldown    = InpSpikeOrderCooldownSec;
+      double prevBuySpikePL  = 0.0;
+
       if(InpFastSpikeMarketOrder || InpSpikeOrderPendingGapUSD <= 0.0)
-         canCreateSpikeBuy = (activeSpikeBuyCount < InpMaxActiveSpikeOrders && (TimeCurrent() - s_lastSpikeBuyTime >= InpSpikeOrderCooldownSec));
+        {
+         datetime lastBuyEvt = 0;
+         bool     hasPrevBuy = false;
+         reqBuyCooldown = GetEffectiveSpikeOrderCooldownSec(OP_BUY, prevBuySpikePL, lastBuyEvt, hasPrevBuy);
+         datetime refBuyTime = MathMax(s_lastSpikeBuyTime, lastBuyEvt);
+         bool cooldownOk = (!hasPrevBuy || (TimeCurrent() - refBuyTime) >= reqBuyCooldown);
+         canCreateSpikeBuy = (activeSpikeBuyCount < InpMaxActiveSpikeOrders &&
+                              cooldownOk &&
+                              (TimeCurrent() - s_lastSpikeBuyAttempt >= 1));
+        }
       else
          canCreateSpikeBuy = (CountSpikePendingOrders(OP_BUYSTOP) == 0 && (TimeCurrent() - s_lastSpikeBuyTime >= 1));
 
       if(canCreateSpikeBuy && !g_blockBuySpikeUntilNewSpike)
         {
-         s_lastSpikeBuyTime = TimeCurrent();
+         s_lastSpikeBuyAttempt = TimeCurrent();
          OpenBuy("SPIKE_BUY");
-         DrawSpikeLifecycleSignal("SPIKE_START", 1, Ask, StringFormat("Bullish Spike BUY | 5m Step Gap=+$%.2f (Dist=$%.2f)", spkDeltaAbove, spkDistAbove));
-         PrintFormat(">>> [FAST SPIKE ENGINE] Created Spike BUY | Mode=%s | ActiveSpikes=%d/%d | 5m StepGap=+$%.2f",
-                     (InpFastSpikeMarketOrder ? "MARKET" : "PENDING"), activeSpikeBuyCount + 1, InpMaxActiveSpikeOrders, spkDeltaAbove);
+         int afterSpikeBuyCount = CountActiveSpikeMarketOrders(OP_BUY);
+         if(afterSpikeBuyCount > activeSpikeBuyCount || !InpFastSpikeMarketOrder)
+           {
+            s_lastSpikeBuyTime = TimeCurrent();
+            DrawSpikeLifecycleSignal("SPIKE_START", 1, Ask, StringFormat("Bullish Spike BUY | 5m Step Gap=+$%.2f (Dist=$%.2f)", spkDeltaAbove, spkDistAbove));
+            PrintFormat(">>> [FAST SPIKE ENGINE] Created Spike BUY | Mode=%s | ActiveSpikes=%d/%d | Cooldown=%ds (PrevPL=$%.2f) | 5m StepGap=+$%.2f",
+                        (InpFastSpikeMarketOrder ? "MARKET" : "PENDING"), afterSpikeBuyCount, InpMaxActiveSpikeOrders, reqBuyCooldown, prevBuySpikePL, spkDeltaAbove);
+           }
         }
      }
    else if(isBearishSpike)
@@ -13849,30 +13863,41 @@ void OnTickCore()
       // Clean up stale pending spike orders if price drifted away
       CleanupStaleSpikePendingOrders(OP_SELLSTOP, ((InpFastSpikeMarketOrder || InpSpikeOrderPendingGapUSD <= 0.0) ? 0.0 : InpSpikeOrderStaleCleanupDistUSD));
 
-      // Count active market Spike SELL orders
-      int activeSpikeSellCount = 0;
-      for(int ss = 0; ss < OrdersTotal(); ss++)
-        {
-         if(!OrderSelect(ss, SELECT_BY_POS, MODE_TRADES)) continue;
-         if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber) continue;
-         if(OrderType() == OP_SELL && StringFind(OrderComment(), "SPIKE") >= 0)
-            activeSpikeSellCount++;
-        }
+      // Count active market Spike SELL orders & determine dynamic cooldown (5s profit / 30s loss)
+      int activeSpikeSellCount = CountActiveSpikeMarketOrders(OP_SELL);
 
-      static datetime s_lastSpikeSellTime = 0;
+      static datetime s_lastSpikeSellTime    = 0;
+      static datetime s_lastSpikeSellAttempt = 0;
       bool canCreateSpikeSell = false;
+      int  reqSellCooldown    = InpSpikeOrderCooldownSec;
+      double prevSellSpikePL  = 0.0;
+
       if(InpFastSpikeMarketOrder || InpSpikeOrderPendingGapUSD <= 0.0)
-         canCreateSpikeSell = (activeSpikeSellCount < InpMaxActiveSpikeOrders && (TimeCurrent() - s_lastSpikeSellTime >= InpSpikeOrderCooldownSec));
+        {
+         datetime lastSellEvt = 0;
+         bool     hasPrevSell = false;
+         reqSellCooldown = GetEffectiveSpikeOrderCooldownSec(OP_SELL, prevSellSpikePL, lastSellEvt, hasPrevSell);
+         datetime refSellTime = MathMax(s_lastSpikeSellTime, lastSellEvt);
+         bool cooldownOk = (!hasPrevSell || (TimeCurrent() - refSellTime) >= reqSellCooldown);
+         canCreateSpikeSell = (activeSpikeSellCount < InpMaxActiveSpikeOrders &&
+                               cooldownOk &&
+                               (TimeCurrent() - s_lastSpikeSellAttempt >= 1));
+        }
       else
          canCreateSpikeSell = (CountSpikePendingOrders(OP_SELLSTOP) == 0 && (TimeCurrent() - s_lastSpikeSellTime >= 1));
 
       if(canCreateSpikeSell && !g_blockSellSpikeUntilNewSpike)
         {
-         s_lastSpikeSellTime = TimeCurrent();
+         s_lastSpikeSellAttempt = TimeCurrent();
          OpenSell("SPIKE_SELL");
-         DrawSpikeLifecycleSignal("SPIKE_START", -1, Bid, StringFormat("Bearish Spike SELL | 5m Step Gap=+$%.2f (Dist=$%.2f)", spkDeltaBelow, spkDistBelow));
-         PrintFormat(">>> [FAST SPIKE ENGINE] Created Spike SELL | Mode=%s | ActiveSpikes=%d/%d | 5m StepGap=+$%.2f",
-                     (InpFastSpikeMarketOrder ? "MARKET" : "PENDING"), activeSpikeSellCount + 1, InpMaxActiveSpikeOrders, spkDeltaBelow);
+         int afterSpikeSellCount = CountActiveSpikeMarketOrders(OP_SELL);
+         if(afterSpikeSellCount > activeSpikeSellCount || !InpFastSpikeMarketOrder)
+           {
+            s_lastSpikeSellTime = TimeCurrent();
+            DrawSpikeLifecycleSignal("SPIKE_START", -1, Bid, StringFormat("Bearish Spike SELL | 5m Step Gap=+$%.2f (Dist=$%.2f)", spkDeltaBelow, spkDistBelow));
+            PrintFormat(">>> [FAST SPIKE ENGINE] Created Spike SELL | Mode=%s | ActiveSpikes=%d/%d | Cooldown=%ds (PrevPL=$%.2f) | 5m StepGap=+$%.2f",
+                        (InpFastSpikeMarketOrder ? "MARKET" : "PENDING"), afterSpikeSellCount, InpMaxActiveSpikeOrders, reqSellCooldown, prevSellSpikePL, spkDeltaBelow);
+           }
         }
      }
 
