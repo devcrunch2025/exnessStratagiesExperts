@@ -43,7 +43,7 @@ CheckBasketProfitClose  Total open basket profit
 
 */
 
-string glbVersion = "V-SMALL-1108- Disable HLine Profit Live SL Modify";
+string glbVersion = "V-SMALL-1109- Method 6 S3 Live SL Modify and Trend SL Hit Pending ReEntry";
 
 int AccountMultiplierLOT = 500;//100;//1000;//400;//200;//500; ALWAYS multiples of 1000 is better for best results
 //balance multiplier
@@ -8054,6 +8054,10 @@ double InpMethod6EmaAlignedMultiplier       = 1.5;//2.0;    // Method 6: Additio
 bool   InpMethod6EnableZeroNetLossCutSLModify = true;   // Method 6 S0/S1: Close losing order (or partial cut) when combo net >= $0 & modify winner SL to $50
 double InpMethod6ZeroNetMinProfitUSD          = 0.0;    // Method 6 S0/S1: Zero-Net Relief minimum net profit ($0.00 = pure break-even relief, no extra profit required)
 double InpMethod6LivePriceSLGapUSD          = 50.0;   // Method 6: StopLoss buffer from live price ($50 USD: Bullish = Bid - $50, Bearish = Ask + $50)
+bool   InpMethod6S3ModifySLInsteadOfClose   = true;   // Method 6 S3: In strong trend (>4 deg), modify SL with $50 live gap instead of closing at market
+bool   InpMethod6CreatePendingOnSLHit       = true;   // Method 6: If modified SL order hits StopLoss, create pending order in same direction if MathAbs(EMA Angle) > 4.0 deg
+double InpMethod6PendingOnSLEmaAngle        = 4.0;    // Method 6: Minimum MathAbs(EMA Angle) to create pending order when SL is hit (4.0 deg)
+bool   InpMethod6PendingSLRequireZeroOpen   = false;  // Method 6: When creating pending after SL hit, require 0 open orders (false = place pending immediately if min gap met)
 
 // Universal Trend-Aware StopLoss Modifier (Applies across all order modify methods)
 // User Rule:
@@ -8166,7 +8170,9 @@ bool   ExecuteMethod6ZeroNetRelief(int candCount,
                                    int &candTickets[], int &candTypes[], double &candLots[],
                                    double &candOpenPrices[], double &candStopLosses[], double &candTakeProfits[],
                                    double &candProfits[], bool &isProcessed[]);
-void   CreateMethod6PendingOrderAfterClose(int winType);
+void   CreateMethod6PendingOrderAfterClose(int winType, bool requireZeroOpen = true);
+void   RegisterMethod6ModifiedSLOrder(int ticket, int orderType, double targetSL);
+void   CheckMethod6SLHitPendingReEntry();
 void   ExecuteMethod6PartialLotSearch(bool targetOpposite, double threshold, int candCount,
                                       int &candTickets[], int &candTypes[], double &candLots[],
                                       double &candOpenPrices[], double &candTakeProfits[],
@@ -13072,6 +13078,7 @@ void OnTick()
 
 // Priority #1 (VMULTI-1243): Method 6 Multi-Order Combination Close / Release
    ModifyMethod6MultiOrderCombinationsOver5USD();
+   CheckMethod6SLHitPendingReEntry();
 // Priority #2: Individual Order Profit Ladder (All Lots + Level 1+ Half-Close)
    if(g_lastMethod6ActionTick != CurrentTickSequence)
       SecureOneDollarProfit();

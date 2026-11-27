@@ -490,14 +490,15 @@ void ExecuteMethod6CombinationAction(int &comboIndices[], int comboCount, double
 //+------------------------------------------------------------------+
 //| METHOD 6: Create Pending Re-entry Order After Closing Winner     |
 //| Places new pending order (BUY STOP "SSL Long" / SELL STOP        |
-//| "SSL Short") ONLY when open order count in that same direction is 0.|
+//| "SSL Short"). Parameter requireZeroOpen controls whether all     |
+//| open orders in that direction must be 0 (default true).          |
 //+------------------------------------------------------------------+
-void CreateMethod6PendingOrderAfterClose(int winType)
+void CreateMethod6PendingOrderAfterClose(int winType, bool requireZeroOpen = true)
   {
    if(winType != OP_BUY && winType != OP_SELL)
       return;
 
-// USER RULE: Condition: only when openordercount is 0 in same direction
+// USER RULE: Condition: only when openordercount is 0 in same direction (when requireZeroOpen is true)
    int openCountSameDir = 0;
    int pendingCountSameDir = 0;
    int expectedPendingType = (winType == OP_BUY) ? OP_BUYSTOP : OP_SELLSTOP;
@@ -515,7 +516,7 @@ void CreateMethod6PendingOrderAfterClose(int winType)
             pendingCountSameDir++;
      }
 
-   if(openCountSameDir > 0)
+   if(requireZeroOpen && openCountSameDir > 0)
      {
       Print(">>> [METHOD 6 PENDING SKIPPED] Open order count in ", (winType == OP_BUY ? "BUY" : "SELL"),
             " direction is ", openCountSameDir, " (> 0). Pending re-entry not created.");
@@ -594,7 +595,7 @@ void CreateMethod6PendingOrderAfterClose(int winType)
             " Entry=", DoubleToString(entryPrice, Digits),
             " SL=", DoubleToString(stopLoss, Digits),
             " TP=", DoubleToString(takeProfit, Digits),
-            " (Open count in direction was 0)");
+            " (requireZeroOpen=", (requireZeroOpen ? "true" : "false"), ", Open count=", openCountSameDir, ")");
       InvalidateTotalEAOrdersCache();
      }
    else
@@ -957,6 +958,151 @@ void ExecuteMethod6PartialLotSearch(bool targetOpposite, double threshold, int c
 #endif
 
 //+------------------------------------------------------------------+
+//| Method 6 Modified StopLoss Tracking Registry                     |
+//| Tracks orders modified with Method 6 StopLoss to detect when     |
+//| they hit StopLoss. If MathAbs(EMA Angle) > 4.0 deg upon SL hit,  |
+//| a pending order is created in that same profit direction.        |
+//+------------------------------------------------------------------+
+#define MAX_M6_TRACKED_SL_ORDERS 50
+struct M6TrackedSLOrder
+  {
+   int      ticket;
+   int      orderType;
+   double   targetSL;
+   datetime modifyTime;
+   bool     isActive;
+  };
+M6TrackedSLOrder g_m6TrackedSLOrders[MAX_M6_TRACKED_SL_ORDERS];
+int g_m6TrackedSLOrderCount = 0;
+
+void RegisterMethod6ModifiedSLOrder(int ticket, int orderType, double targetSL)
+  {
+   if(ticket <= 0)
+      return;
+
+   for(int i = 0; i < g_m6TrackedSLOrderCount; i++)
+     {
+      if(g_m6TrackedSLOrders[i].ticket == ticket)
+        {
+         g_m6TrackedSLOrders[i].targetSL   = targetSL;
+         g_m6TrackedSLOrders[i].modifyTime = TimeCurrent();
+         g_m6TrackedSLOrders[i].isActive   = true;
+         return;
+        }
+     }
+
+   int slot = -1;
+   for(int i = 0; i < g_m6TrackedSLOrderCount; i++)
+     {
+      if(!g_m6TrackedSLOrders[i].isActive)
+        {
+         slot = i;
+         break;
+        }
+     }
+
+   if(slot < 0)
+     {
+      if(g_m6TrackedSLOrderCount < MAX_M6_TRACKED_SL_ORDERS)
+        {
+         slot = g_m6TrackedSLOrderCount;
+         g_m6TrackedSLOrderCount++;
+        }
+      else
+        {
+         slot = 0;
+        }
+     }
+
+   g_m6TrackedSLOrders[slot].ticket     = ticket;
+   g_m6TrackedSLOrders[slot].orderType  = orderType;
+   g_m6TrackedSLOrders[slot].targetSL   = targetSL;
+   g_m6TrackedSLOrders[slot].modifyTime = TimeCurrent();
+   g_m6TrackedSLOrders[slot].isActive   = true;
+
+   PrintFormat(">>> [METHOD 6 TRACK SL] Registered Ticket #%d (%s) | Target SL=%s for SL-Hit Pending Re-entry tracking",
+               ticket, (orderType == OP_BUY ? "BUY" : "SELL"), DoubleToString(targetSL, Digits));
+  }
+
+void CheckMethod6SLHitPendingReEntry()
+  {
+   if(!InpMethod6CreatePendingOnSLHit)
+      return;
+
+   if(g_m6TrackedSLOrderCount == 0)
+      return;
+
+   double curEmaAng = (GlobalEmaAngle30 != 0.0) ? GlobalEmaAngle30 : GetEmaAngleDegrees(30);
+   double absEmaAng = MathAbs(curEmaAng);
+
+   for(int i = 0; i < g_m6TrackedSLOrderCount; i++)
+     {
+      if(!g_m6TrackedSLOrders[i].isActive)
+         continue;
+
+      int tkt = g_m6TrackedSLOrders[i].ticket;
+      int oType = g_m6TrackedSLOrders[i].orderType;
+
+      // Check if ticket is still open in MODE_TRADES
+      if(OrderSelect(tkt, SELECT_BY_TICKET, MODE_TRADES))
+        {
+         if(OrderCloseTime() == 0)
+            continue; // Order is still active
+        }
+
+      // Order is no longer open in MODE_TRADES. Check history to see how it closed.
+      if(OrderSelect(tkt, SELECT_BY_TICKET, MODE_HISTORY))
+        {
+         if(OrderCloseTime() > 0)
+           {
+            double closePx = OrderClosePrice();
+            double orderSL = OrderStopLoss();
+            string cmt     = OrderComment();
+            bool isSLHit   = false;
+
+            if(orderSL > 0.0 && MathAbs(closePx - orderSL) <= (50.0 * Point))
+               isSLHit = true;
+            else if(StringFind(cmt, "[sl]") >= 0 || StringFind(cmt, "sl") >= 0)
+               isSLHit = true;
+            else if(g_m6TrackedSLOrders[i].targetSL > 0.0 && MathAbs(closePx - g_m6TrackedSLOrders[i].targetSL) <= (50.0 * Point))
+               isSLHit = true;
+
+            if(isSLHit)
+              {
+               PrintFormat(">>> [METHOD 6 SL HIT DETECTED] Ticket #%d (%s) closed at SL (ClosePx=%s, SL=%s, Cmt='%s') | EMA Angle=%.1f deg",
+                           tkt, (oType == OP_BUY ? "BUY" : "SELL"),
+                           DoubleToString(closePx, Digits), DoubleToString(orderSL, Digits), cmt, curEmaAng);
+
+               if(absEmaAng > InpMethod6PendingOnSLEmaAngle)
+                 {
+                  PrintFormat(">>> [METHOD 6 TREND SL RE-ENTRY] MathAbs(EMA Angle) %.1f > %.1f deg! Creating pending stop order in same %s direction...",
+                              absEmaAng, InpMethod6PendingOnSLEmaAngle, (oType == OP_BUY ? "BUY" : "SELL"));
+                  CreateMethod6PendingOrderAfterClose(oType, InpMethod6PendingSLRequireZeroOpen);
+                 }
+               else
+                 {
+                  PrintFormat(">>> [METHOD 6 TREND SL RE-ENTRY SKIPPED] MathAbs(EMA Angle) %.1f <= %.1f deg (weak trend / range). No pending order created.",
+                              absEmaAng, InpMethod6PendingOnSLEmaAngle);
+                 }
+              }
+            else
+              {
+               PrintFormat(">>> [METHOD 6 TRACK SL CLEARED] Ticket #%d (%s) closed NOT by SL (ClosePx=%s, SL=%s, Cmt='%s'). Tracker cleared.",
+                           tkt, (oType == OP_BUY ? "BUY" : "SELL"),
+                           DoubleToString(closePx, Digits), DoubleToString(orderSL, Digits), cmt);
+              }
+
+            g_m6TrackedSLOrders[i].isActive = false;
+           }
+        }
+      else
+        {
+         g_m6TrackedSLOrders[i].isActive = false;
+        }
+     }
+  }
+
+//+------------------------------------------------------------------+
 //| ApplyMethod6LivePriceStopLoss:                                   |
 //| User Rule: Modify profit orders with StopLoss $50 from live      |
 //| price direction:                                                 |
@@ -1024,6 +1170,7 @@ bool ApplyMethod6LivePriceStopLoss(int ticket, int orderType, double openPrice, 
       bool mod = SafeOrderModify(ticket, openPrice, targetSL, takeProfit, 0, (orderType == OP_BUY ? clrLimeGreen : clrTomato), "M6 $50 Live SL");
       if(mod)
         {
+         RegisterMethod6ModifiedSLOrder(ticket, orderType, targetSL);
          PrintFormat(">>> [METHOD 6 LIVE SL] Ticket #%d (%s) | EMA Dir=%s | SL modified to $50 from live price: %s",
                      ticket, (orderType == OP_BUY ? "BUY" : "SELL"),
                      (EMADirection == 1 ? "BULLISH (-$50)" : (EMADirection == -1 ? "BEARISH (+$50)" : "FLAT")),
@@ -1796,7 +1943,10 @@ bool ExecuteMethod6StageS2_S3(int candCount,
 
    int closedWinType = candTypes[selectedIndices[0]];
 
-   if(InpMethod6CloseWinnerAtMarket)
+   bool s3ModifySL = (isSteep && InpMethod6S3ModifySLInsteadOfClose);
+   bool shouldCloseMarket = InpMethod6CloseWinnerAtMarket && !s3ModifySL;
+
+   if(shouldCloseMarket)
      {
       for(int c = 0; c < selectedCount; c++)
         {
@@ -1815,12 +1965,12 @@ bool ExecuteMethod6StageS2_S3(int candCount,
 
       if(InpMethod6CreatePendingOnWinnerClose)
         {
-         CreateMethod6PendingOrderAfterClose(closedWinType);
+         CreateMethod6PendingOrderAfterClose(closedWinType, true);
         }
      }
    else
      {
-      // Modify StopLoss with $50 buffer from live price direction
+      // Modify StopLoss with $50 buffer from live price direction (Stage S3 trend runner or user setting)
       for(int c = 0; c < selectedCount; c++)
         {
          int idx = selectedIndices[c];
@@ -1830,7 +1980,7 @@ bool ExecuteMethod6StageS2_S3(int candCount,
      }
 
    double iconPrice = (closedWinType == OP_BUY ? Bid : Ask);
-   string s2s3Action = InpMethod6CloseWinnerAtMarket ? "Winners Closed at Market" : "Winners SL Modified ($50 Live)";
+   string s2s3Action = shouldCloseMarket ? "Winners Closed at Market" : "Winners SL Modified ($50 Live)";
    DrawMethod6HitIcon(selectedCount, bestComboPL, TimeCurrent(), iconPrice,
                       StringFormat("Method 6 Stage %s", stageLabel), requiredTarget, s2s3Action);
    g_lastMethod6ActionTick = CurrentTickSequence;
