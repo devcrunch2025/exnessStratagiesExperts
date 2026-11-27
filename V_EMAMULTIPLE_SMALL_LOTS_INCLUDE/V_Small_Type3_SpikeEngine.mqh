@@ -63,6 +63,25 @@ bool IsType3SpikeActive()
         }
      }
 
+   // Condition C: Velocity Shock - EMA Distance expanded >= $300 in 5 minutes (User Observation)
+   if(InpEnableType3SpikeVelocityFilter)
+     {
+      int lookbackBars = (Period() == PERIOD_M1) ? InpType3SpikeVelocityLookbackM1 : (int)MathMax(1, 5 / Period());
+      if(Bars > lookbackBars)
+        {
+         double pastEma = iMA(Symbol(), Period(), InpEMA200Period, InpEMAPriceShift, MODE_EMA, PRICE_CLOSE, lookbackBars);
+         double pastPrice = Close[lookbackBars];
+         double pastDist = MathAbs(pastPrice - pastEma);
+         double deltaDist = distToEma - pastDist;
+
+         if(deltaDist >= InpType3Spike5MinDistanceChange)
+           {
+            g_type3SpikeActiveState = true;
+            return true;
+           }
+        }
+     }
+
    // Condition C: Active Open Spike or Two-Way orders exist on account
    for(int i = 0; i < OrdersTotal(); i++)
      {

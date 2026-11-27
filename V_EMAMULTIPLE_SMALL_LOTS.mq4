@@ -43,7 +43,7 @@ CheckBasketProfitClose  Total open basket profit
 
 */
 
-string glbVersion = "V-SMALL-1121- 3-Type Modular Trading Architecture";
+string glbVersion = "V-SMALL-1122- Type 3 5-Min 300 USD EMA Distance Spike Velocity Engine";
 
 int AccountMultiplierLOT = 500;//100;//1000;//400;//200;//500; ALWAYS multiples of 1000 is better for best results
 //balance multiplier
@@ -1138,6 +1138,9 @@ double InpPendingGapLossMultiplier         = 2.0;   // Pending gap multiplier on
  int    InpFastSpikeLookbackBars               = 5;     // Fast Spike: Lookback bars for rapid EMA slope detection (default 5 bars)
  bool   InpFastSpikeCloseOppositeOrders        = true;  // Fast Spike: Close all open opposite orders immediately when fast spike is detected
  bool   InpFastSpikeMarketOrder                = true;  // Fast Spike: Open direct market order without waiting for pending fill
+ bool   InpEnableType3SpikeVelocityFilter      = true;  // Type 3 Spike Velocity: Confirm Spike if EMA distance expanded >= $300 in 5 min
+ double InpType3Spike5MinDistanceChange        = 300.0; // Type 3 Spike Velocity: Min EMA distance expansion ($300) in 5 min (User Observation)
+ int    InpType3SpikeVelocityLookbackM1        = 5;     // Type 3 Spike Velocity: Lookback bars (5 min on M1)
 
  // ===== SPIKE $50 MINIMUM PROFIT LADDER & CLIMAX EXIT =====
  bool   InpEnableSpikeProfitLadder             = true;  // Spike Ladder: Enable Step Profit Ladder with Maximum Profit Protection
@@ -13737,7 +13740,7 @@ void OnTickCore()
    bool isClassicBullSpike = (InpEnableSpikeOrderCreation && EMADirection == 1 && GlobalEmaAngle30 < 0.0);
    bool isClassicBearSpike = (InpEnableSpikeOrderCreation && EMADirection == -1 && GlobalEmaAngle30 > 0.0);
 
-   // 2. Fast Momentum Spike: Price moving away from 200 EMA faster with steep EMA Angle confirmation
+   // 2. Fast Momentum Spike: Price moving away from 200 EMA faster with steep EMA Angle confirmation OR $300 in 5 min velocity shock
    bool isFastBullSpike = false;
    bool isFastBearSpike = false;
 
@@ -13747,29 +13750,54 @@ void OnTickCore()
       double fastEmaAng = GetEmaAngleDegrees(InpFastSpikeLookbackBars);
       double stdEmaAng  = GlobalEmaAngle30;
 
-      // Fast Bearish Spike: Price plunging away below 200 EMA with steep downward angle
-      if(Bid < liveEma200)
+      // 5-minute velocity check: Did distance from 200 EMA expand by >= $300 in 5 minutes? (User Observation)
+      bool is5MinVelocityShockBear = false;
+      bool is5MinVelocityShockBull = false;
+      if(InpEnableType3SpikeVelocityFilter)
         {
-         double distBelow = liveEma200 - Bid;
-         if(distBelow >= InpFastSpikeMinDistance)
+         int lookbackBars = (Period() == PERIOD_M1) ? InpType3SpikeVelocityLookbackM1 : (int)MathMax(1, 5 / Period());
+         if(Bars > lookbackBars)
            {
-            if(fastEmaAng <= -InpFastSpikeMinAngle || stdEmaAng <= -InpFastSpikeMinAngle)
+            double pastEma = iMA(Symbol(), Period(), InpEMA200Period, InpEMAPriceShift, MODE_EMA, PRICE_CLOSE, lookbackBars);
+            double pastPrice = Close[lookbackBars];
+
+            // Bearish velocity shock: price is below EMA and pulled away by >= $300 in 5 min
+            if(Bid < liveEma200)
               {
-               isFastBearSpike = true;
+               double pastDistBelow = (pastPrice < pastEma) ? (pastEma - pastPrice) : 0.0;
+               double deltaBelow = (liveEma200 - Bid) - pastDistBelow;
+               if(deltaBelow >= InpType3Spike5MinDistanceChange)
+                  is5MinVelocityShockBear = true;
+              }
+
+            // Bullish velocity shock: price is above EMA and pulled away by >= $300 in 5 min
+            if(Ask > liveEma200)
+              {
+               double pastDistAbove = (pastPrice > pastEma) ? (pastPrice - pastEma) : 0.0;
+               double deltaAbove = (Ask - liveEma200) - pastDistAbove;
+               if(deltaAbove >= InpType3Spike5MinDistanceChange)
+                  is5MinVelocityShockBull = true;
               }
            }
         }
 
-      // Fast Bullish Spike: Price surging away above 200 EMA with steep upward angle
+      // Fast Bearish Spike: Price plunging away below 200 EMA with steep downward angle OR >= $300 in 5 min velocity shock
+      if(Bid < liveEma200)
+        {
+         double distBelow = liveEma200 - Bid;
+         if(is5MinVelocityShockBear || (distBelow >= InpFastSpikeMinDistance && (fastEmaAng <= -InpFastSpikeMinAngle || stdEmaAng <= -InpFastSpikeMinAngle)))
+           {
+            isFastBearSpike = true;
+           }
+        }
+
+      // Fast Bullish Spike: Price surging away above 200 EMA with steep upward angle OR >= $300 in 5 min velocity shock
       if(Ask > liveEma200)
         {
          double distAbove = Ask - liveEma200;
-         if(distAbove >= InpFastSpikeMinDistance)
+         if(is5MinVelocityShockBull || (distAbove >= InpFastSpikeMinDistance && (fastEmaAng >= InpFastSpikeMinAngle || stdEmaAng >= InpFastSpikeMinAngle)))
            {
-            if(fastEmaAng >= InpFastSpikeMinAngle || stdEmaAng >= InpFastSpikeMinAngle)
-              {
-               isFastBullSpike = true;
-              }
+            isFastBullSpike = true;
            }
         }
      }
