@@ -42,36 +42,15 @@ bool IsType3SpikeActive()
       return true;
      }
 
-   // Condition B: Fast Distance Expansion away from 200 EMA with steep angle
-   if(InpEnableFastMovingEmaSpike && distToEma >= InpFastSpikeMinDistance)
-     {
-      double fastAngle = GetEmaAngleDegrees(InpFastSpikeLookbackBars);
-      double stdAngle  = GlobalEmaAngle30;
-
-      // Fast Downward Spike below EMA
-      if(curPrice < liveEma200 && (fastAngle <= -InpFastSpikeMinAngle || stdAngle <= -InpFastSpikeMinAngle))
-        {
-         g_type3SpikeActiveState = true;
-         return true;
-        }
-
-      // Fast Upward Spike above EMA
-      if(curPrice > liveEma200 && (fastAngle >= InpFastSpikeMinAngle || stdAngle >= InpFastSpikeMinAngle))
-        {
-         g_type3SpikeActiveState = true;
-         return true;
-        }
-     }
-
-   // Condition C: Velocity Shock - EMA Distance expanded >= $300 in 5 minutes (User Observation)
-   if(InpEnableType3SpikeVelocityFilter)
+   // Condition B: Velocity Shock - EMA Distance expanded >= $300 in 5 minutes (USER RULE: NO EMA ANGLE DEPENDENCY)
+   if(InpEnableType3SpikeVelocityFilter || InpEnableFastMovingEmaSpike)
      {
       int lookbackBars = (Period() == PERIOD_M1) ? InpType3SpikeVelocityLookbackM1 : (int)MathMax(1, 5 / Period());
       if(Bars > lookbackBars)
         {
-         double pastEma = iMA(Symbol(), Period(), InpEMA200Period, InpEMAPriceShift, MODE_EMA, PRICE_CLOSE, lookbackBars);
+         double pastEma   = iMA(Symbol(), Period(), InpEMA200Period, InpEMAPriceShift, MODE_EMA, PRICE_CLOSE, lookbackBars);
          double pastPrice = Close[lookbackBars];
-         double pastDist = MathAbs(pastPrice - pastEma);
+         double pastDist  = MathAbs(pastPrice - pastEma);
          double deltaDist = distToEma - pastDist;
 
          if(deltaDist >= InpType3Spike5MinDistanceChange)

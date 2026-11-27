@@ -43,7 +43,7 @@ CheckBasketProfitClose  Total open basket profit
 
 */
 
-string glbVersion = "V-SMALL-1123- Spike Lifecycle Chart Signal Visualizer";
+string glbVersion = "V-SMALL-1124- Pure 5-Min EMA Distance Velocity Spike Engine";
 
 int AccountMultiplierLOT = 500;//100;//1000;//400;//200;//500; ALWAYS multiples of 1000 is better for best results
 //balance multiplier
@@ -11824,12 +11824,10 @@ void CheckAndResumeDayTradingOnStrongAngleAndSSL()
    double curEmaAng = GetEmaAngleDegrees(30);
    double absAngle  = MathAbs(curEmaAng);
 
-   // Condition 3 Spike Mismatch Early Check:
-   // - Bullish Spike: EMADirection == 1 (Bull) && Angle < 0.0
-   // - Bearish Spike: EMADirection == -1 (Bear) && Angle > 0.0
-   bool isBullSpike = (liveEmaDir == 1 && curEmaAng < 0.0);
-   bool isBearSpike = (liveEmaDir == -1 && curEmaAng > 0.0);
-   bool isCond3Spike = (ResumeDayTradingOnSpikeMismatch && (isBullSpike || isBearSpike));
+   // Condition 3: Spike Detected (USER RULE: NO EMAangle condition. Spike is all about 5-min distance moving away faster from EMA)
+   bool isCond3Spike = (ResumeDayTradingOnSpikeMismatch && IsType3SpikeActive());
+   bool isBullSpike = (liveEmaDir == 1);
+   bool isBearSpike = (liveEmaDir == -1);
 
 // 1. Minimum cooldown buffer (e.g. 10 mins) to prevent immediate same-tick re-entry into the pullback
 // Spikes are sudden rapid moves; bypass cooldown if InpSpikeResumeBypassCooldown is enabled
@@ -12925,6 +12923,14 @@ void OnTick()
 
    bool isTradingPausedOrBlocked = (g_dailyEquityTradingBlocked || g_manualTradingPaused || DayProfitLadderTradingStopped || g_dailyEquityAdverseLossHitToday || TradingHaltedUntilNextFlip);
 
+   // USER RULE: Resume trading when spike is detected (5-min fast EMA distance expansion >= $300)
+   if(isTradingPausedOrBlocked && IsType3SpikeActive())
+     {
+      PrintFormat(">>> [SPIKE DETECTED - RESUMING TRADING] Fast 5-min EMA distance expansion detected! Unblocking trading to capture spike momentum...");
+      PerformDayTradingResume("SPIKE DETECTED (Fast 5-Min Distance Expansion from EMA)");
+      isTradingPausedOrBlocked = false;
+     }
+
    if(isTradingPausedOrBlocked)
      {
       // Safety check: ensure all EA orders are truly closed and pending deleted (unless manual pause keeping open market orders)
@@ -13738,74 +13744,53 @@ void OnTickCore()
      }
 
    // USER RULE: Spike Order Creation Engine
-   // 1. Classic Counter-Trend Spike (Direction vs Angle Mismatch)
-   bool isClassicBullSpike = (InpEnableSpikeOrderCreation && EMADirection == 1 && GlobalEmaAngle30 < 0.0);
-   bool isClassicBearSpike = (InpEnableSpikeOrderCreation && EMADirection == -1 && GlobalEmaAngle30 > 0.0);
+   // USER SPECIFICATION: SPIKE has NO condition on EMAangle.
+   // SPIKE is all about distance from EMA moving away from EMA line faster in 5 minutes!
+   bool isBullishSpike = false;
+   bool isBearishSpike = false;
 
-   // 2. Fast Momentum Spike: Price moving away from 200 EMA faster with steep EMA Angle confirmation OR $300 in 5 min velocity shock
-   bool isFastBullSpike = false;
-   bool isFastBearSpike = false;
-
-   if(InpEnableFastMovingEmaSpike)
+   if(InpEnableFastMovingEmaSpike || InpEnableType3SpikeVelocityFilter)
      {
       double liveEma200 = iMA(Symbol(), Period(), InpEMA200Period, InpEMAPriceShift, MODE_EMA, PRICE_CLOSE, 0);
-      double fastEmaAng = GetEmaAngleDegrees(InpFastSpikeLookbackBars);
-      double stdEmaAng  = GlobalEmaAngle30;
-
-      // 5-minute velocity check: Did distance from 200 EMA expand by >= $300 in 5 minutes? (User Observation)
-      bool is5MinVelocityShockBear = false;
-      bool is5MinVelocityShockBull = false;
-      if(InpEnableType3SpikeVelocityFilter)
+      if(liveEma200 > 0.0)
         {
          int lookbackBars = (Period() == PERIOD_M1) ? InpType3SpikeVelocityLookbackM1 : (int)MathMax(1, 5 / Period());
          if(Bars > lookbackBars)
            {
-            double pastEma = iMA(Symbol(), Period(), InpEMA200Period, InpEMAPriceShift, MODE_EMA, PRICE_CLOSE, lookbackBars);
+            double pastEma   = iMA(Symbol(), Period(), InpEMA200Period, InpEMAPriceShift, MODE_EMA, PRICE_CLOSE, lookbackBars);
             double pastPrice = Close[lookbackBars];
 
-            // Bearish velocity shock: price is below EMA and pulled away by >= $300 in 5 min
+            // Bearish Spike: Price plunging away below 200 EMA and distance expanding >= $300 in 5 min OR Climax >= $1000
             if(Bid < liveEma200)
               {
+               double curDistBelow  = liveEma200 - Bid;
                double pastDistBelow = (pastPrice < pastEma) ? (pastEma - pastPrice) : 0.0;
-               double deltaBelow = (liveEma200 - Bid) - pastDistBelow;
-               if(deltaBelow >= InpType3Spike5MinDistanceChange)
-                  is5MinVelocityShockBear = true;
+               double deltaBelow    = curDistBelow - pastDistBelow;
+
+               if(deltaBelow >= InpType3Spike5MinDistanceChange || curDistBelow >= GetTwoWayClimaxMinDistance())
+                 {
+                  isBearishSpike = true;
+                 }
               }
 
-            // Bullish velocity shock: price is above EMA and pulled away by >= $300 in 5 min
+            // Bullish Spike: Price rocketing away above 200 EMA and distance expanding >= $300 in 5 min OR Climax >= $1000
             if(Ask > liveEma200)
               {
+               double curDistAbove  = Ask - liveEma200;
                double pastDistAbove = (pastPrice > pastEma) ? (pastPrice - pastEma) : 0.0;
-               double deltaAbove = (Ask - liveEma200) - pastDistAbove;
-               if(deltaAbove >= InpType3Spike5MinDistanceChange)
-                  is5MinVelocityShockBull = true;
+               double deltaAbove    = curDistAbove - pastDistAbove;
+
+               if(deltaAbove >= InpType3Spike5MinDistanceChange || curDistAbove >= GetTwoWayClimaxMinDistance())
+                 {
+                  isBullishSpike = true;
+                 }
               }
-           }
-        }
-
-      // Fast Bearish Spike: Price plunging away below 200 EMA with steep downward angle OR >= $300 in 5 min velocity shock
-      if(Bid < liveEma200)
-        {
-         double distBelow = liveEma200 - Bid;
-         if(is5MinVelocityShockBear || (distBelow >= InpFastSpikeMinDistance && (fastEmaAng <= -InpFastSpikeMinAngle || stdEmaAng <= -InpFastSpikeMinAngle)))
-           {
-            isFastBearSpike = true;
-           }
-        }
-
-      // Fast Bullish Spike: Price surging away above 200 EMA with steep upward angle OR >= $300 in 5 min velocity shock
-      if(Ask > liveEma200)
-        {
-         double distAbove = Ask - liveEma200;
-         if(is5MinVelocityShockBull || (distAbove >= InpFastSpikeMinDistance && (fastEmaAng >= InpFastSpikeMinAngle || stdEmaAng >= InpFastSpikeMinAngle)))
-           {
-            isFastBullSpike = true;
            }
         }
      }
 
-   bool isBullishSpike = (isClassicBullSpike || isFastBullSpike);
-   bool isBearishSpike = (isClassicBearSpike || isFastBearSpike);
+   bool isFastBullSpike = isBullishSpike;
+   bool isFastBearSpike = isBearishSpike;
 
    if(isBullishSpike)
      {
@@ -13847,9 +13832,9 @@ void OnTickCore()
         {
          s_lastSpikeBuyTime = TimeCurrent();
          OpenBuy("SPIKE_BUY");
-         DrawSpikeLifecycleSignal("SPIKE_START", 1, Ask, StringFormat("Fast Bull Spike BUY | Angle=%.1f deg", GlobalEmaAngle30));
-         PrintFormat(">>> [FAST SPIKE ENGINE] Created Spike BUY | Mode=%s | ActiveSpikes=%d/%d | Angle=%.1f deg",
-                     (InpFastSpikeMarketOrder ? "MARKET" : "PENDING"), activeSpikeBuyCount + 1, InpMaxActiveSpikeOrders, GlobalEmaAngle30);
+         DrawSpikeLifecycleSignal("SPIKE_START", 1, Ask, "Bullish Spike BUY | 5-Min EMA Distance Velocity");
+         PrintFormat(">>> [FAST SPIKE ENGINE] Created Spike BUY | Mode=%s | ActiveSpikes=%d/%d | 5-Min Distance Velocity Shock",
+                     (InpFastSpikeMarketOrder ? "MARKET" : "PENDING"), activeSpikeBuyCount + 1, InpMaxActiveSpikeOrders);
         }
      }
    else if(isBearishSpike)
@@ -13892,9 +13877,9 @@ void OnTickCore()
         {
          s_lastSpikeSellTime = TimeCurrent();
          OpenSell("SPIKE_SELL");
-         DrawSpikeLifecycleSignal("SPIKE_START", -1, Bid, StringFormat("Fast Bear Spike SELL | Angle=%.1f deg", GlobalEmaAngle30));
-         PrintFormat(">>> [FAST SPIKE ENGINE] Created Spike SELL | Mode=%s | ActiveSpikes=%d/%d | Angle=%.1f deg",
-                     (InpFastSpikeMarketOrder ? "MARKET" : "PENDING"), activeSpikeSellCount + 1, InpMaxActiveSpikeOrders, GlobalEmaAngle30);
+         DrawSpikeLifecycleSignal("SPIKE_START", -1, Bid, "Bearish Spike SELL | 5-Min EMA Distance Velocity");
+         PrintFormat(">>> [FAST SPIKE ENGINE] Created Spike SELL | Mode=%s | ActiveSpikes=%d/%d | 5-Min Distance Velocity Shock",
+                     (InpFastSpikeMarketOrder ? "MARKET" : "PENDING"), activeSpikeSellCount + 1, InpMaxActiveSpikeOrders);
         }
      }
 
