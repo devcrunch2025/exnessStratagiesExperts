@@ -43,7 +43,7 @@ CheckBasketProfitClose  Total open basket profit
 
 */
 
-string glbVersion = "V-SMALL-1118- Two-Regime Trading System State Machine";
+string glbVersion = "V-SMALL-1119- Create Orders While Falling Increase Distance From EMA";
 
 int AccountMultiplierLOT = 500;//100;//1000;//400;//200;//500; ALWAYS multiples of 1000 is better for best results
 //balance multiplier
@@ -412,8 +412,13 @@ int                 g_regime2TotalTransitions    = 0;
 extern bool   InpEnableTwoWayEngine               = true;     // Enable Method 7 Two-Way Engine (Waterfall + V-Rebound)
 extern bool   InpTwoWayEnableFallingOrders        = true;     // Enable Falling SELL orders on downward momentum
 extern bool   InpTwoWayEnableRisingOrders         = true;     // Enable Rising BUY orders on upward momentum
+extern double InpTwoWayWaterfallLotBase           = 0.01;     // Base lot size for Waterfall trend orders
+extern double InpTwoWayWaterfallStartDist         = 150.0;    // Min EMA distance ($150) to start Waterfall orders
+extern double InpTwoWayWaterfallStepRaw           = 150.0;    // Step gap ($150) between consecutive falling/rising orders as distance from EMA increases
+extern int    InpTwoWayMaxWaterfallOrders         = 6;        // Max concurrent Waterfall orders (per direction)
+extern double InpTwoWayWaterfallInitialSL         = 250.0;    // Initial StopLoss offset ($250) for Waterfall orders
+extern double InpTwoWayWaterfallTrailDist         = 100.0;    // Trailing stop gap ($100) behind price to lock profits
 extern double InpTwoWayClimaxEmaDistance          = 1000.0;   // Min EMA distance ($1000) to qualify for Climax Rebound (minimum $1000)
-extern double InpTwoWayWaterfallStepRaw           = 150.0;    // Step gap ($150) between consecutive falling/rising orders
 extern double InpTwoWayReboundLotBase             = 0.02;     // Base lot size for Two-Way Rebound orders
 extern double InpTwoWaySLOffsetBeyondLine         = 150.0;    // StopLoss offset ($150) beyond horizontal line (Green: Line - 150, Red: Line + 150)
 extern double InpTwoWayBreakevenTriggerGap        = 100.0;    // Favorable move ($100) to move Rebound SL to Breakeven (+cushion)
@@ -16009,7 +16014,7 @@ int SafeOrderSend(string symbol,int orderType,double lots,double price,int slipp
    bool isSpikeOrder        = (StringFind(comment, "SPIKE") >= 0);
    bool isTwoWayOrder       = (StringFind(comment, "M7_") == 0);
 
-   if(!isSpikeOrder)
+   if(!isSpikeOrder && !isTwoWayOrder)
      {
       if(OnlyAllowFLIPBasketSupportOrders && !isFlipBasketSupport)
         {

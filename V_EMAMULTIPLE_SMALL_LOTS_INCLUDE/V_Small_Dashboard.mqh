@@ -2753,7 +2753,7 @@ void UpdateDashboard(DailyProtectionState &state)
    else
       strong= " STRONG";
 
-   string txLock="FLIP Step "+FlipLadderStepUSD*balancelomultipler+"% Day Stop $"+DailyEquityStopUSD*balancelomultipler+""+" Flip Stop $"+TargetProfitPerFlipUSD*balancelomultipler+"";
+   string txLock="FLIP Step "+DoubleToString(FlipLadderStepUSD*balancelomultipler, 0)+"% Day Stop $"+DoubleToString(DailyEquityStopUSD*balancelomultipler, 0)+""+" Flip Stop $"+DoubleToString(TargetProfitPerFlipUSD*balancelomultipler, 0)+"";
 
    if(!g_dashRedesignV5Reset)
      {

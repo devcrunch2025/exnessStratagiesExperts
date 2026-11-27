@@ -20,6 +20,8 @@ static datetime s_lastTwoWayPurgedEqlStart  = 0;
 static datetime s_lastTwoWayPurgedEqhStart  = 0;
 static datetime s_lastTwoWayFallOrderTime   = 0;
 static datetime s_lastTwoWayRiseOrderTime   = 0;
+static double   s_lastFallingMilestoneDist  = 0.0;
+static double   s_lastRisingMilestoneDist   = 0.0;
 
 //+------------------------------------------------------------------+
 //| GetTwoWayClimaxMinDistance: Enforces minimum $1000 threshold     |
@@ -152,6 +154,7 @@ void CheckTwoWayClimaxRunnerLiquidation(double emaDist, int emaDir)
 
 //+------------------------------------------------------------------+
 //| CheckTwoWayFallingAndRisingOrders: The Waterfall Cascade Engine  |
+//| Creates orders as distance from EMA INCREASES during drops/surges|
 //+------------------------------------------------------------------+
 void CheckTwoWayFallingAndRisingOrders(double liveEma, double emaDist, int emaDir)
   {
@@ -159,94 +162,134 @@ void CheckTwoWayFallingAndRisingOrders(double liveEma, double emaDist, int emaDi
       return;
 
    double mult = (balancelomultipler > 0) ? balancelomultipler : 1.0;
-   double lots = NormalizeLots(InpTwoWayReboundLotBase * mult);
+   double baseLots = (InpTwoWayWaterfallLotBase > 0.0) ? InpTwoWayWaterfallLotBase : 0.01;
+   double lots = NormalizeLots(baseLots * mult);
    if(lots <= 0.0)
       lots = 0.01;
 
-   // 1. FALLING ORDERS (Waterfall SELLs)
-   if(InpTwoWayEnableFallingOrders && emaDir == -1 && Bid < (liveEma - 100.0))
+   int maxOrders = (InpTwoWayMaxWaterfallOrders > 0) ? InpTwoWayMaxWaterfallOrders : 6;
+   double startDist = (InpTwoWayWaterfallStartDist > 0.0) ? InpTwoWayWaterfallStartDist : 150.0;
+   double stepDist = (InpTwoWayWaterfallStepRaw > 0.0) ? InpTwoWayWaterfallStepRaw : 150.0;
+   double initSL = (InpTwoWayWaterfallInitialSL > 0.0) ? InpTwoWayWaterfallInitialSL : 250.0;
+
+   // -------------------------------------------------------------
+   // 1. FALLING WATERFALL ORDERS (SELL on downward momentum)
+   // -------------------------------------------------------------
+   if(InpTwoWayEnableFallingOrders)
      {
-      bool isGreenActive = (GetLsdSweepActiveEqlLineStart() > 0 &&
-                           (IsLsdSweepGreenLinePresent() || GetEQR_G_Price(true) > 0.0));
-      // Stop creating falling orders if green horizontal floor has initiated
-      if(!isGreenActive)
+      // If price returns near or above EMA, reset the falling milestone distance
+      if(Bid >= (liveEma - 50.0))
         {
-         int fallingCount = 0;
-         double lowestSellPrice = 999999.0;
+         s_lastFallingMilestoneDist = 0.0;
+        }
+      else if(Bid < (liveEma - startDist))
+        {
+         double curDistBelow = liveEma - Bid;
 
-         for(int i = 0; i < OrdersTotal(); i++)
+         // Check if Green Horizontal Line (EQL-G) is active at the floor
+         bool isGreenActive = IsTwoWayFreezeTrendActive(-1);
+
+         // Only open falling SELL orders if floor hasn't initiated
+         if(!isGreenActive)
            {
-            if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
-               continue;
-            if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber)
-               continue;
-            if(OrderType() == OP_SELL && StringFind(OrderComment(), "M7_FALL") == 0)
+            // Determine if a new distance milestone is reached
+            bool isMilestoneReached = false;
+            if(s_lastFallingMilestoneDist <= 0.0)
               {
-               fallingCount++;
-               if(OrderOpenPrice() < lowestSellPrice)
-                  lowestSellPrice = OrderOpenPrice();
+               isMilestoneReached = true;
               }
-           }
-
-         // Max 2 active M7 falling orders, spaced at least InpTwoWayWaterfallStepRaw apart
-         if(fallingCount < 2)
-           {
-            bool spacingOk = (fallingCount == 0 || (lowestSellPrice - Bid) >= InpTwoWayWaterfallStepRaw);
-            if(spacingOk && (TimeCurrent() - s_lastTwoWayFallOrderTime >= 30))
+            else if(curDistBelow >= (s_lastFallingMilestoneDist + stepDist))
               {
-               RefreshRates();
-               double sl = NormalizeDouble(Ask + 300.0, Digits);
-               int tkt = SafeOrderSend(Symbol(), OP_SELL, lots, Bid, Slippage, sl, 0, "M7_FALL_SELL", MagicNumber, clrRed);
-               if(tkt > 0)
+               isMilestoneReached = true;
+              }
+
+            if(isMilestoneReached)
+              {
+               int fallingCount = 0;
+               for(int i = 0; i < OrdersTotal(); i++)
                  {
-                  s_lastTwoWayFallOrderTime = TimeCurrent();
-                  PrintFormat(">>> [TWO-WAY ENGINE] Opened Falling SELL #%d at %.2f (Dist to EMA=$%.2f)",
-                              tkt, Bid, emaDist);
+                  if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
+                     continue;
+                  if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber)
+                     continue;
+                  if(OrderType() == OP_SELL && StringFind(OrderComment(), "M7_FALL") == 0)
+                     fallingCount++;
+                 }
+
+               if(fallingCount < maxOrders && (TimeCurrent() - s_lastTwoWayFallOrderTime >= 5))
+                 {
+                  RefreshRates();
+                  double sl = NormalizeDouble(Ask + initSL, Digits);
+                  int tkt = SafeOrderSend(Symbol(), OP_SELL, lots, Bid, Slippage, sl, 0, "M7_FALL_SELL", MagicNumber, clrRed);
+                  if(tkt > 0)
+                    {
+                     s_lastFallingMilestoneDist = curDistBelow;
+                     s_lastTwoWayFallOrderTime = TimeCurrent();
+                     PrintFormat(">>> [TWO-WAY ENGINE] Opened Falling SELL #%d (Order #%d/%d) at %.2f | Dist to EMA=$%.2f (Milestone Step=$%.2f)",
+                                 tkt, fallingCount + 1, maxOrders, Bid, curDistBelow, stepDist);
+                    }
                  }
               }
            }
         }
      }
 
-   // 2. RISING ORDERS (Surge BUYs)
-   if(InpTwoWayEnableRisingOrders && emaDir == 1 && Ask > (liveEma + 100.0))
+   // -------------------------------------------------------------
+   // 2. RISING SURGE ORDERS (BUY on upward momentum)
+   // -------------------------------------------------------------
+   if(InpTwoWayEnableRisingOrders)
      {
-      bool isRedActive = (GetLsdSweepActiveEqhLineStart() > 0 &&
-                         (IsLsdSweepRedLinePresent() || GetEQR_R_Price(true) > 0.0));
-      // Stop creating rising orders if red horizontal ceiling has initiated
-      if(!isRedActive)
+      // If price returns near or below EMA, reset the rising milestone distance
+      if(Ask <= (liveEma + 50.0))
         {
-         int risingCount = 0;
-         double highestBuyPrice = 0.0;
+         s_lastRisingMilestoneDist = 0.0;
+        }
+      else if(Ask > (liveEma + startDist))
+        {
+         double curDistAbove = Ask - liveEma;
 
-         for(int i = 0; i < OrdersTotal(); i++)
+         // Check if Red Horizontal Line (EQH-R) is active at the ceiling
+         bool isRedActive = IsTwoWayFreezeTrendActive(1);
+
+         // Only open rising BUY orders if ceiling hasn't initiated
+         if(!isRedActive)
            {
-            if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
-               continue;
-            if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber)
-               continue;
-            if(OrderType() == OP_BUY && StringFind(OrderComment(), "M7_RISE") == 0)
+            // Determine if a new distance milestone is reached
+            bool isMilestoneReached = false;
+            if(s_lastRisingMilestoneDist <= 0.0)
               {
-               risingCount++;
-               if(OrderOpenPrice() > highestBuyPrice)
-                  highestBuyPrice = OrderOpenPrice();
+               isMilestoneReached = true;
               }
-           }
-
-         // Max 2 active M7 rising orders, spaced at least InpTwoWayWaterfallStepRaw apart
-         if(risingCount < 2)
-           {
-            bool spacingOk = (risingCount == 0 || (Ask - highestBuyPrice) >= InpTwoWayWaterfallStepRaw);
-            if(spacingOk && (TimeCurrent() - s_lastTwoWayRiseOrderTime >= 30))
+            else if(curDistAbove >= (s_lastRisingMilestoneDist + stepDist))
               {
-               RefreshRates();
-               double sl = NormalizeDouble(Bid - 300.0, Digits);
-               int tkt = SafeOrderSend(Symbol(), OP_BUY, lots, Ask, Slippage, sl, 0, "M7_RISE_BUY", MagicNumber, clrGreen);
-               if(tkt > 0)
+               isMilestoneReached = true;
+              }
+
+            if(isMilestoneReached)
+              {
+               int risingCount = 0;
+               for(int i = 0; i < OrdersTotal(); i++)
                  {
-                  s_lastTwoWayRiseOrderTime = TimeCurrent();
-                  PrintFormat(">>> [TWO-WAY ENGINE] Opened Rising BUY #%d at %.2f (Dist to EMA=$%.2f)",
-                              tkt, Ask, emaDist);
+                  if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
+                     continue;
+                  if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber)
+                     continue;
+                  if(OrderType() == OP_BUY && StringFind(OrderComment(), "M7_RISE") == 0)
+                     risingCount++;
+                 }
+
+               if(risingCount < maxOrders && (TimeCurrent() - s_lastTwoWayRiseOrderTime >= 5))
+                 {
+                  RefreshRates();
+                  double sl = NormalizeDouble(Bid - initSL, Digits);
+                  int tkt = SafeOrderSend(Symbol(), OP_BUY, lots, Ask, Slippage, sl, 0, "M7_RISE_BUY", MagicNumber, clrGreen);
+                  if(tkt > 0)
+                    {
+                     s_lastRisingMilestoneDist = curDistAbove;
+                     s_lastTwoWayRiseOrderTime = TimeCurrent();
+                     PrintFormat(">>> [TWO-WAY ENGINE] Opened Rising BUY #%d (Order #%d/%d) at %.2f | Dist to EMA=$%.2f (Milestone Step=$%.2f)",
+                                 tkt, risingCount + 1, maxOrders, Ask, curDistAbove, stepDist);
+                    }
                  }
               }
            }
@@ -444,8 +487,10 @@ void ManageTwoWayReboundAndWaterfallOrders()
       if(type == OP_SELL && StringFind(comm, "M7_FALL_SELL") == 0)
         {
          double profitPts = openPrice - Ask;
-         // Breakeven Lock at +$100
-         if(profitPts >= InpTwoWayTrailStepUSD)
+         double trailDist = (InpTwoWayWaterfallTrailDist > 0.0) ? InpTwoWayWaterfallTrailDist : 100.0;
+
+         // Tier 1: Breakeven Lock (+10 pts locked once profit >= trailDist)
+         if(profitPts >= trailDist)
            {
             double targetSL = NormalizeDouble(openPrice - 10.0, Digits);
             if((curSL == 0.0 || targetSL < curSL) && targetSL > (Ask + minStopDist))
@@ -454,11 +499,11 @@ void ManageTwoWayReboundAndWaterfallOrders()
                curSL = targetSL;
               }
            }
-         // Step-Trailing Ratchet ($100 steps behind price)
-         if(profitPts >= (InpTwoWayTrailStepUSD * 2.0))
+         // Tier 2: Dynamic Trailing Ratchet behind price (once profit >= trailDist * 1.5)
+         if(profitPts >= (trailDist * 1.5))
            {
-            double targetSL = NormalizeDouble(Ask + InpTwoWayTrailStepUSD, Digits);
-            if((curSL == 0.0 || targetSL < curSL) && targetSL > (Ask + minStopDist))
+            double targetSL = NormalizeDouble(Ask + trailDist, Digits);
+            if((curSL == 0.0 || (curSL - targetSL) >= 10.0) && targetSL > (Ask + minStopDist))
               {
                SafeOrderModify(tkt, openPrice, targetSL, OrderTakeProfit(), 0, clrOrangeRed);
               }
@@ -469,21 +514,23 @@ void ManageTwoWayReboundAndWaterfallOrders()
       if(type == OP_BUY && StringFind(comm, "M7_RISE_BUY") == 0)
         {
          double profitPts = Bid - openPrice;
-         // Breakeven Lock at +$100
-         if(profitPts >= InpTwoWayTrailStepUSD)
+         double trailDist = (InpTwoWayWaterfallTrailDist > 0.0) ? InpTwoWayWaterfallTrailDist : 100.0;
+
+         // Tier 1: Breakeven Lock (+10 pts locked once profit >= trailDist)
+         if(profitPts >= trailDist)
            {
             double targetSL = NormalizeDouble(openPrice + 10.0, Digits);
-            if(targetSL > curSL && targetSL < (Bid - minStopDist))
+            if((curSL == 0.0 || targetSL > curSL) && targetSL < (Bid - minStopDist))
               {
                SafeOrderModify(tkt, openPrice, targetSL, OrderTakeProfit(), 0, clrLime);
                curSL = targetSL;
               }
            }
-         // Step-Trailing Ratchet ($100 steps behind price)
-         if(profitPts >= (InpTwoWayTrailStepUSD * 2.0))
+         // Tier 2: Dynamic Trailing Ratchet behind price (once profit >= trailDist * 1.5)
+         if(profitPts >= (trailDist * 1.5))
            {
-            double targetSL = NormalizeDouble(Bid - InpTwoWayTrailStepUSD, Digits);
-            if(targetSL > curSL && targetSL < (Bid - minStopDist))
+            double targetSL = NormalizeDouble(Bid - trailDist, Digits);
+            if((curSL == 0.0 || (targetSL - curSL) >= 10.0) && targetSL < (Bid - minStopDist))
               {
                SafeOrderModify(tkt, openPrice, targetSL, OrderTakeProfit(), 0, clrLime);
               }
