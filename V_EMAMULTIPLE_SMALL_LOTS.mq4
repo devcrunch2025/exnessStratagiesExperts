@@ -43,7 +43,7 @@ CheckBasketProfitClose  Total open basket profit
 
 */
 
-string glbVersion = "V-SMALL-1111- Left Dash Day Eq Target Zero Overlap and Method 6 Tooltips";
+string glbVersion = "V-SMALL-1112- V-Monitoring Weak EMA Opposite Equity Protection Orders";
 
 int AccountMultiplierLOT = 500;//100;//1000;//400;//200;//500; ALWAYS multiples of 1000 is better for best results
 //balance multiplier
@@ -92,6 +92,13 @@ bool   InpDeepDrawdownTrailLiveSL          = true;  // Ratchet/trail SL higher i
 int    InpDeepDrawdownCooldownMinutes      = 30;    // Cooldown pause minutes after clamped basket exits completely
 double InpDeepDrawdownSteepAngleDeg        = 6.0;   // Minimum MathAbs(EMAangle) to allow 90% early recovery trigger (> 6.0 deg)
 double InpDeepDrawdownSteepAngleTargetPct  = 90.0;  // Recovery target percentage (90% of armed target) when MathAbs(EMAangle) > threshold
+
+//--- V-Monitoring Weak EMA Opposite Equity Protection Order ---
+bool   InpEnableVMonitoringOppositeOrders   = true;   // V-Monitoring: Create opposite order when EMA is weak to protect equity
+double InpVMonitoringOppositeSLGapUSD       = 200.0;  // V-Monitoring: Opposite order StopLoss gap in USD ($200)
+double InpVMonitoringOppositeLots           = 0.01;   // V-Monitoring: Opposite order lot size (0.01)
+int    InpVMonitoringOppositeMaxOrders      = 1;      // V-Monitoring: Max open opposite orders active simultaneously (default 1)
+int    InpVMonitoringOppositeCooldownSec    = 300;    // V-Monitoring: Minimum cooldown seconds between opposite orders (300s = 5m)
 
 //--- Basket Loss De-Risk & Breakeven Protection ---
 bool   InpEnableBasketDeRiskOnLoss         = true;  // Enable basket de-risking when basket loss >= $10 * mult
@@ -213,6 +220,8 @@ datetime g_deepDrawdownCooldownUntil         = 0;     // Server time until which
 datetime g_deepDrawdownArmedBarTime          = 0;     // Bar time when V-Monitoring Armed was triggered
 double   g_deepDrawdownArmedPrice            = 0.0;   // Price level where V-Monitoring Armed icon was placed
 double   g_deepDrawdownArmedTarget           = 0.0;   // Target equity amount calculated when shield was armed
+datetime g_lastVMonitoringOppositeOrderTime  = 0;     // Time when last V-monitoring opposite order was created
+datetime g_lastVMonitoringOppositeBarTime    = 0;     // Bar time when last V-monitoring opposite order was created
 
 bool EnableBounceBackDetection = false;
 
@@ -646,6 +655,9 @@ void     CreateDeepDrawdownArmedChartIcon(double startBal, double lowestEq, doub
 void     CreateDeepDrawdownClampedChartIcon(double curEq, double recTarget, double emaAngle = 0.0, bool isSteepAngle = false);
 void     CreateDeepDrawdownEndChartIcon(double finalBal);
 void     DeleteDeepDrawdownChartIcons();
+void     ManageVMonitoringWeakEmaOppositeOrder();
+int      CountOpenVMonitoringOppositeOrders();
+void     DrawVMonitoringOppositeOrderIcon(int ticket, int orderType, double entryPrice, double stopLoss, double slGap);
 void     CheckBasketLossDeRiskAndBreakevenProtection();
 double   GetSSLLongShortPendingGapRaw(int orderType, bool logMessage = false);
 void     CreateDashboardButton(string name, string text, int x, int y, int width, int height, color bgColor, color textColor, color borderColor);
@@ -12597,6 +12609,8 @@ void CheckDeepDrawdownRecoveryShield()
       g_deepDrawdownLiveSlClamped         = false;
       g_deepDrawdownCycleArmed            = false;
       g_deepDrawdownArmedTarget           = 0.0;
+      g_lastVMonitoringOppositeOrderTime  = 0;
+      g_lastVMonitoringOppositeBarTime    = 0;
       return;
      }
 
@@ -12654,6 +12668,10 @@ void CheckDeepDrawdownRecoveryShield()
       if(g_deepDrawdownArmedTarget <= 0.0)
          g_deepDrawdownArmedTarget = recTarget;
 
+      // USER RULE: When V-Monitoring started and active and target is decided,
+      // create opposite orders when EMA is weak to protect equity (SL $200 gap)
+      ManageVMonitoringWeakEmaOppositeOrder();
+
       double curEmaAng = (GlobalEmaAngle30 != 0.0) ? GlobalEmaAngle30 : GetEmaAngleDegrees(30);
       double absEmaAng = MathAbs(curEmaAng);
 
@@ -12702,6 +12720,179 @@ void CheckDeepDrawdownRecoveryShield()
    if(g_deepDrawdownLiveSlClamped && InpDeepDrawdownTrailLiveSL)
      {
       ModifyOpenOrdersToCurrentPriceSL("Deep Drawdown Recovery Trailing", true);
+     }
+  }
+
+//+------------------------------------------------------------------+
+//| CountOpenVMonitoringOppositeOrders                               |
+//| Counts active open market orders tagged as VMON_OPP              |
+//+------------------------------------------------------------------+
+int CountOpenVMonitoringOppositeOrders()
+  {
+   int count = 0;
+   for(int i = OrdersTotal() - 1; i >= 0; i--)
+     {
+      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
+         continue;
+      if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber)
+         continue;
+      if(OrderType() != OP_BUY && OrderType() != OP_SELL)
+         continue;
+      if(StringFind(OrderComment(), "VMON_OPP") >= 0)
+         count++;
+     }
+   return count;
+  }
+
+//+------------------------------------------------------------------+
+//| DrawVMonitoringOppositeOrderIcon                                 |
+//| Draws chart marker and text label when V-Monitoring opposite     |
+//| order is placed to protect equity.                               |
+//+------------------------------------------------------------------+
+void DrawVMonitoringOppositeOrderIcon(int ticket, int orderType, double entryPrice, double stopLoss, double slGap)
+  {
+   datetime barTime = Time[0];
+   double atr = iATR(Symbol(), Period(), 14, 0);
+   if(atr <= 0.0)
+      atr = 30.0 * Point;
+
+   double markerPrice = (orderType == OP_BUY) ? (Low[0] - (atr * 0.35)) : (High[0] + (atr * 0.35));
+   double labelPrice  = (orderType == OP_BUY) ? (markerPrice - (atr * 0.35)) : (markerPrice + (atr * 0.35));
+
+   static int vmonOppSeq = 0;
+   vmonOppSeq++;
+   string baseName = PREFIX + "VMON_OPP_" + IntegerToString((int)barTime) + "_" + IntegerToString(vmonOppSeq);
+   string txtName  = baseName + "_TXT";
+
+   color iconColor = (orderType == OP_BUY) ? clrDeepSkyBlue : clrOrangeRed;
+   int   iconCode  = (orderType == OP_BUY) ? 233 : 234; // Wingdings 233 = up arrow, 234 = down arrow
+
+   ObjectCreate(0, baseName, OBJ_ARROW, 0, barTime, markerPrice);
+   ObjectSetInteger(0, baseName, OBJPROP_ARROWCODE, iconCode);
+   ObjectSetInteger(0, baseName, OBJPROP_COLOR, iconColor);
+   ObjectSetInteger(0, baseName, OBJPROP_WIDTH, 3);
+   ObjectSetInteger(0, baseName, OBJPROP_BACK, false);
+   ObjectSetInteger(0, baseName, OBJPROP_SELECTABLE, false);
+   ObjectSetInteger(0, baseName, OBJPROP_HIDDEN, false);
+
+   string tooltip = StringFormat("V-Monitoring Opposite Protection Order #%d | %s at %s | SL: %s ($%.0f gap) | Bounce Tgt: $%.2f | Time: %s",
+                                 ticket, (orderType == OP_BUY ? "BUY" : "SELL"),
+                                 DoubleToString(entryPrice, Digits), DoubleToString(stopLoss, Digits),
+                                 slGap, g_deepDrawdownArmedTarget,
+                                 TimeToString(TimeCurrent(), TIME_DATE|TIME_MINUTES|TIME_SECONDS));
+   ObjectSetString(0, baseName, OBJPROP_TOOLTIP, tooltip);
+
+   string labelText = StringFormat("V-MON OPP #%d (%s SL:$%.0f)", ticket, (orderType == OP_BUY ? "BUY" : "SELL"), slGap);
+   ObjectCreate(0, txtName, OBJ_TEXT, 0, barTime, labelPrice);
+   ObjectSetString(0, txtName, OBJPROP_TEXT, labelText);
+   ObjectSetString(0, txtName, OBJPROP_FONT, "Arial Black");
+   ObjectSetInteger(0, txtName, OBJPROP_FONTSIZE, 9);
+   ObjectSetInteger(0, txtName, OBJPROP_COLOR, iconColor);
+   ObjectSetInteger(0, txtName, OBJPROP_BACK, false);
+   ObjectSetInteger(0, txtName, OBJPROP_SELECTABLE, false);
+   ObjectSetInteger(0, txtName, OBJPROP_HIDDEN, false);
+   ObjectSetString(0, txtName, OBJPROP_TOOLTIP, tooltip);
+
+   ChartRedraw(0);
+  }
+
+//+------------------------------------------------------------------+
+//| ManageVMonitoringWeakEmaOppositeOrder                            |
+//| USER RULE: When V-Monitoring started and active and target is    |
+//| decided -> create opposite orders when EMA is weak with $200 SL  |
+//| gap to protect equity.                                           |
+//+------------------------------------------------------------------+
+void ManageVMonitoringWeakEmaOppositeOrder()
+  {
+   if(!InpEnableVMonitoringOppositeOrders)
+      return;
+
+   // 1. Must be currently armed in V-Monitoring with decided target and not yet clamped
+   if(!g_deepDrawdownCycleArmed || g_deepDrawdownLiveSlClamped || g_deepDrawdownArmedTarget <= 0.0)
+      return;
+
+   // 2. Must have active open market orders in the basket
+   int openMarketOrders = CountOrdersByType(OP_BUY) + CountOrdersByType(OP_SELL);
+   if(openMarketOrders <= 0)
+      return;
+
+   // 3. Check open V-monitoring opposite orders limit
+   int existingVMonOppOrders = CountOpenVMonitoringOppositeOrders();
+   if(existingVMonOppOrders >= InpVMonitoringOppositeMaxOrders)
+      return;
+
+   // 4. Bar cooldown / throttle to prevent rapid-fire multiple orders
+   if(Time[0] == g_lastVMonitoringOppositeBarTime)
+      return;
+
+   if(g_lastVMonitoringOppositeOrderTime > 0 && (TimeCurrent() - g_lastVMonitoringOppositeOrderTime) < InpVMonitoringOppositeCooldownSec)
+      return;
+
+   // 5. Must have clear EMA direction (1 = Buy trend, -1 = Sell trend)
+   if(EMADirection != 1 && EMADirection != -1)
+      return;
+
+   int oppOrderType = (EMADirection == 1) ? OP_SELL : OP_BUY;
+
+   // 6. Check if EMA is WEAK (pullback >= $100 from peak or distance reduced >= 50%)
+   bool isEmaWeak = (IsEmaWEAKDistanceReduced50PercentFromPeak(oppOrderType) || !emaflipstrongorweak());
+   if(!isEmaWeak)
+      return;
+
+   // 7. Prepare entry price and stop loss ($200 gap)
+   RefreshRates();
+   double entryPrice = 0.0;
+   double stopLoss   = 0.0;
+   double slGap      = (InpVMonitoringOppositeSLGapUSD > 0.0) ? InpVMonitoringOppositeSLGapUSD : 200.0;
+   color  arrowColor = clrNONE;
+
+   if(oppOrderType == OP_BUY)
+     {
+      entryPrice = Ask;
+      stopLoss   = NormalizeDouble(Bid - slGap, Digits);
+      arrowColor = clrAqua;
+     }
+   else
+     {
+      entryPrice = Bid;
+      stopLoss   = NormalizeDouble(Ask + slGap, Digits);
+      arrowColor = clrCrimson;
+     }
+
+   double lots = (InpVMonitoringOppositeLots > 0.0) ? InpVMonitoringOppositeLots : Lots;
+   if(lots <= 0.0)
+      lots = 0.01;
+   lots = NormalizeLots(lots);
+
+   string comment = "VMON_OPP";
+
+   PrintFormat(">>> [V-MONITORING WEAK EMA DETECTED] V-Monitoring Active | Target=$%.2f | EMADir=%s is WEAK! Placing opposite %s order (Lots=%.2f, Px=%s, SL=%s -$%.0f Gap) to protect equity...",
+               g_deepDrawdownArmedTarget, (EMADirection == 1 ? "BUY (+1)" : "SELL (-1)"),
+               (oppOrderType == OP_BUY ? "BUY" : "SELL"), lots,
+               DoubleToString(entryPrice, Digits), DoubleToString(stopLoss, Digits), slGap);
+
+   int ticket = SafeOrderSend(Symbol(), oppOrderType, lots, entryPrice, Slippage, stopLoss, 0.0, comment, MagicNumber, arrowColor);
+   if(ticket > 0)
+     {
+      g_lastVMonitoringOppositeOrderTime = TimeCurrent();
+      g_lastVMonitoringOppositeBarTime   = Time[0];
+
+      PrintFormat(">>> [V-MONITORING OPPOSITE ORDER PLACED SUCCESSFULLY] Ticket #%d (%s %.2fL at %s | SL=%s) | V-Bounce Tgt=$%.2f | LowEq=$%.2f | CurEq=$%.2f",
+                  ticket, (oppOrderType == OP_BUY ? "BUY" : "SELL"), lots,
+                  DoubleToString(entryPrice, Digits), DoubleToString(stopLoss, Digits),
+                  g_deepDrawdownArmedTarget, g_deepDrawdownCycleLowestEquity, AccountEquity());
+
+      LogEAEvent("INFO", "DEEP_DD_SHIELD",
+                 StringFormat("V-Mon Opposite %s Order #%d opened at %s SL=%s ($%.0f gap) to protect equity (EMADir=%d Weak)",
+                              (oppOrderType == OP_BUY ? "BUY" : "SELL"), ticket,
+                              DoubleToString(entryPrice, Digits), DoubleToString(stopLoss, Digits), slGap, EMADirection));
+
+      // Draw chart icon and text label for visual feedback
+      DrawVMonitoringOppositeOrderIcon(ticket, oppOrderType, entryPrice, stopLoss, slGap);
+     }
+   else
+     {
+      PrintFormat(">>> [V-MONITORING OPPOSITE ORDER FAILED] SafeOrderSend returned %d | LastError=%d", ticket, GetLastError());
      }
   }
 
@@ -16297,11 +16488,12 @@ string TradeMonitoringLog2="";
 //+------------------------------------------------------------------+
 int SafeOrderSend(string symbol,int orderType,double lots,double price,int slippage,double stopLoss,double takeProfit,string comment,int magic,color arrowColor)
   {
-   bool isFlipBasketSupport = IsFLIPBasketSupportOrder(-1, comment);
-   bool isReverse100Order   = (StringFind(comment, "RECOVERY_") == 0 && StringFind(comment, "_REV") >= 0);
-   bool isSpikeOrder        = (StringFind(comment, "SPIKE") >= 0);
+   bool isFlipBasketSupport   = IsFLIPBasketSupportOrder(-1, comment);
+   bool isReverse100Order     = (StringFind(comment, "RECOVERY_") == 0 && StringFind(comment, "_REV") >= 0);
+   bool isSpikeOrder          = (StringFind(comment, "SPIKE") >= 0);
+   bool isVMonitoringOpposite = (StringFind(comment, "VMON_OPP") >= 0 || StringFind(comment, "V_OPP") >= 0);
 
-   if(!isSpikeOrder)
+   if(!isSpikeOrder && !isVMonitoringOpposite)
      {
       if(OnlyAllowFLIPBasketSupportOrders && !isFlipBasketSupport)
         {
@@ -16395,7 +16587,7 @@ int SafeOrderSend(string symbol,int orderType,double lots,double price,int slipp
 
 
 // USER RULE (V-SMALL-1059): Dubai Hours Counter-Trend Block (14:00, 16:00, 17:00 Dubai Time) - DISABLED by default
-   if(InpEnableDubaiHoursCounterTrendBlock)
+   if(InpEnableDubaiHoursCounterTrendBlock && !isVMonitoringOpposite)
      {
       datetime dubaiTime = TimeCurrent() + (ServerToDubaiOffsetHours * 3600);
       int currentHour = TimeHour(dubaiTime);
@@ -16406,7 +16598,7 @@ int SafeOrderSend(string symbol,int orderType,double lots,double price,int slipp
         }
      }
 
-   if(!isSpikeOrder)
+   if(!isSpikeOrder && !isVMonitoringOpposite)
      {
       if(IsEmaWEAKDistanceReduced50PercentFromPeak(orderType) && EMADirection== requestedDirection && MathAbs(GlobalEmaAngle30)>4)
         {
@@ -16579,7 +16771,7 @@ int SafeOrderSend(string symbol,int orderType,double lots,double price,int slipp
                            StoredSignalOverride; // <-- Added memory override flag
 
 // --- STRATEGY FILTERS (IGNORED FOR BOUNCE ORDERS) ---
-   if(!isVShapeOverride)
+   if(!isVShapeOverride && !isVMonitoringOpposite)
      {
       double currentAngle = GlobalEmaAngle30;
 
@@ -16661,13 +16853,13 @@ int SafeOrderSend(string symbol,int orderType,double lots,double price,int slipp
      }
 
 // Physical Gate: Both-lines confusion block + single active Red/Green line $50 opposite-order block
-   if(IsBlockedByActiveHorizontalLines(orderType, price, comment))
+   if(!isVMonitoringOpposite && IsBlockedByActiveHorizontalLines(orderType, price, comment))
       return -1;
 
-   if(IsBlockedByActiveSweepOppositeRule(orderType, comment))
+   if(!isVMonitoringOpposite && IsBlockedByActiveSweepOppositeRule(orderType, comment))
       return -1;
 
-   if(Enable30MinuteMomentumFilter && Enable30MinuteMomentumForAllOrders && !isVShapeOverride && !isReverse100Order)
+   if(Enable30MinuteMomentumFilter && Enable30MinuteMomentumForAllOrders && !isVShapeOverride && !isReverse100Order && !isVMonitoringOpposite)
      {
       if(!PassesDeferredMomentum(orderType))
          return QueueDeferredOrder(symbol,orderType,lots,price,slippage,stopLoss,takeProfit,comment,magic,arrowColor);
