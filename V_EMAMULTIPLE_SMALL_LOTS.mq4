@@ -43,7 +43,7 @@ CheckBasketProfitClose  Total open basket profit
 
 */
 
-string glbVersion = "V-SMALL-1112- V-Monitoring Weak EMA Opposite Equity Protection Orders";
+string glbVersion = "V-SMALL-1113- Disable V-Monitoring Weak EMA Opposite Orders";
 
 int AccountMultiplierLOT = 500;//100;//1000;//400;//200;//500; ALWAYS multiples of 1000 is better for best results
 //balance multiplier
@@ -94,7 +94,7 @@ double InpDeepDrawdownSteepAngleDeg        = 6.0;   // Minimum MathAbs(EMAangle)
 double InpDeepDrawdownSteepAngleTargetPct  = 90.0;  // Recovery target percentage (90% of armed target) when MathAbs(EMAangle) > threshold
 
 //--- V-Monitoring Weak EMA Opposite Equity Protection Order ---
-bool   InpEnableVMonitoringOppositeOrders   = true;   // V-Monitoring: Create opposite order when EMA is weak to protect equity
+bool   InpEnableVMonitoringOppositeOrders   = false;  // V-Monitoring: Create opposite order when EMA is weak to protect equity (disabled)
 double InpVMonitoringOppositeSLGapUSD       = 200.0;  // V-Monitoring: Opposite order StopLoss gap in USD ($200)
 double InpVMonitoringOppositeLots           = 0.01;   // V-Monitoring: Opposite order lot size (0.01)
 int    InpVMonitoringOppositeMaxOrders      = 1;      // V-Monitoring: Max open opposite orders active simultaneously (default 1)
