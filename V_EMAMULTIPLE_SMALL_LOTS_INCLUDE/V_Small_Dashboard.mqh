@@ -2894,7 +2894,7 @@ void UpdateDashboard(DailyProtectionState &state)
 
 // Header Bar
    CreateDashboardPanel(DASH_PREFIX+"HEADER", x, y, w, 36, C'20,55,90');
-   string eaTitle = StringFormat("%s | %s %s", glbVersion, Symbol(), TimeframeToString(Period()));
+   string eaTitle = StringFormat("%s | %s %s", glbVersionShort, Symbol(), TimeframeToString(Period()));
    if(InpHideBidAskRightDashboard)
      {
       CreateDashboardLabel(DASH_PREFIX+"TITLE", eaTitle, tx, y+10, 9, clrWhite);

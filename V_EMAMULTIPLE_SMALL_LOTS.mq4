@@ -3,6 +3,8 @@
 //|                  TWO-STAGE PROFIT LADDER | CONTINUOUS RESET      |
 //+------------------------------------------------------------------+
 #property strict
+#property version     "11.29"
+#property description "V-SMALL-1129 | Two-Regime EMA Multiple Small Lots EA"
 
 //$100 to $170
 //https://github.com/devcrunch2025/exnessStratagiesExperts/commit/32fb1ba20d474fc8d4adb38d2558999b2ac82c56
@@ -43,7 +45,8 @@ CheckBasketProfitClose  Total open basket profit
 
 */
 
-string glbVersion = "V-SMALL-1128- Symmetric Bullish(BUY)/Bearish(SELL) SPIKE END Close & Lock";
+string glbVersion      = "V-SMALL-1129- Auto-Versioned Build & Chart/Journal Tag";
+string glbVersionShort = "V-SMALL-1129";
 
 int AccountMultiplierLOT = 500;//100;//1000;//400;//200;//500; ALWAYS multiples of 1000 is better for best results
 //balance multiplier
@@ -10639,7 +10642,7 @@ void ResetAllRuntimeVariablesOnFreshStart()
 //+------------------------------------------------------------------+
 int OnInit()
   {
-   Print(">>> [EA ONINIT] Fresh Start Initializing | Resetting all runtime variables & cleaning chart objects...");
+   PrintFormat(">>> [EA ONINIT] Version=%s | Fresh Start Initializing | Resetting all runtime variables & cleaning chart objects...", glbVersion);
    PrintFormat(">>> [DAY START CONFIG] Account=%d | Session Mode=%s | Config=%s | Reset Hours=%s",
                AccountNumber(), GetDayStartSessionModeName(),
                (InpDayStartSessionMode == DAY_START_AUTO ? "AUTO (Account-Based in Code)" : "MANUAL OVERRIDE"),
@@ -11012,7 +11015,7 @@ bool IsOneCandleOrderAllowed()
 //+------------------------------------------------------------------+
 void OnDeinit(const int reason)
   {
-   PrintFormat(">>> [EA ONDEINIT] Shutdown/Reload (Reason=%d) | Resetting all runtime variables & cleaning chart...", reason);
+   PrintFormat(">>> [EA ONDEINIT] Version=%s | Shutdown/Reload (Reason=%d) | Resetting all runtime variables & cleaning chart...", glbVersion, reason);
    LogLoggerDeinit(reason);
    ResetAllRuntimeVariablesOnFreshStart();
    ClearSweepGlobalVariables();
