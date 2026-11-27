@@ -2908,7 +2908,9 @@ void UpdateDashboard(DailyProtectionState &state)
      }
 
 // Status Line
-   CreateDashboardLabel(DASH_PREFIX+"STATUS", "EA STATUS   : " + statusText, tx, y+39, 9, statusColor);
+   string regimeTag = (InpEnableTwoRegimeSystem) ? (" | " + GetTwoRegimeStatusDisplay()) : "";
+   color dispStatusColor = (InpEnableTwoRegimeSystem && g_currentTradingRegime == REGIME_2_CRISIS_CLIMAX) ? clrOrangeRed : statusColor;
+   CreateDashboardLabel(DASH_PREFIX+"STATUS", "EA STATUS   : " + statusText + regimeTag, tx, y+39, 9, dispStatusColor);
 
 // ==========================================================
 // SECTION 1: CAPITAL & EQUITY TARGETS

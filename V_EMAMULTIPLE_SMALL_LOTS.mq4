@@ -43,7 +43,7 @@ CheckBasketProfitClose  Total open basket profit
 
 */
 
-string glbVersion = "V-SMALL-1117- Two-Way Engine Minimum Climax EMA Distance 1000";
+string glbVersion = "V-SMALL-1118- Two-Regime Trading System State Machine";
 
 int AccountMultiplierLOT = 500;//100;//1000;//400;//200;//500; ALWAYS multiples of 1000 is better for best results
 //balance multiplier
@@ -387,6 +387,26 @@ double InpActiveLineOppositeBlockRangeRaw         = 50.0;          // Active Red
 bool   InpBlockAllOrdersWhenBothHorizontalLinesActive = true;      // Confusion Block: When BOTH Red (EQH-R) & Green (EQH-G) lines are active, block ALL orders until single line confirms
 double InpBothHorizontalLinesBlockMinEmaAngle         = 4.0;       // Minimum MathAbs(EMA Angle) to block on conflicting horizontal lines (Strategy 2 >= 4.0 blocks; Strategy 1 < 4.0 allows)
 bool   InpBlockAllOppositeWhenLineActive          = true;          // Single Active Line: true = block ALL opposite orders at ANY distance (Red blocks all BUY; Green blocks all SELL)
+
+// ===== TWO-REGIME TRADING SYSTEM (TRTS) =====
+extern bool   InpEnableTwoRegimeSystem             = true;     // Enable Two-Regime Trading System (Regime 1 Growth / Regime 2 Crisis)
+extern double InpTwoRegimeClimaxDistance           = 1000.0;   // Distance to EMA ($1000) to trigger Regime 2 (Crisis/Climax)
+extern double InpTwoRegimeResumeDistance           = 400.0;    // Distance to EMA ($400) to resume Regime 1 (Normal Growth)
+extern bool   InpTwoRegimeFreezeChasingInRegime2   = true;     // In Regime 2: Freeze low-probability trend-chasing entries into the exhaustion
+extern bool   InpTwoRegimePurgePendingInRegime2    = true;     // In Regime 2: Purge opposite pending stop orders into the floor/ceiling
+extern bool   InpTwoRegimeLiquidateRunnersInRegime2 = true;    // In Regime 2: Liquidate stale counter-trend runners with loss > $5*mult
+
+enum ENUM_TRADING_REGIME
+  {
+   REGIME_1_NORMAL_GROWTH     = 1, // Regime 1: Normal Trading (Capital Growth / Trend Following)
+   REGIME_2_CRISIS_CLIMAX     = 2  // Regime 2: Crisis / Climax (Capital Preservation / Mean Reversion)
+  };
+
+ENUM_TRADING_REGIME g_currentTradingRegime       = REGIME_1_NORMAL_GROWTH;
+datetime            g_regime2EnteredTime         = 0;
+double              g_regime2PeakDistance        = 0.0;
+string              g_regime2TriggerReason       = "";
+int                 g_regime2TotalTransitions    = 0;
 
 // ===== TWO-WAY ENGINE: FALLING/RISING WATERFALL & V-REBOUND (METHOD 7) =====
 extern bool   InpEnableTwoWayEngine               = true;     // Enable Method 7 Two-Way Engine (Waterfall + V-Rebound)
@@ -8203,6 +8223,10 @@ void     CheckTwoWayClimaxRunnerLiquidation(double emaDist, int emaDir);
 void     CheckTwoWayFallingAndRisingOrders(double liveEma, double emaDist, int emaDir);
 void     CheckTwoWayReboundEntries();
 void     ManageTwoWayReboundAndWaterfallOrders();
+string   GetTwoRegimeStatusDisplay();
+color    GetTwoRegimeStatusColor();
+void     UpdateTwoRegimeStateMachine();
+bool     IsOrderAllowedUnderCurrentRegime(int orderType, string comment, int requestedDirection);
 datetime GetLastClosedFLIPBasketSupportCloseTime();
 bool     HasOppositeOrderTypeLossOver5(int currentDirection, double &outOppositeTotalPL, double &outMaxSingleLoss);
 void     InitializeFLIPBasketSupportTracking();
@@ -12959,6 +12983,9 @@ void OnTick()
    ResetTradeRequestBudget();
    g_eqDdForceCloseBudget = false;
 
+   if(InpEnableTwoRegimeSystem)
+      UpdateTwoRegimeStateMachine();
+
 
    profitAfterFlip = GetProfitAfterLastEmaFlip();
 
@@ -16084,6 +16111,15 @@ int SafeOrderSend(string symbol,int orderType,double lots,double price,int slipp
         {
          if(EMADirection == 1 && requestedDirection == -1)
             return -1;
+        }
+     }
+
+   // Two-Regime Trading System: Regime 2 Capital Preservation Order Gate
+   if(InpEnableTwoRegimeSystem)
+     {
+      if(!IsOrderAllowedUnderCurrentRegime(orderType, comment, requestedDirection))
+        {
+         return -1;
         }
      }
 
@@ -24145,6 +24181,7 @@ bool IsEmaDistanceReduced50PercentSinceFlipold(int orderType = -1)
 #include "V_EMAMULTIPLE_SMALL_LOTS_INCLUDE/V_Small_Dashboard.mqh"
 #include "V_EMAMULTIPLE_SMALL_LOTS_INCLUDE/V_Small_LiquiditySweep.mqh"
 #include "V_EMAMULTIPLE_SMALL_LOTS_INCLUDE/V_Small_TwoWayEngine.mqh"
+#include "V_EMAMULTIPLE_SMALL_LOTS_INCLUDE/V_Small_TwoRegimeSystem.mqh"
 
 //+------------------------------------------------------------------+
 
