@@ -43,7 +43,7 @@ CheckBasketProfitClose  Total open basket profit
 
 */
 
-string glbVersion = "V-SMALL-1090- 1Hour HLine Ignore EMA Angle";
+string glbVersion = "V-SMALL-1116- Two-Way Waterfall and Horizontal Line Rebound Engine";
 
 int AccountMultiplierLOT = 500;//100;//1000;//400;//200;//500; ALWAYS multiples of 1000 is better for best results
 //balance multiplier
@@ -387,6 +387,21 @@ double InpActiveLineOppositeBlockRangeRaw         = 50.0;          // Active Red
 bool   InpBlockAllOrdersWhenBothHorizontalLinesActive = true;      // Confusion Block: When BOTH Red (EQH-R) & Green (EQH-G) lines are active, block ALL orders until single line confirms
 double InpBothHorizontalLinesBlockMinEmaAngle         = 4.0;       // Minimum MathAbs(EMA Angle) to block on conflicting horizontal lines (Strategy 2 >= 4.0 blocks; Strategy 1 < 4.0 allows)
 bool   InpBlockAllOppositeWhenLineActive          = true;          // Single Active Line: true = block ALL opposite orders at ANY distance (Red blocks all BUY; Green blocks all SELL)
+
+// ===== TWO-WAY ENGINE: FALLING/RISING WATERFALL & V-REBOUND (METHOD 7) =====
+extern bool   InpEnableTwoWayEngine               = true;     // Enable Method 7 Two-Way Engine (Waterfall + V-Rebound)
+extern bool   InpTwoWayEnableFallingOrders        = true;     // Enable Falling SELL orders on downward momentum
+extern bool   InpTwoWayEnableRisingOrders         = true;     // Enable Rising BUY orders on upward momentum
+extern double InpTwoWayClimaxEmaDistance          = 500.0;    // Min EMA distance ($500) to qualify for Climax Rebound (works for 500, 1000, 2000, 3000)
+extern double InpTwoWayWaterfallStepRaw           = 150.0;    // Step gap ($150) between consecutive falling/rising orders
+extern double InpTwoWayReboundLotBase             = 0.02;     // Base lot size for Two-Way Rebound orders
+extern double InpTwoWaySLOffsetBeyondLine         = 150.0;    // StopLoss offset ($150) beyond horizontal line (Green: Line - 150, Red: Line + 150)
+extern double InpTwoWayBreakevenTriggerGap        = 100.0;    // Favorable move ($100) to move Rebound SL to Breakeven (+cushion)
+extern double InpTwoWayTrailStepUSD               = 100.0;    // Favorable move step ($100) to ratchet trailing StopLoss
+extern bool   InpTwoWayCloseAtEmaTouch            = true;     // Close Rebound order when price touches yellow 200 EMA
+extern bool   InpTwoWayPurgePendingOnHLineStart   = true;     // On Horizontal Line start: PURGE all pending stops in the previous trend direction
+extern bool   InpTwoWayFreezeTrendOnHLineStart    = true;     // Freeze new trend orders once opposite horizontal line starts (No selling after EQL-G, no buying after EQH-R)
+extern bool   InpTwoWayCutOppositeRunnersOnClimax = true;     // Liquidate/tighten opposite runners with >$5 loss when EMA distance > $500
 
 // ===== LSD SWEEP (SSLS/BSLS) OPPOSITE-ORDER BLOCK IN SafeOrderSend() =====
 bool   InpEnableSweepOppositeBlock                = true;          // Block opposite orders in SafeOrderSend(): SSLS blocks SELL, BSLS blocks BUY
@@ -8182,6 +8197,12 @@ void     ManageHorizontalLineEndedBreakoutStopLoss();
 void     ManageHorizontalLineProfitLiveStopLoss();
 void     ManageHorizontalLineEndedProfitLiveStopLoss();
 void     Check1HourHorizontalLinePendingOrders();
+bool     IsTwoWayFreezeTrendActive(int requestedDirection);
+void     PurgeTwoWayPendingStopsOnHLine(int sideToPurge);
+void     CheckTwoWayClimaxRunnerLiquidation(double emaDist, int emaDir);
+void     CheckTwoWayFallingAndRisingOrders(double liveEma, double emaDist, int emaDir);
+void     CheckTwoWayReboundEntries();
+void     ManageTwoWayReboundAndWaterfallOrders();
 datetime GetLastClosedFLIPBasketSupportCloseTime();
 bool     HasOppositeOrderTypeLossOver5(int currentDirection, double &outOppositeTotalPL, double &outMaxSingleLoss);
 void     InitializeFLIPBasketSupportTracking();
@@ -13036,6 +13057,16 @@ void OnTick()
    ManageHorizontalLineEndedProfitLiveStopLoss(); // USER RULE: When ANY horizontal line ends: modify open orders (profit > $0.50) SL to live price
    Check1HourHorizontalLinePendingOrders(); // USER RULE: If horizontal line live > 1 hour & live price near $50 -> create pending order (Red: SELL, Green: BUY)
 
+   if(InpEnableTwoWayEngine)
+     {
+      ManageTwoWayReboundAndWaterfallOrders();
+      CheckTwoWayReboundEntries();
+      double liveEmaForTwoWay = iMA(Symbol(), Period(), InpEMA200Period, InpEMAPriceShift, MODE_EMA, PRICE_CLOSE, 0);
+      double distForTwoWay = (liveEmaForTwoWay > 0.0) ? MathAbs(Bid - liveEmaForTwoWay) : 0.0;
+      CheckTwoWayClimaxRunnerLiquidation(distForTwoWay, EMADirection);
+      CheckTwoWayFallingAndRisingOrders(liveEmaForTwoWay, distForTwoWay, EMADirection);
+     }
+
    OnTickCore();
    OnTickPerformanceEnd(tickStartMs);
 
@@ -15949,6 +15980,7 @@ int SafeOrderSend(string symbol,int orderType,double lots,double price,int slipp
    bool isFlipBasketSupport = IsFLIPBasketSupportOrder(-1, comment);
    bool isReverse100Order   = (StringFind(comment, "RECOVERY_") == 0 && StringFind(comment, "_REV") >= 0);
    bool isSpikeOrder        = (StringFind(comment, "SPIKE") >= 0);
+   bool isTwoWayOrder       = (StringFind(comment, "M7_") == 0);
 
    if(!isSpikeOrder)
      {
@@ -16055,7 +16087,18 @@ int SafeOrderSend(string symbol,int orderType,double lots,double price,int slipp
         }
      }
 
-   if(!isSpikeOrder)
+   // Two-Way Engine: Freeze trend-following orders when opposite horizontal line is active
+   if(InpEnableTwoWayEngine && InpTwoWayFreezeTrendOnHLineStart && !isTwoWayOrder)
+     {
+      if(IsTwoWayFreezeTrendActive(requestedDirection))
+        {
+         PrintFormat("SAFEORDERSEND BLOCKED [Two-Way Engine]: Opposite Horizontal Line active at climax. New trend %s orders frozen to prevent chasing exhaustion!",
+                     (requestedDirection == 1 ? "BUY" : "SELL"));
+         return -1;
+        }
+     }
+
+   if(!isSpikeOrder && !isTwoWayOrder)
      {
       if(IsEmaWEAKDistanceReduced50PercentFromPeak(orderType) && EMADirection== requestedDirection && MathAbs(GlobalEmaAngle30)>4 )
         {
@@ -24101,6 +24144,7 @@ bool IsEmaDistanceReduced50PercentSinceFlipold(int orderType = -1)
 #include "V_EMAMULTIPLE_SMALL_LOTS_INCLUDE/V_Small_OrderClosing.mqh"
 #include "V_EMAMULTIPLE_SMALL_LOTS_INCLUDE/V_Small_Dashboard.mqh"
 #include "V_EMAMULTIPLE_SMALL_LOTS_INCLUDE/V_Small_LiquiditySweep.mqh"
+#include "V_EMAMULTIPLE_SMALL_LOTS_INCLUDE/V_Small_TwoWayEngine.mqh"
 
 //+------------------------------------------------------------------+
 
