@@ -279,7 +279,7 @@ void CheckTwoWayFallingAndRisingOrders(double liveEma, double emaDist, int emaDi
                      risingCount++;
                  }
 
-               if(risingCount < maxOrders && (TimeCurrent() - s_lastTwoWayRiseOrderTime >= 5))
+               if(!g_blockBuySpikeUntilNewSpike && risingCount < maxOrders && (TimeCurrent() - s_lastTwoWayRiseOrderTime >= 5))
                  {
                   RefreshRates();
                   double sl = NormalizeDouble(Bid - initSL, Digits);
