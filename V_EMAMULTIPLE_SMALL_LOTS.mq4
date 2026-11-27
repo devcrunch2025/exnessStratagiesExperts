@@ -3,8 +3,8 @@
 //|                  TWO-STAGE PROFIT LADDER | CONTINUOUS RESET      |
 //+------------------------------------------------------------------+
 #property strict
-#property version     "11.31"
-#property description "V-SMALL-1131 | Two-Regime EMA Multiple Small Lots EA"
+#property version     "11.32"
+#property description "V-SMALL-1132 | Two-Regime EMA Multiple Small Lots EA"
 
 //$100 to $170
 //https://github.com/devcrunch2025/exnessStratagiesExperts/commit/32fb1ba20d474fc8d4adb38d2558999b2ac82c56
@@ -45,8 +45,8 @@ CheckBasketProfitClose  Total open basket profit
 
 */
 
-string glbVersion      = "V-SMALL-1131- SPIKE END Close Requires STRONG EMA";
-string glbVersionShort = "V-SMALL-1131";
+string glbVersion      = "V-SMALL-1132- Disable Order Closing on SPIKE END";
+string glbVersionShort = "V-SMALL-1132";
 
 int AccountMultiplierLOT = 500;//100;//1000;//400;//200;//500; ALWAYS multiples of 1000 is better for best results
 //balance multiplier
@@ -1148,8 +1148,9 @@ double InpPendingGapLossMultiplier         = 2.0;   // Pending gap multiplier on
  bool   InpType3CheckEvery5MinStepGap          = true;  // Check 5-min EMA distance step gap on every 5-min interval (start/continue/end)
  double InpType3Spike5MinEndMinStepGap         = 50.0;  // 5-Min Step End: If completed 5-min step expands < $50 (or reverses), mark SPIKE END
  bool   InpType3SpikeStrict5MinBoundaryOnly    = false; // Strict 5-Min Boundary Mode: true = only trigger at 5-min clock boundaries; false = rolling + step check
- bool   InpType3CloseWithTrendOnSpikeEnd       = true;  // SPIKE END Rule: Bull EMA closes & locks BUY spikes; Bear EMA closes & locks SELL spikes until new spike starts
- bool   InpType3SpikeEndRequireStrongEmaForClose = true;  // SPIKE END Rule: Require EMA to be STRONG (!IsEmaWEAK) before closing open BUY/SELL orders
+ bool   InpType3CloseWithTrendOnSpikeEnd       = false; // DISABLED: Do NOT close open BUY/SELL orders when SPIKE END fires (kept intact)
+ bool   InpType3LockSpikeCreationOnSpikeEnd    = true;  // SPIKE END Rule: Lock new BUY spikes (Bullish) / SELL spikes (Bearish) until new spike starts
+ bool   InpType3SpikeEndRequireStrongEmaForClose = true;  // SPIKE END Rule: Require EMA to be STRONG (!IsEmaWEAK) if close on SPIKE END is enabled
 
  // ===== SPIKE $50 MINIMUM PROFIT LADDER & CLIMAX EXIT =====
  bool   InpEnableSpikeProfitLadder             = true;  // Spike Ladder: Enable Step Profit Ladder with Maximum Profit Protection

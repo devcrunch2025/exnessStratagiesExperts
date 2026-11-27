@@ -540,40 +540,46 @@ void DrawSpikeLifecycleSignal(string stage, int dir, double price, string detail
       g_spike5mCacheTickTime    = 0;
 
       // USER RULE:
-      // - If EMADirection is BULLISH when SPIKE END is detected -> lock BUY spike orders until new spike starts; close open BUY orders ONLY if EMA is STRONG
-      // - If EMADirection is BEARISH when SPIKE END is detected -> lock SELL spike orders until new spike starts; close open SELL orders ONLY if EMA is STRONG
+      // - Order closing on SPIKE END is DISABLED (InpType3CloseWithTrendOnSpikeEnd = false) -> keep existing orders open!
+      // - Still lock new BUY spike orders (Bullish) / SELL spike orders (Bearish) until a NEW spike signal starts!
       int curEmaDir = (liveEma200 > 0.0) ? ((Bid > liveEma200) ? 1 : ((Bid < liveEma200) ? -1 : EMADirection)) : EMADirection;
-      if(InpType3CloseWithTrendOnSpikeEnd && (curEmaDir == 1 || curEmaDir == -1))
+      if(curEmaDir == 1 || curEmaDir == -1)
         {
          int reqOrdType   = (curEmaDir == 1) ? OP_BUY : OP_SELL;
          bool isEmaStrong = (!InpType3SpikeEndRequireStrongEmaForClose || !IsEmaWEAKDistanceReduced50PercentFromPeak(reqOrdType));
 
          if(curEmaDir == 1)
            {
-            g_blockBuySpikeUntilNewSpike  = true;
-            g_buySpikeBlockedSinceEndTime = TimeCurrent();
-            if(isEmaStrong)
+            if(InpType3LockSpikeCreationOnSpikeEnd)
+              {
+               g_blockBuySpikeUntilNewSpike  = true;
+               g_buySpikeBlockedSinceEndTime = TimeCurrent();
+              }
+            if(InpType3CloseWithTrendOnSpikeEnd && isEmaStrong)
               {
                CloseAllOpenBuyOrders("BULLISH_STRONG_EMA_SPIKE_END_CLOSE_ALL_BUYS");
                Print(">>> [BULLISH EMA (STRONG) + SPIKE END] Closed ALL open BUY orders and locked BUY spike creation until NEW spike signal starts!");
               }
             else
               {
-               Print(">>> [BULLISH EMA (WEAK) + SPIKE END] EMA is WEAK -> Open BUY orders NOT closed; BUY spike creation locked until NEW spike signal starts!");
+               Print(">>> [BULLISH EMA + SPIKE END] Close on SPIKE END DISABLED -> Open BUY orders kept intact; BUY spike creation locked until NEW spike signal starts!");
               }
            }
          else if(curEmaDir == -1)
            {
-            g_blockSellSpikeUntilNewSpike  = true;
-            g_sellSpikeBlockedSinceEndTime = TimeCurrent();
-            if(isEmaStrong)
+            if(InpType3LockSpikeCreationOnSpikeEnd)
+              {
+               g_blockSellSpikeUntilNewSpike  = true;
+               g_sellSpikeBlockedSinceEndTime = TimeCurrent();
+              }
+            if(InpType3CloseWithTrendOnSpikeEnd && isEmaStrong)
               {
                CloseAllOpenSellOrders("BEARISH_STRONG_EMA_SPIKE_END_CLOSE_ALL_SELLS");
                Print(">>> [BEARISH EMA (STRONG) + SPIKE END] Closed ALL open SELL orders and locked SELL spike creation until NEW spike signal starts!");
               }
             else
               {
-               Print(">>> [BEARISH EMA (WEAK) + SPIKE END] EMA is WEAK -> Open SELL orders NOT closed; SELL spike creation locked until NEW spike signal starts!");
+               Print(">>> [BEARISH EMA + SPIKE END] Close on SPIKE END DISABLED -> Open SELL orders kept intact; SELL spike creation locked until NEW spike signal starts!");
               }
            }
         }
