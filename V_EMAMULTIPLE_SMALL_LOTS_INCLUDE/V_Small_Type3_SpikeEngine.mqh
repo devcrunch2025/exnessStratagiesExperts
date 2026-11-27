@@ -192,10 +192,103 @@ color GetThreeTypeActiveStatusColor()
 //| 3. "SPIKE_REV_START" : SPIKE reverse started                     |
 //| 4. "SPIKE_REV_END"   : SPIKE REVER END                           |
 //+------------------------------------------------------------------+
+//+------------------------------------------------------------------+
+//| Spike Lifecycle State Tracker for Deduplication                  |
+//| States:                                                          |
+//| 0 = STAGE_IDLE (No active spike)                                 |
+//| 1 = STAGE_SPIKE_STARTED (Spike started icon displayed once)      |
+//| 2 = STAGE_SPIKE_ENDED   (Spike ended icon displayed once)        |
+//| 3 = STAGE_REVERSE_STARTED (Reverse rebound icon displayed once)  |
+//+------------------------------------------------------------------+
+static int      s_spikeLifecycleState = 0;
+static int      s_lastSpikeSignalDir  = 0;
+static datetime s_lastSpikeSignalTime = 0;
+
+void ResetSpikeLifecycleState()
+  {
+   s_spikeLifecycleState = 0;
+   s_lastSpikeSignalDir  = 0;
+   s_lastSpikeSignalTime = 0;
+  }
+
 void DrawSpikeLifecycleSignal(string stage, int dir, double price, string details = "")
   {
    if(!InpEnableSpikeLifecycleVisuals)
       return;
+
+   // -------------------------------------------------------------
+   // 1. AUTO-RESET TO IDLE WHEN PRICE RETURNS TO 200 EMA
+   // -------------------------------------------------------------
+   double liveEma200 = iMA(Symbol(), Period(), InpEMA200Period, InpEMAPriceShift, MODE_EMA, PRICE_CLOSE, 0);
+   if(liveEma200 > 0.0 && MathAbs(Bid - liveEma200) < 50.0)
+     {
+      bool hasOpenSpikes = false;
+      for(int sp_i = 0; sp_i < OrdersTotal(); sp_i++)
+        {
+         if(!OrderSelect(sp_i, SELECT_BY_POS, MODE_TRADES)) continue;
+         if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber) continue;
+         string cmt = OrderComment();
+         if(StringFind(cmt, "SPIKE") >= 0 || StringFind(cmt, "M7_") == 0)
+           {
+            hasOpenSpikes = true;
+            break;
+           }
+        }
+      if(!hasOpenSpikes && s_spikeLifecycleState != 0)
+        {
+         s_spikeLifecycleState = 0;
+         s_lastSpikeSignalDir  = 0;
+        }
+     }
+
+   // -------------------------------------------------------------
+   // 2. STRICT STATE TRANSITION FILTER (NO DUPLICATES)
+   // User Rule: "[SPIKE started and SPIKE ended]. do not display like
+   //             SPIKE started, SPIKE started SPIKE ended, SPIKE ended..."
+   // -------------------------------------------------------------
+   if(stage == "SPIKE_START")
+     {
+      // If already in active spike in the same direction, suppress duplicate!
+      if(s_spikeLifecycleState == 1 && s_lastSpikeSignalDir == dir)
+         return;
+
+      s_spikeLifecycleState = 1; // Mark SPIKE_ACTIVE
+      s_lastSpikeSignalDir  = dir;
+      s_lastSpikeSignalTime = TimeCurrent();
+     }
+   else if(stage == "SPIKE_END")
+     {
+      // Only transition to SPIKE_END if a spike is currently active (state 1)!
+      // If already ended (state 2) or idle (state 0), suppress duplicate!
+      if(s_spikeLifecycleState != 1)
+         return;
+
+      s_spikeLifecycleState = 2; // Mark SPIKE_ENDED
+      s_lastSpikeSignalTime = TimeCurrent();
+     }
+   else if(stage == "SPIKE_REV_START")
+     {
+      // If already in reverse active (state 3), suppress duplicate!
+      if(s_spikeLifecycleState == 3)
+         return;
+
+      s_spikeLifecycleState = 3; // Mark REVERSE_ACTIVE
+      s_lastSpikeSignalTime = TimeCurrent();
+     }
+   else if(stage == "SPIKE_REV_END")
+     {
+      // Only fire reverse end if reverse was active (state 3) or spike ended (state 2)
+      if(s_spikeLifecycleState == 0)
+         return;
+
+      s_spikeLifecycleState = 0; // Reset to IDLE (full cycle completed!)
+      s_lastSpikeSignalDir  = 0;
+      s_lastSpikeSignalTime = TimeCurrent();
+     }
+   else
+     {
+      return;
+     }
 
    static int s_spikeObjSeq = 0;
    s_spikeObjSeq++;

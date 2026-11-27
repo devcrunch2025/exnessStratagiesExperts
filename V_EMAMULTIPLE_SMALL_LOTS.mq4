@@ -43,7 +43,7 @@ CheckBasketProfitClose  Total open basket profit
 
 */
 
-string glbVersion = "V-SMALL-1124- Pure 5-Min EMA Distance Velocity Spike Engine";
+string glbVersion = "V-SMALL-1125- Deduplicated Spike Lifecycle Visualizer";
 
 int AccountMultiplierLOT = 500;//100;//1000;//400;//200;//500; ALWAYS multiples of 1000 is better for best results
 //balance multiplier
