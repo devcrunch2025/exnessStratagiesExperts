@@ -66,8 +66,8 @@ void ModifyPairProfitWithStopLoss()
       string cmt = OrderComment();
       int tkt    = OrderTicket();
 
-      // Exclude recovery orders: Recovery orders manage their own independent basket
-      if(IsAnyRecoveryOrder(tkt, cmt) || IsRecoveryOrderWithActiveParent(tkt, cmt))
+      // Exclude recovery, spike, and two-way method 7 orders: They manage their own independent targets
+      if(IsAnyRecoveryOrder(tkt, cmt) || IsRecoveryOrderWithActiveParent(tkt, cmt) || StringFind(cmt, "SPIKE") >= 0 || StringFind(cmt, "M7_") >= 0)
          continue;
 
       // Exclude FLIPBasketSupport orders unless explicitly enabled
@@ -2159,7 +2159,7 @@ void SecureOneDollarProfit()
       if(orderLots <= 0.0)
          continue;
 
-      if(IsFLIPBasketSupportOrder(OrderTicket(), OrderComment()) || IsAnyRecoveryOrder(OrderTicket(), OrderComment()))
+      if(IsFLIPBasketSupportOrder(OrderTicket(), OrderComment()) || IsAnyRecoveryOrder(OrderTicket(), OrderComment()) || StringFind(OrderComment(), "SPIKE") >= 0 || StringFind(OrderComment(), "M7_") >= 0)
          continue;
 
       double currentSL = OrderStopLoss();
@@ -2988,7 +2988,7 @@ void CloseOppositeLosingOrdersBeforeSignal(int newSignalType)
          continue;
       if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber)
          continue;
-      if(IsFLIPBasketSupportOrder(OrderTicket(), OrderComment()) || IsAnyRecoveryOrder(OrderTicket(), OrderComment()))
+      if(IsFLIPBasketSupportOrder(OrderTicket(), OrderComment()) || IsAnyRecoveryOrder(OrderTicket(), OrderComment()) || StringFind(OrderComment(), "SPIKE") >= 0 || StringFind(OrderComment(), "M7_") >= 0)
          continue;
 
       int orderType = OrderType();
@@ -3036,7 +3036,7 @@ void CloseOppositeProfitableOrdersIndependent(int newSignalType)
          continue;
       if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber)
          continue;
-      if(IsFLIPBasketSupportOrder(OrderTicket(), OrderComment()) || IsAnyRecoveryOrder(OrderTicket(), OrderComment()))
+      if(IsFLIPBasketSupportOrder(OrderTicket(), OrderComment()) || IsAnyRecoveryOrder(OrderTicket(), OrderComment()) || StringFind(OrderComment(), "SPIKE") >= 0 || StringFind(OrderComment(), "M7_") >= 0)
          continue;
 
       int orderType = OrderType();
@@ -3388,12 +3388,22 @@ void ManageSpikeProfitLadder()
            }
 
          double protectFloorPL = g_spikeBuyBucketPeakPL * (InpSpikeLadderProtectPct / 100.0);
+         if(protectFloorPL < (minToProtect * 0.70))
+            protectFloorPL = minToProtect * 0.70;
 
-         // A. REVERSAL CLOSE: Close spike orders if profit retraced to or below 50% floor
-         if(spikeBuyPL <= protectFloorPL)
+         // Check if red horizontal line (EQH-R) has started at climax ceiling with profit >= minToProtect
+         bool isClimaxHLineTakeProfit = false;
+         if(InpSpikeCloseOnOppositeHLineAt50 && g_lastEqHighPrice > 0.0 && g_lastEqHighLineStart > 0 && spikeBuyPL >= minToProtect)
            {
-            string closeReason = StringFormat("Spike BUY Ladder 50%% Retrace Hit: Peak=$%.2f, Closed=$%.2f <= Floor=$%.2f (Min=$%.2f, Lvl %d)",
-                                              g_spikeBuyBucketPeakPL, spikeBuyPL, protectFloorPL, minToProtect, curLevel);
+            isClimaxHLineTakeProfit = true;
+           }
+
+         // A. REVERSAL CLOSE: Close spike orders if profit retraced to or below floor, or climax ceiling formed
+         if(spikeBuyPL <= protectFloorPL || isClimaxHLineTakeProfit)
+           {
+            string closeReason = isClimaxHLineTakeProfit ?
+               StringFormat("Spike BUY Climax Ceiling EQH-R Hit: Peak=$%.2f, Closed=$%.2f >= Min=$%.2f! Full Profit Booked!", g_spikeBuyBucketPeakPL, spikeBuyPL, minToProtect) :
+               StringFormat("Spike BUY Ladder Retrace Hit: Peak=$%.2f, Closed=$%.2f <= Floor=$%.2f (Min=$%.2f, Lvl %d)", g_spikeBuyBucketPeakPL, spikeBuyPL, protectFloorPL, minToProtect, curLevel);
             Print(">>> [SPIKE BUCKET CLOSE - BUY] ", closeReason);
             CloseAllOpenSpikeOrders(OP_BUY, closeReason);
             CleanupStaleSpikePendingOrders(OP_BUYSTOP, 0.0);
@@ -3461,12 +3471,22 @@ void ManageSpikeProfitLadder()
            }
 
          double protectFloorPL = g_spikeSellBucketPeakPL * (InpSpikeLadderProtectPct / 100.0);
+         if(protectFloorPL < (minToProtect * 0.70))
+            protectFloorPL = minToProtect * 0.70;
 
-         // A. REVERSAL CLOSE: Close spike orders if profit retraced to or below 50% floor
-         if(spikeSellPL <= protectFloorPL)
+         // Check if green horizontal line (EQL-G) has started at climax floor with profit >= minToProtect
+         bool isClimaxHLineTakeProfit = false;
+         if(InpSpikeCloseOnOppositeHLineAt50 && g_lastEqLowPrice > 0.0 && g_lastEqLowLineStart > 0 && spikeSellPL >= minToProtect)
            {
-            string closeReason = StringFormat("Spike SELL Ladder 50%% Retrace Hit: Peak=$%.2f, Closed=$%.2f <= Floor=$%.2f (Min=$%.2f, Lvl %d)",
-                                              g_spikeSellBucketPeakPL, spikeSellPL, protectFloorPL, minToProtect, curLevel);
+            isClimaxHLineTakeProfit = true;
+           }
+
+         // A. REVERSAL CLOSE: Close spike orders if profit retraced to or below floor, or climax floor formed
+         if(spikeSellPL <= protectFloorPL || isClimaxHLineTakeProfit)
+           {
+            string closeReason = isClimaxHLineTakeProfit ?
+               StringFormat("Spike SELL Climax Floor EQL-G Hit: Peak=$%.2f, Closed=$%.2f >= Min=$%.2f! Full Profit Booked!", g_spikeSellBucketPeakPL, spikeSellPL, minToProtect) :
+               StringFormat("Spike SELL Ladder Retrace Hit: Peak=$%.2f, Closed=$%.2f <= Floor=$%.2f (Min=$%.2f, Lvl %d)", g_spikeSellBucketPeakPL, spikeSellPL, protectFloorPL, minToProtect, curLevel);
             Print(">>> [SPIKE BUCKET CLOSE - SELL] ", closeReason);
             CloseAllOpenSpikeOrders(OP_SELL, closeReason);
             CleanupStaleSpikePendingOrders(OP_SELLSTOP, 0.0);
@@ -3548,8 +3568,8 @@ void CheckBasketProfitClose()
       int oType = OrderType();
       if(oType != OP_BUY && oType != OP_SELL)
          continue;
-      // EXCLUDE RECOVERY ORDERS: Recovery orders manage their own independent basket
-      if(IsAnyRecoveryOrder(OrderTicket(), OrderComment()))
+      // EXCLUDE RECOVERY, SPIKE, AND TWO-WAY METHOD 7 ORDERS: They manage their own profit targets ($50+ / EMA touch)
+      if(IsAnyRecoveryOrder(OrderTicket(), OrderComment()) || StringFind(OrderComment(), "SPIKE") >= 0 || StringFind(OrderComment(), "M7_") >= 0)
          continue;
 
       double pl = OrderProfit() + OrderSwap() + OrderCommission();
@@ -3915,7 +3935,7 @@ void ModifyOpenOrdersToSecureProfit()
          continue;
       if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber)
          continue;
-      if(IsFLIPBasketSupportOrder(OrderTicket(), OrderComment()) || IsAnyRecoveryOrder(OrderTicket(), OrderComment()))
+      if(IsFLIPBasketSupportOrder(OrderTicket(), OrderComment()) || IsAnyRecoveryOrder(OrderTicket(), OrderComment()) || StringFind(OrderComment(), "SPIKE") >= 0 || StringFind(OrderComment(), "M7_") >= 0)
          continue;
 
       int ticket       = OrderTicket();

@@ -43,7 +43,7 @@ CheckBasketProfitClose  Total open basket profit
 
 */
 
-string glbVersion = "V-SMALL-1119- Create Orders While Falling Increase Distance From EMA";
+string glbVersion = "V-SMALL-1120- Fast EMA Distance Expansion Spike System with 50 USD Target";
 
 int AccountMultiplierLOT = 500;//100;//1000;//400;//200;//500; ALWAYS multiples of 1000 is better for best results
 //balance multiplier
@@ -1121,6 +1121,7 @@ double InpPendingGapLossMultiplier         = 2.0;   // Pending gap multiplier on
  bool   InpEnableSpikeOrderCreation            = true; // Spike Orders: When EMADirection is 1 but angle < 0 create BUY; when -1 and angle > 0 create SELL
  int    InpSpikeOrderCooldownSec               = 5;    // Spike Orders: Cooldown seconds between consecutive spike order attempts (default 5s)
  int    InpMaxSpikePendingOrders               = 1;    // Spike Orders: Max simultaneous pending stop orders (default 1)
+ int    InpMaxActiveSpikeOrders                = 2;    // Spike Orders: Max simultaneous active market spike orders per direction (default 2)
  bool   InpSpikeOrderBypassSameTypeGap         = true; // Spike Orders: Bypass wide same-type minimum gap during sudden spike momentum
  double InpSpikeOrderPendingGapUSD             = 50.0;  // Spike Orders: Pending stop entry gap ($0 = open market orders without pending, >0 = pending stop gap)
  double InpSpikeOrderMinGapUSD                 = 50.0;  // Spike Orders: Minimal gap between consecutive spike orders ($50 USD)
@@ -1129,11 +1130,22 @@ double InpPendingGapLossMultiplier         = 2.0;   // Pending gap multiplier on
  bool   InpSpikeBypassHorizontalLineBlock      = true;  // Spike Orders: Bypass active opposite horizontal line block (EQH-R/EQH-G)
  bool   InpSpikeBypassSweepBlock               = true;  // Spike Orders: Bypass active liquidity sweep block (SSLS/BSLS)
  bool   InpFollowEmaIgnoreSsl                  = true;  // Trade Direction: Follow EMADirection (Bull=BUY, Bear=SELL) & Ignore SSL Signal
- bool   InpEnableSpikeProfitLadder             = true;  // Spike Ladder: Enable Step Profit Ladder with 50% Protection
+
+ // ===== FAST MOVING AWAY FROM EMA SPIKE DETECTION & OPPOSITE CLOSE =====
+ bool   InpEnableFastMovingEmaSpike            = true;  // Fast Spike: Detect violent moves away from EMA line using EMA angle & distance
+ double InpFastSpikeMinDistance                = 100.0; // Fast Spike: Min distance ($100) away from 200 EMA to qualify as faster spike
+ double InpFastSpikeMinAngle                   = 1.5;   // Fast Spike: Min MathAbs(EMA Angle) (1.5 deg) confirming rapid directional slope
+ int    InpFastSpikeLookbackBars               = 5;     // Fast Spike: Lookback bars for rapid EMA slope detection (default 5 bars)
+ bool   InpFastSpikeCloseOppositeOrders        = true;  // Fast Spike: Close all open opposite orders immediately when fast spike is detected
+ bool   InpFastSpikeMarketOrder                = true;  // Fast Spike: Open direct market order without waiting for pending fill
+
+ // ===== SPIKE $50 MINIMUM PROFIT LADDER & CLIMAX EXIT =====
+ bool   InpEnableSpikeProfitLadder             = true;  // Spike Ladder: Enable Step Profit Ladder with Maximum Profit Protection
  bool   InpSpikeLadderUseMultiplier            = true;  // Spike Ladder: Use Balance Multiplier (1Xmul for min profit & step)
- double InpSpikeMinProfitToProtectUSD          = 1.0;   // Spike Ladder: Base min profit to start logic ($1.00 * multiplier)
- double InpSpikeLadderStepUSD                  = 5.0;   // Spike Ladder: Base step size in USD ($5.00 * multiplier)
- double InpSpikeLadderProtectPct               = 50.0;  // Spike Ladder: Protected profit % on market reversal (50%)
+ double InpSpikeMinProfitToProtectUSD          = 50.0;  // Spike Ladder: Minimum profit to start protecting ($50.00 * multiplier per user rule)
+ double InpSpikeLadderStepUSD                  = 10.0;  // Spike Ladder: Step size above $50 ($10.00 * multiplier)
+ double InpSpikeLadderProtectPct               = 75.0;  // Spike Ladder: Protected profit % on market reversal (75% to hold for maximum profits)
+ bool   InpSpikeCloseOnOppositeHLineAt50       = true;  // Spike Ladder: Close Spike order immediately if opposite HLine starts and profit >= $50
 
 double g_spikeBuyBucketPeakPL                  = 0.0;   // Peak floating profit reached by open BUY spike bucket
 double g_spikeSellBucketPeakPL                 = 0.0;   // Peak floating profit reached by open SELL spike bucket
@@ -13677,26 +13689,84 @@ void OnTickCore()
         }
      }
 
-   // USER RULE: Unconditional Spike Order Creation
-   // "create spike orders without any condition"
-   // "EMAdirection is 1 , but ema angle is negative means spike in bullish so create BUY orders. 
-   //  similary EMAdirection is -1 but EMAangle is positive value then create SELL orders normal ssl orders with pending orders"
-   bool isBullishSpike = (InpEnableSpikeOrderCreation && EMADirection == 1 && GlobalEmaAngle30 < 0.0);
-   bool isBearishSpike = (InpEnableSpikeOrderCreation && EMADirection == -1 && GlobalEmaAngle30 > 0.0);
+   // USER RULE: Spike Order Creation Engine
+   // 1. Classic Counter-Trend Spike (Direction vs Angle Mismatch)
+   bool isClassicBullSpike = (InpEnableSpikeOrderCreation && EMADirection == 1 && GlobalEmaAngle30 < 0.0);
+   bool isClassicBearSpike = (InpEnableSpikeOrderCreation && EMADirection == -1 && GlobalEmaAngle30 > 0.0);
+
+   // 2. Fast Momentum Spike: Price moving away from 200 EMA faster with steep EMA Angle confirmation
+   bool isFastBullSpike = false;
+   bool isFastBearSpike = false;
+
+   if(InpEnableFastMovingEmaSpike)
+     {
+      double liveEma200 = iMA(Symbol(), Period(), InpEMA200Period, InpEMAPriceShift, MODE_EMA, PRICE_CLOSE, 0);
+      double fastEmaAng = GetEmaAngleDegrees(InpFastSpikeLookbackBars);
+      double stdEmaAng  = GlobalEmaAngle30;
+
+      // Fast Bearish Spike: Price plunging away below 200 EMA with steep downward angle
+      if(Bid < liveEma200)
+        {
+         double distBelow = liveEma200 - Bid;
+         if(distBelow >= InpFastSpikeMinDistance)
+           {
+            if(fastEmaAng <= -InpFastSpikeMinAngle || stdEmaAng <= -InpFastSpikeMinAngle)
+              {
+               isFastBearSpike = true;
+              }
+           }
+        }
+
+      // Fast Bullish Spike: Price surging away above 200 EMA with steep upward angle
+      if(Ask > liveEma200)
+        {
+         double distAbove = Ask - liveEma200;
+         if(distAbove >= InpFastSpikeMinDistance)
+           {
+            if(fastEmaAng >= InpFastSpikeMinAngle || stdEmaAng >= InpFastSpikeMinAngle)
+              {
+               isFastBullSpike = true;
+              }
+           }
+        }
+     }
+
+   bool isBullishSpike = (isClassicBullSpike || isFastBullSpike);
+   bool isBearishSpike = (isClassicBearSpike || isFastBearSpike);
 
    if(isBullishSpike)
      {
       sellSignal = false;
       missingSellOrder = false;
 
-      // Clean up stale pending spike orders if price drifted away (or delete all pending if operating in direct market mode)
-      CleanupStaleSpikePendingOrders(OP_BUYSTOP, (InpSpikeOrderPendingGapUSD <= 0.0 ? 0.0 : InpSpikeOrderStaleCleanupDistUSD));
+      // USER RULE: Close opposite open SELL orders immediately when bullish spike is detected
+      if(isFastBullSpike && InpFastSpikeCloseOppositeOrders)
+        {
+         static datetime s_lastFastBullOppClose = 0;
+         if(TimeCurrent() - s_lastFastBullOppClose >= 10)
+           {
+            s_lastFastBullOppClose = TimeCurrent();
+            CloseAllOpenSellOrders("FAST_BULLISH_SPIKE_OPPOSITE_CLOSE");
+           }
+        }
 
-      // Create Spike BUY order: when pending value is 0 open market orders without pending; when > 0 maintain 1 pending stop
+      // Clean up stale pending spike orders if price drifted away
+      CleanupStaleSpikePendingOrders(OP_BUYSTOP, ((InpFastSpikeMarketOrder || InpSpikeOrderPendingGapUSD <= 0.0) ? 0.0 : InpSpikeOrderStaleCleanupDistUSD));
+
+      // Count active market Spike BUY orders
+      int activeSpikeBuyCount = 0;
+      for(int sb = 0; sb < OrdersTotal(); sb++)
+        {
+         if(!OrderSelect(sb, SELECT_BY_POS, MODE_TRADES)) continue;
+         if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber) continue;
+         if(OrderType() == OP_BUY && StringFind(OrderComment(), "SPIKE") >= 0)
+            activeSpikeBuyCount++;
+        }
+
       static datetime s_lastSpikeBuyTime = 0;
       bool canCreateSpikeBuy = false;
-      if(InpSpikeOrderPendingGapUSD <= 0.0)
-         canCreateSpikeBuy = (TimeCurrent() - s_lastSpikeBuyTime >= InpSpikeOrderCooldownSec);
+      if(InpFastSpikeMarketOrder || InpSpikeOrderPendingGapUSD <= 0.0)
+         canCreateSpikeBuy = (activeSpikeBuyCount < InpMaxActiveSpikeOrders && (TimeCurrent() - s_lastSpikeBuyTime >= InpSpikeOrderCooldownSec));
       else
          canCreateSpikeBuy = (CountSpikePendingOrders(OP_BUYSTOP) == 0 && (TimeCurrent() - s_lastSpikeBuyTime >= 1));
 
@@ -13704,6 +13774,8 @@ void OnTickCore()
         {
          s_lastSpikeBuyTime = TimeCurrent();
          OpenBuy("SPIKE_BUY");
+         PrintFormat(">>> [FAST SPIKE ENGINE] Created Spike BUY | Mode=%s | ActiveSpikes=%d/%d | Angle=%.1f deg",
+                     (InpFastSpikeMarketOrder ? "MARKET" : "PENDING"), activeSpikeBuyCount + 1, InpMaxActiveSpikeOrders, GlobalEmaAngle30);
         }
      }
    else if(isBearishSpike)
@@ -13711,14 +13783,34 @@ void OnTickCore()
       buySignal = false;
       missingBuyOrder = false;
 
-      // Clean up stale pending spike orders if price drifted away (or delete all pending if operating in direct market mode)
-      CleanupStaleSpikePendingOrders(OP_SELLSTOP, (InpSpikeOrderPendingGapUSD <= 0.0 ? 0.0 : InpSpikeOrderStaleCleanupDistUSD));
+      // USER RULE: Close opposite open BUY orders immediately when bearish spike is detected
+      if(isFastBearSpike && InpFastSpikeCloseOppositeOrders)
+        {
+         static datetime s_lastFastBearOppClose = 0;
+         if(TimeCurrent() - s_lastFastBearOppClose >= 10)
+           {
+            s_lastFastBearOppClose = TimeCurrent();
+            CloseAllOpenBuyOrders("FAST_BEARISH_SPIKE_OPPOSITE_CLOSE");
+           }
+        }
 
-      // Create Spike SELL order: when pending value is 0 open market orders without pending; when > 0 maintain 1 pending stop
+      // Clean up stale pending spike orders if price drifted away
+      CleanupStaleSpikePendingOrders(OP_SELLSTOP, ((InpFastSpikeMarketOrder || InpSpikeOrderPendingGapUSD <= 0.0) ? 0.0 : InpSpikeOrderStaleCleanupDistUSD));
+
+      // Count active market Spike SELL orders
+      int activeSpikeSellCount = 0;
+      for(int ss = 0; ss < OrdersTotal(); ss++)
+        {
+         if(!OrderSelect(ss, SELECT_BY_POS, MODE_TRADES)) continue;
+         if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber) continue;
+         if(OrderType() == OP_SELL && StringFind(OrderComment(), "SPIKE") >= 0)
+            activeSpikeSellCount++;
+        }
+
       static datetime s_lastSpikeSellTime = 0;
       bool canCreateSpikeSell = false;
-      if(InpSpikeOrderPendingGapUSD <= 0.0)
-         canCreateSpikeSell = (TimeCurrent() - s_lastSpikeSellTime >= InpSpikeOrderCooldownSec);
+      if(InpFastSpikeMarketOrder || InpSpikeOrderPendingGapUSD <= 0.0)
+         canCreateSpikeSell = (activeSpikeSellCount < InpMaxActiveSpikeOrders && (TimeCurrent() - s_lastSpikeSellTime >= InpSpikeOrderCooldownSec));
       else
          canCreateSpikeSell = (CountSpikePendingOrders(OP_SELLSTOP) == 0 && (TimeCurrent() - s_lastSpikeSellTime >= 1));
 
@@ -13726,6 +13818,8 @@ void OnTickCore()
         {
          s_lastSpikeSellTime = TimeCurrent();
          OpenSell("SPIKE_SELL");
+         PrintFormat(">>> [FAST SPIKE ENGINE] Created Spike SELL | Mode=%s | ActiveSpikes=%d/%d | Angle=%.1f deg",
+                     (InpFastSpikeMarketOrder ? "MARKET" : "PENDING"), activeSpikeSellCount + 1, InpMaxActiveSpikeOrders, GlobalEmaAngle30);
         }
      }
 
@@ -22184,7 +22278,7 @@ void OpenBuy(string MOMorder="")
         }
      }
    RefreshRates();
-   bool isSpikeMarketOrder = (isSpikeOrder && InpSpikeOrderPendingGapUSD <= 0.0);
+   bool isSpikeMarketOrder = (isSpikeOrder && (InpFastSpikeMarketOrder || InpSpikeOrderPendingGapUSD <= 0.0));
    double pendingGap = isSpikeOrder ? InpSpikeOrderPendingGapUSD : GetSSLLongShortPendingGapRaw(OP_BUY, true);
    double minStopDist = GetRequiredStopDistance();
    double entryPrice = Ask;
@@ -22302,7 +22396,7 @@ void OpenSell(string MOMorder="")
         }
      }
    RefreshRates();
-   bool isSpikeMarketOrder = (isSpikeOrder && InpSpikeOrderPendingGapUSD <= 0.0);
+   bool isSpikeMarketOrder = (isSpikeOrder && (InpFastSpikeMarketOrder || InpSpikeOrderPendingGapUSD <= 0.0));
    double pendingGap = isSpikeOrder ? InpSpikeOrderPendingGapUSD : GetSSLLongShortPendingGapRaw(OP_SELL, true);
    double minStopDist = GetRequiredStopDistance();
    double entryPrice = Bid;
