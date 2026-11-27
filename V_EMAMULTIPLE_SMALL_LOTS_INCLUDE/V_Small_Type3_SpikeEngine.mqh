@@ -3,62 +3,298 @@
 //|                 TYPE 3: Spike & Climax Reversal Engine           |
 //|                                                                  |
 //| Characteristics:                                                 |
-//| 1. Sudden fast moving away from 200 EMA (violent momentum spike) |
-//| 2. Priority State: FREEZES / HOLDS Type 1 and Type 2 methods     |
-//| 3. Cuts opposite loss orders immediately to stop drawdown bleed  |
-//| 4. Dedicated Spike Profit Booking ($50.00 minimum target)        |
-//| 5. Speed Breakers: Horizontal lines (EQL-G / EQH-R) at climax    |
-//|    bank maximum spike profit, close losses, & trigger Rebound!   |
-//| 6. Rebound rides mean reversion back to yellow 200 EMA touch!    |
+//| 1. Pure 5-Min EMA Distance Velocity (NO EMAangle condition!)     |
+//| 2. Checks EVERY 5-min step gap for Start, Continuation & End     |
+//| 3. Priority State: FREEZES / HOLDS Type 1 and Type 2 methods     |
+//| 4. Auto-Resumes Trading immediately when Spike is detected       |
+//| 5. Cuts opposite loss orders immediately to stop drawdown bleed  |
+//| 6. Dedicated Spike Profit Booking ($50.00 minimum target)        |
+//| 7. Speed Breakers: Horizontal lines (EQL-G / EQH-R) at climax    |
+//|    or 5-min step deceleration signal SPIKE END & trigger Rebound |
+//| 8. Rebound rides mean reversion back to yellow 200 EMA touch!    |
 //+------------------------------------------------------------------+
 #property copyright "Antigravity"
 #property link      ""
 #property strict
 
 // Type 3 Telemetry Metrics
-int    g_type3ClosedTrades      = 0;
-double g_type3ClosedProfit      = 0.0;
-int    g_type3WinCount          = 0;
-int    g_type3LossCount         = 0;
-bool   g_type3SpikeActiveState  = false;
-datetime g_lastType3LogTime     = 0;
+int      g_type3ClosedTrades      = 0;
+double   g_type3ClosedProfit      = 0.0;
+int      g_type3WinCount          = 0;
+int      g_type3LossCount         = 0;
+bool     g_type3SpikeActiveState  = false;
+datetime g_lastType3LogTime       = 0;
+
+// Spike Lifecycle Visualizer State Tracker (Strict 1:1 Deduplication)
+// States: 0 = STAGE_IDLE, 1 = STAGE_SPIKE_STARTED, 2 = STAGE_SPIKE_ENDED, 3 = STAGE_REVERSE_STARTED
+int      s_spikeLifecycleState    = 0;
+int      s_lastSpikeSignalDir     = 0;
+datetime s_lastSpikeSignalTime    = 0;
+
+// 5-Minute Step Gap Trackers (Evaluated on every 5-min boundary & rolling M1 window)
+long     g_spike5mLastStepSlot         = -1;
+double   g_spike5mStepStartDistAbove   = 0.0;
+double   g_spike5mStepStartDistBelow   = 0.0;
+double   g_spike5mPrevStepGapAbove     = 0.0;
+double   g_spike5mPrevStepGapBelow     = 0.0;
+double   g_spike5mLiveStepGapAbove     = 0.0;
+double   g_spike5mLiveStepGapBelow     = 0.0;
+datetime g_spike5mLastConfirmTime      = 0;
+int      g_spike5mLastConfirmDir       = 0;
+
+// Per-Tick Evaluation Cache (Zero repeated iMA calls when checked multiple times in same tick)
+datetime g_spike5mCacheTickTime        = 0;
+double   g_spike5mCacheBid             = 0.0;
+double   g_spike5mCacheAsk             = 0.0;
+bool     g_spike5mCacheBullSpike       = false;
+bool     g_spike5mCacheBearSpike       = false;
+double   g_spike5mCacheDistAbove       = 0.0;
+double   g_spike5mCacheDistBelow       = 0.0;
+double   g_spike5mCacheDeltaAbove      = 0.0;
+double   g_spike5mCacheDeltaBelow      = 0.0;
+
+//+------------------------------------------------------------------+
+//| ResetSpikeLifecycleState: Reset chart signal & 5m step state     |
+//+------------------------------------------------------------------+
+void ResetSpikeLifecycleState()
+  {
+   s_spikeLifecycleState       = 0;
+   s_lastSpikeSignalDir        = 0;
+   s_lastSpikeSignalTime       = 0;
+
+   g_spike5mLastStepSlot       = -1;
+   g_spike5mStepStartDistAbove = 0.0;
+   g_spike5mStepStartDistBelow = 0.0;
+   g_spike5mPrevStepGapAbove   = 0.0;
+   g_spike5mPrevStepGapBelow   = 0.0;
+   g_spike5mLiveStepGapAbove   = 0.0;
+   g_spike5mLiveStepGapBelow   = 0.0;
+   g_spike5mLastConfirmTime    = 0;
+   g_spike5mLastConfirmDir     = 0;
+
+   g_spike5mCacheTickTime      = 0;
+   g_spike5mCacheBid           = 0.0;
+   g_spike5mCacheAsk           = 0.0;
+   g_spike5mCacheBullSpike     = false;
+   g_spike5mCacheBearSpike     = false;
+   g_spike5mCacheDistAbove     = 0.0;
+   g_spike5mCacheDistBelow     = 0.0;
+   g_spike5mCacheDeltaAbove    = 0.0;
+   g_spike5mCacheDeltaBelow    = 0.0;
+  }
+
+//+------------------------------------------------------------------+
+//| Evaluate5MinEmaDistanceStepGap:                                  |
+//| Evaluates BOTH:                                                  |
+//| 1. Rolling 5-min M1 window (side-aware EMA distance expansion)   |
+//| 2. Discrete every-5-minute step boundaries (00, 05, 10, 15...)   |
+//|    to confirm Spike Start, Continuation, and 5-Min Step END!     |
+//+------------------------------------------------------------------+
+void Evaluate5MinEmaDistanceStepGap(bool &outBullSpike, bool &outBearSpike,
+                                    double &outCurDistAbove, double &outCurDistBelow,
+                                    double &outDeltaAbove, double &outDeltaBelow)
+  {
+   datetime nowServer = TimeCurrent();
+
+   if(nowServer > 0 && nowServer == g_spike5mCacheTickTime &&
+      Bid == g_spike5mCacheBid && Ask == g_spike5mCacheAsk &&
+      g_spike5mLastStepSlot >= 0)
+     {
+      outBullSpike    = g_spike5mCacheBullSpike;
+      outBearSpike    = g_spike5mCacheBearSpike;
+      outCurDistAbove = g_spike5mCacheDistAbove;
+      outCurDistBelow = g_spike5mCacheDistBelow;
+      outDeltaAbove   = g_spike5mCacheDeltaAbove;
+      outDeltaBelow   = g_spike5mCacheDeltaBelow;
+      return;
+     }
+
+   outBullSpike    = false;
+   outBearSpike    = false;
+   outCurDistAbove = 0.0;
+   outCurDistBelow = 0.0;
+   outDeltaAbove   = 0.0;
+   outDeltaBelow   = 0.0;
+
+   double liveEma200 = iMA(Symbol(), Period(), InpEMA200Period, InpEMAPriceShift, MODE_EMA, PRICE_CLOSE, 0);
+   if(liveEma200 <= 0.0 || nowServer <= 0)
+      return;
+
+   double curDistBelow = (Bid < liveEma200) ? (liveEma200 - Bid) : 0.0;
+   double curDistAbove = (Ask > liveEma200) ? (Ask - liveEma200) : 0.0;
+   outCurDistAbove = curDistAbove;
+   outCurDistBelow = curDistBelow;
+
+   int lookbackMins    = MathMax(1, InpType3SpikeVelocityLookbackM1);
+   int stepIntervalSec = lookbackMins * 60; // Default: 300s (5 minutes)
+
+   // 1. Scan past 1..5 minute M1 bars to measure exact rolling 5-min distance expansion
+   double minPastDistBelow5m = curDistBelow;
+   double minPastDistAbove5m = curDistAbove;
+   int m1BarsTotal = iBars(Symbol(), PERIOD_M1);
+   if(m1BarsTotal > lookbackMins)
+     {
+      bool firstSample = true;
+      for(int m = 1; m <= lookbackMins; m++)
+        {
+         datetime barT = iTime(Symbol(), PERIOD_M1, m);
+         double   pM1  = iClose(Symbol(), PERIOD_M1, m);
+         int emaShift  = (Period() == PERIOD_M1) ? m : iBarShift(Symbol(), Period(), barT, false);
+         if(emaShift < 0)
+            emaShift = 0;
+         double emaAtM = iMA(Symbol(), Period(), InpEMA200Period, InpEMAPriceShift, MODE_EMA, PRICE_CLOSE, emaShift);
+         if(emaAtM <= 0.0 || pM1 <= 0.0)
+            continue;
+
+         double dBelow = (pM1 < emaAtM) ? (emaAtM - pM1) : 0.0;
+         double dAbove = (pM1 > emaAtM) ? (pM1 - emaAtM) : 0.0;
+
+         if(firstSample)
+           {
+            minPastDistBelow5m = dBelow;
+            minPastDistAbove5m = dAbove;
+            firstSample = false;
+           }
+         else
+           {
+            if(dBelow < minPastDistBelow5m) minPastDistBelow5m = dBelow;
+            if(dAbove < minPastDistAbove5m) minPastDistAbove5m = dAbove;
+           }
+        }
+     }
+
+   double rollingDeltaBelow = (curDistBelow > 0.0) ? (curDistBelow - minPastDistBelow5m) : 0.0;
+   double rollingDeltaAbove = (curDistAbove > 0.0) ? (curDistAbove - minPastDistAbove5m) : 0.0;
+
+   // 2. Check EVERY 5-Minute Step Gap Boundary (00, 05, 10, 15, ...)
+   long curSlot = (long)(((long)nowServer) / stepIntervalSec);
+   bool boundaryJustCrossed   = false;
+   bool boundaryConfirmedBull = false;
+   bool boundaryConfirmedBear = false;
+
+   if(g_spike5mLastStepSlot == -1)
+     {
+      g_spike5mLastStepSlot       = curSlot;
+      g_spike5mStepStartDistAbove = curDistAbove;
+      g_spike5mStepStartDistBelow = curDistBelow;
+     }
+   else if(curSlot != g_spike5mLastStepSlot)
+     {
+      boundaryJustCrossed = true;
+      double completedGapAbove = (curDistAbove > 0.0) ? (curDistAbove - g_spike5mStepStartDistAbove) : -g_spike5mStepStartDistAbove;
+      double completedGapBelow = (curDistBelow > 0.0) ? (curDistBelow - g_spike5mStepStartDistBelow) : -g_spike5mStepStartDistBelow;
+
+      g_spike5mPrevStepGapAbove = completedGapAbove;
+      g_spike5mPrevStepGapBelow = completedGapBelow;
+
+      double reqThreshold = InpType3Spike5MinDistanceChange;
+      string stepStatus   = "NORMAL";
+
+      if(curDistBelow > 0.0 && completedGapBelow >= reqThreshold)
+        {
+         boundaryConfirmedBear = true;
+         g_spike5mLastConfirmTime = nowServer;
+         g_spike5mLastConfirmDir  = -1;
+         stepStatus = StringFormat("BEAR SPIKE STEP (+$%.2f >= $%.0f)", completedGapBelow, reqThreshold);
+        }
+      else if(curDistAbove > 0.0 && completedGapAbove >= reqThreshold)
+        {
+         boundaryConfirmedBull = true;
+         g_spike5mLastConfirmTime = nowServer;
+         g_spike5mLastConfirmDir  = 1;
+         stepStatus = StringFormat("BULL SPIKE STEP (+$%.2f >= $%.0f)", completedGapAbove, reqThreshold);
+        }
+
+      // Check if an active spike slowed down/reversed over this completed 5-min step -> SPIKE END!
+      if(InpType3CheckEvery5MinStepGap && s_spikeLifecycleState == 1 && (nowServer - s_lastSpikeSignalTime) >= stepIntervalSec)
+        {
+         if(s_lastSpikeSignalDir == -1 && completedGapBelow < InpType3Spike5MinEndMinStepGap && rollingDeltaBelow < reqThreshold)
+           {
+            stepStatus = StringFormat("BEAR SPIKE ENDED (5m StepGap=$%.2f < $%.0f)", completedGapBelow, InpType3Spike5MinEndMinStepGap);
+            DrawSpikeLifecycleSignal("SPIKE_END", -1, Bid, stepStatus);
+           }
+         else if(s_lastSpikeSignalDir == 1 && completedGapAbove < InpType3Spike5MinEndMinStepGap && rollingDeltaAbove < reqThreshold)
+           {
+            stepStatus = StringFormat("BULL SPIKE ENDED (5m StepGap=$%.2f < $%.0f)", completedGapAbove, InpType3Spike5MinEndMinStepGap);
+            DrawSpikeLifecycleSignal("SPIKE_END", 1, Ask, stepStatus);
+           }
+        }
+
+      if(InpType3CheckEvery5MinStepGap)
+        {
+         PrintFormat(">>> [5-MIN STEP GAP] Time=%s | Dist(A/B)=$%.2f/$%.2f | PrevStart(A/B)=$%.2f/$%.2f | StepGap(A/B)=$%.2f/$%.2f | %s",
+                     TimeToString(nowServer, TIME_DATE|TIME_MINUTES),
+                     curDistAbove, curDistBelow,
+                     g_spike5mStepStartDistAbove, g_spike5mStepStartDistBelow,
+                     completedGapAbove, completedGapBelow,
+                     stepStatus);
+        }
+
+      g_spike5mLastStepSlot       = curSlot;
+      g_spike5mStepStartDistAbove = curDistAbove;
+      g_spike5mStepStartDistBelow = curDistBelow;
+     }
+
+   g_spike5mLiveStepGapAbove = (curDistAbove > 0.0) ? (curDistAbove - g_spike5mStepStartDistAbove) : 0.0;
+   g_spike5mLiveStepGapBelow = (curDistBelow > 0.0) ? (curDistBelow - g_spike5mStepStartDistBelow) : 0.0;
+
+   double bestDeltaAbove = MathMax(rollingDeltaAbove, g_spike5mLiveStepGapAbove);
+   double bestDeltaBelow = MathMax(rollingDeltaBelow, g_spike5mLiveStepGapBelow);
+   if(boundaryJustCrossed)
+     {
+      bestDeltaAbove = MathMax(bestDeltaAbove, g_spike5mPrevStepGapAbove);
+      bestDeltaBelow = MathMax(bestDeltaBelow, g_spike5mPrevStepGapBelow);
+     }
+
+   outDeltaAbove = bestDeltaAbove;
+   outDeltaBelow = bestDeltaBelow;
+
+   if(InpEnableType3SpikeVelocityFilter || InpEnableFastMovingEmaSpike)
+     {
+      double climaxDist = GetTwoWayClimaxMinDistance();
+      if(InpType3SpikeStrict5MinBoundaryOnly)
+        {
+         if(curDistAbove > 0.0 && (boundaryConfirmedBull || curDistAbove >= climaxDist))
+            outBullSpike = true;
+         if(curDistBelow > 0.0 && (boundaryConfirmedBear || curDistBelow >= climaxDist))
+            outBearSpike = true;
+        }
+      else
+        {
+         if(curDistAbove > 0.0 && (bestDeltaAbove >= InpType3Spike5MinDistanceChange || curDistAbove >= climaxDist))
+            outBullSpike = true;
+         if(curDistBelow > 0.0 && (bestDeltaBelow >= InpType3Spike5MinDistanceChange || curDistBelow >= climaxDist))
+            outBearSpike = true;
+        }
+     }
+
+   // Store tick cache
+   g_spike5mCacheTickTime   = nowServer;
+   g_spike5mCacheBid        = Bid;
+   g_spike5mCacheAsk        = Ask;
+   g_spike5mCacheBullSpike  = outBullSpike;
+   g_spike5mCacheBearSpike  = outBearSpike;
+   g_spike5mCacheDistAbove  = outCurDistAbove;
+   g_spike5mCacheDistBelow  = outCurDistBelow;
+   g_spike5mCacheDeltaAbove = outDeltaAbove;
+   g_spike5mCacheDeltaBelow = outDeltaBelow;
+  }
 
 //+------------------------------------------------------------------+
 //| IsType3SpikeActive: Check if Type 3 Spike / Climax is active     |
 //+------------------------------------------------------------------+
 bool IsType3SpikeActive()
   {
-   double liveEma200 = iMA(Symbol(), Period(), InpEMA200Period, InpEMAPriceShift, MODE_EMA, PRICE_CLOSE, 0);
-   if(liveEma200 <= 0.0)
-      return false;
+   bool   isBull5m = false, isBear5m = false;
+   double distAbove = 0.0, distBelow = 0.0;
+   double deltaAbove = 0.0, deltaBelow = 0.0;
 
-   double curPrice = (Bid > 0.0) ? Bid : Close[0];
-   double distToEma = MathAbs(curPrice - liveEma200);
-
-   // Condition A: Extreme Climax Distance (>= $1000)
-   if(distToEma >= GetTwoWayClimaxMinDistance())
+   // Condition A & B: Run unified 5-min step gap evaluator (Climax >= $1000 OR 5-min gap >= $300)
+   Evaluate5MinEmaDistanceStepGap(isBull5m, isBear5m, distAbove, distBelow, deltaAbove, deltaBelow);
+   if(isBull5m || isBear5m)
      {
       g_type3SpikeActiveState = true;
       return true;
-     }
-
-   // Condition B: Velocity Shock - EMA Distance expanded >= $300 in 5 minutes (USER RULE: NO EMA ANGLE DEPENDENCY)
-   if(InpEnableType3SpikeVelocityFilter || InpEnableFastMovingEmaSpike)
-     {
-      int lookbackBars = (Period() == PERIOD_M1) ? InpType3SpikeVelocityLookbackM1 : (int)MathMax(1, 5 / Period());
-      if(Bars > lookbackBars)
-        {
-         double pastEma   = iMA(Symbol(), Period(), InpEMA200Period, InpEMAPriceShift, MODE_EMA, PRICE_CLOSE, lookbackBars);
-         double pastPrice = Close[lookbackBars];
-         double pastDist  = MathAbs(pastPrice - pastEma);
-         double deltaDist = distToEma - pastDist;
-
-         if(deltaDist >= InpType3Spike5MinDistanceChange)
-           {
-            g_type3SpikeActiveState = true;
-            return true;
-           }
-        }
      }
 
    // Condition C: Active Open Spike or Two-Way orders exist on account
@@ -75,6 +311,13 @@ bool IsType3SpikeActive()
          g_type3SpikeActiveState = true;
          return true;
         }
+     }
+
+   // If no spike velocity and no open spike/waterfall orders remain, clean up active signal near EMA
+   double maxLiveDist = MathMax(distAbove, distBelow);
+   if(s_spikeLifecycleState == 1 && maxLiveDist < 50.0 && (TimeCurrent() - s_lastSpikeSignalTime) >= 60)
+     {
+      DrawSpikeLifecycleSignal("SPIKE_END", s_lastSpikeSignalDir, (Bid + Ask) * 0.5, "Price returned near 200 EMA");
      }
 
    g_type3SpikeActiveState = false;
@@ -149,7 +392,8 @@ void PrintThreeTypeTelemetrySummary()
       activeRegime = "[TYPE 2: GRADUAL TREND]";
 
    Print(">>> ================================================================================");
-   PrintFormat(">>> [3-TYPE SYSTEM TELEMETRY] ACTIVE REGIME: %s | EMA Angle=%.1f deg", activeRegime, GlobalEmaAngle30);
+   PrintFormat(">>> [3-TYPE SYSTEM TELEMETRY] ACTIVE REGIME: %s | 5m StepGap(A/B)=$%.1f/$%.1f",
+               activeRegime, g_spike5mLiveStepGapAbove, g_spike5mLiveStepGapBelow);
    PrintFormat(">>> [TYPE 1: OSCILLATION ] Trades: %3d | Net P/L: $%7.2f | Wins: %d | Losses: %d | WinRate: %5.1f%%",
                g_type1ClosedTrades, g_type1ClosedProfit, g_type1WinCount, g_type1LossCount, t1WinRate);
    PrintFormat(">>> [TYPE 2: GRADUAL TRD ] Trades: %3d | Net P/L: $%7.2f | Wins: %d | Losses: %d | WinRate: %5.1f%%",
@@ -183,7 +427,6 @@ color GetThreeTypeActiveStatusColor()
    return clrLime;
   }
 
-
 //+------------------------------------------------------------------+
 //| DrawSpikeLifecycleSignal: Display Visual Icons & Labels on Chart|
 //| Stages:                                                          |
@@ -192,25 +435,6 @@ color GetThreeTypeActiveStatusColor()
 //| 3. "SPIKE_REV_START" : SPIKE reverse started                     |
 //| 4. "SPIKE_REV_END"   : SPIKE REVER END                           |
 //+------------------------------------------------------------------+
-//+------------------------------------------------------------------+
-//| Spike Lifecycle State Tracker for Deduplication                  |
-//| States:                                                          |
-//| 0 = STAGE_IDLE (No active spike)                                 |
-//| 1 = STAGE_SPIKE_STARTED (Spike started icon displayed once)      |
-//| 2 = STAGE_SPIKE_ENDED   (Spike ended icon displayed once)        |
-//| 3 = STAGE_REVERSE_STARTED (Reverse rebound icon displayed once)  |
-//+------------------------------------------------------------------+
-static int      s_spikeLifecycleState = 0;
-static int      s_lastSpikeSignalDir  = 0;
-static datetime s_lastSpikeSignalTime = 0;
-
-void ResetSpikeLifecycleState()
-  {
-   s_spikeLifecycleState = 0;
-   s_lastSpikeSignalDir  = 0;
-   s_lastSpikeSignalTime = 0;
-  }
-
 void DrawSpikeLifecycleSignal(string stage, int dir, double price, string details = "")
   {
    if(!InpEnableSpikeLifecycleVisuals)
@@ -248,7 +472,6 @@ void DrawSpikeLifecycleSignal(string stage, int dir, double price, string detail
    // -------------------------------------------------------------
    if(stage == "SPIKE_START")
      {
-      // If already in active spike in the same direction, suppress duplicate!
       if(s_spikeLifecycleState == 1 && s_lastSpikeSignalDir == dir)
          return;
 
@@ -258,8 +481,6 @@ void DrawSpikeLifecycleSignal(string stage, int dir, double price, string detail
      }
    else if(stage == "SPIKE_END")
      {
-      // Only transition to SPIKE_END if a spike is currently active (state 1)!
-      // If already ended (state 2) or idle (state 0), suppress duplicate!
       if(s_spikeLifecycleState != 1)
          return;
 
@@ -268,7 +489,6 @@ void DrawSpikeLifecycleSignal(string stage, int dir, double price, string detail
      }
    else if(stage == "SPIKE_REV_START")
      {
-      // If already in reverse active (state 3), suppress duplicate!
       if(s_spikeLifecycleState == 3)
          return;
 
@@ -277,7 +497,6 @@ void DrawSpikeLifecycleSignal(string stage, int dir, double price, string detail
      }
    else if(stage == "SPIKE_REV_END")
      {
-      // Only fire reverse end if reverse was active (state 3) or spike ended (state 2)
       if(s_spikeLifecycleState == 0)
          return;
 
@@ -308,7 +527,7 @@ void DrawSpikeLifecycleSignal(string stage, int dir, double price, string detail
      {
       if(dir >= 0) // Bullish Spike
         {
-         iconCode    = 233; // Wingdings Bold UP Arrow
+         iconCode    = 233;
          sigColor    = clrLime;
          labelText   = "▲ SPIKE STARTED [BULL]";
          markerPrice = Low[0] - offset;
@@ -316,7 +535,7 @@ void DrawSpikeLifecycleSignal(string stage, int dir, double price, string detail
         }
       else // Bearish Spike
         {
-         iconCode    = 234; // Wingdings Bold DOWN Arrow
+         iconCode    = 234;
          sigColor    = clrRed;
          labelText   = "▼ SPIKE STARTED [BEAR]";
          markerPrice = High[0] + offset;
@@ -325,32 +544,32 @@ void DrawSpikeLifecycleSignal(string stage, int dir, double price, string detail
      }
    else if(stage == "SPIKE_END")
      {
-      iconCode = 254; // Wingdings Solid Square (Speed Breaker Barrier)
+      iconCode = 254;
       sigColor = clrOrangeRed;
-      if(dir >= 0) // Top ceiling hit (EQH-R)
+      if(dir >= 0)
         {
-         labelText   = "■ SPIKE END [EQH-R CEILING]";
+         labelText   = "■ SPIKE END [BULL]";
          markerPrice = (price > 0.0) ? price : High[0];
          textPrice   = markerPrice + offset;
         }
-      else // Bottom floor hit (EQL-G)
+      else
         {
-         labelText   = "■ SPIKE END [EQL-G FLOOR]";
+         labelText   = "■ SPIKE END [BEAR]";
          markerPrice = (price > 0.0) ? price : Low[0];
          textPrice   = markerPrice - offset;
         }
      }
    else if(stage == "SPIKE_REV_START")
      {
-      iconCode = 171; // Wingdings Solid Star (Rebound Ignition)
-      if(dir >= 0) // BUY Rebound off floor
+      iconCode = 171;
+      if(dir >= 0)
         {
          sigColor    = clrAqua;
          labelText   = "★ SPIKE REVERSE STARTED [BUY -> EMA]";
          markerPrice = Low[0] - offset;
          textPrice   = markerPrice - (offset * 0.8);
         }
-      else // SELL Rebound off ceiling
+      else
         {
          sigColor    = clrMagenta;
          labelText   = "★ SPIKE REVERSE STARTED [SELL -> EMA]";
@@ -360,15 +579,11 @@ void DrawSpikeLifecycleSignal(string stage, int dir, double price, string detail
      }
    else if(stage == "SPIKE_REV_END")
      {
-      iconCode    = 251; // Wingdings Checkmark (Target reached)
+      iconCode    = 251;
       sigColor    = clrGold;
       labelText   = "✔ SPIKE REVER END [200 EMA TOUCH]";
       markerPrice = (price > 0.0) ? price : Close[0];
       textPrice   = (dir >= 0) ? (markerPrice + offset * 0.8) : (markerPrice - offset * 0.8);
-     }
-   else
-     {
-      return;
      }
 
    string baseName = StringFormat("SPK_MKR_%s_%d_%d", stage, (int)TimeCurrent(), s_spikeObjSeq);
@@ -404,6 +619,6 @@ void DrawSpikeLifecycleSignal(string stage, int dir, double price, string detail
 
    ChartRedraw(0);
 
-   PrintFormat(">>> [SPIKE CHART SIGNAL] Placed '%s' at %.2f | Bar=%s | Details: %s",
-               labelText, price, TimeToString(barTime, TIME_DATE|TIME_MINUTES), details);
+   PrintFormat(">>> [SPIKE CHART SIGNAL] Placed '%s' at %.2f | Bar=%s | State=%d | Details: %s",
+               labelText, price, TimeToString(barTime, TIME_DATE|TIME_MINUTES), s_spikeLifecycleState, details);
   }

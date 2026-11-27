@@ -43,7 +43,7 @@ CheckBasketProfitClose  Total open basket profit
 
 */
 
-string glbVersion = "V-SMALL-1125- Deduplicated Spike Lifecycle Visualizer";
+string glbVersion = "V-SMALL-1126- Every 5-Min Step Gap Spike Velocity Engine";
 
 int AccountMultiplierLOT = 500;//100;//1000;//400;//200;//500; ALWAYS multiples of 1000 is better for best results
 //balance multiplier
@@ -1132,16 +1132,19 @@ double InpPendingGapLossMultiplier         = 2.0;   // Pending gap multiplier on
  bool   InpFollowEmaIgnoreSsl                  = true;  // Trade Direction: Follow EMADirection (Bull=BUY, Bear=SELL) & Ignore SSL Signal
 
  // ===== FAST MOVING AWAY FROM EMA SPIKE DETECTION & OPPOSITE CLOSE =====
- bool   InpEnableFastMovingEmaSpike            = true;  // Fast Spike: Detect violent moves away from EMA line using EMA angle & distance
- double InpFastSpikeMinDistance                = 100.0; // Fast Spike: Min distance ($100) away from 200 EMA to qualify as faster spike
- double InpFastSpikeMinAngle                   = 1.5;   // Fast Spike: Min MathAbs(EMA Angle) (1.5 deg) confirming rapid directional slope
- int    InpFastSpikeLookbackBars               = 5;     // Fast Spike: Lookback bars for rapid EMA slope detection (default 5 bars)
+ bool   InpEnableFastMovingEmaSpike            = true;  // Fast Spike: Detect violent moves away from EMA line using 5-min step gap velocity (no angle)
+ double InpFastSpikeMinDistance                = 100.0; // Fast Spike: Reference EMA distance threshold ($100)
+ double InpFastSpikeMinAngle                   = 1.5;   // [Legacy Unused for Spike] EMA angle parameter kept for compatibility
+ int    InpFastSpikeLookbackBars               = 5;     // Fast Spike: Lookback bars for slope telemetry (default 5 bars)
  bool   InpFastSpikeCloseOppositeOrders        = true;  // Fast Spike: Close all open opposite orders immediately when fast spike is detected
  bool   InpFastSpikeMarketOrder                = true;  // Fast Spike: Open direct market order without waiting for pending fill
  bool   InpEnableType3SpikeVelocityFilter      = true;  // Type 3 Spike Velocity: Confirm Spike if EMA distance expanded >= $300 in 5 min
  double InpType3Spike5MinDistanceChange        = 300.0; // Type 3 Spike Velocity: Min EMA distance expansion ($300) in 5 min (User Observation)
- int    InpType3SpikeVelocityLookbackM1        = 5;     // Type 3 Spike Velocity: Lookback bars (5 min on M1)
+ int    InpType3SpikeVelocityLookbackM1        = 5;     // Type 3 Spike Velocity: Lookback step minutes (5 min)
  bool   InpEnableSpikeLifecycleVisuals         = true;  // Spike Lifecycle Signals: Display icons & labels for START, END, REV START, REV END
+ bool   InpType3CheckEvery5MinStepGap          = true;  // Check 5-min EMA distance step gap on every 5-min interval (start/continue/end)
+ double InpType3Spike5MinEndMinStepGap         = 50.0;  // 5-Min Step End: If completed 5-min step expands < $50 (or reverses), mark SPIKE END
+ bool   InpType3SpikeStrict5MinBoundaryOnly    = false; // Strict 5-Min Boundary Mode: true = only trigger at 5-min clock boundaries; false = rolling + step check
 
  // ===== SPIKE $50 MINIMUM PROFIT LADDER & CLIMAX EXIT =====
  bool   InpEnableSpikeProfitLadder             = true;  // Spike Ladder: Enable Step Profit Ladder with Maximum Profit Protection
@@ -8263,6 +8266,10 @@ void     PrintThreeTypeTelemetrySummary();
 string   GetThreeTypeActiveStatusDisplay();
 color    GetThreeTypeActiveStatusColor();
 void     DrawSpikeLifecycleSignal(string stage, int dir, double price, string details = "");
+void     ResetSpikeLifecycleState();
+void     Evaluate5MinEmaDistanceStepGap(bool &outBullSpike, bool &outBearSpike,
+                                        double &outCurDistAbove, double &outCurDistBelow,
+                                        double &outDeltaAbove, double &outDeltaBelow);
 datetime GetLastClosedFLIPBasketSupportCloseTime();
 bool     HasOppositeOrderTypeLossOver5(int currentDirection, double &outOppositeTotalPL, double &outMaxSingleLoss);
 void     InitializeFLIPBasketSupportTracking();
@@ -10575,6 +10582,7 @@ void ResetAllRuntimeVariablesOnFreshStart()
    g_peakCycleProfit                   = 0.0;
    Ladder5PercentBaseline              = 0.0;
    ResetReverse100RuntimeState();
+   ResetSpikeLifecycleState();
 
 // 8. Liquidity Sweep Markers & Blocks
    g_lastHandledSweepBlockBarTime = 0;
@@ -13745,49 +13753,15 @@ void OnTickCore()
 
    // USER RULE: Spike Order Creation Engine
    // USER SPECIFICATION: SPIKE has NO condition on EMAangle.
-   // SPIKE is all about distance from EMA moving away from EMA line faster in 5 minutes!
+   // Pure 5-Min Step Gap Velocity: checks rolling 5-min M1 window + every 5-min step boundary!
    bool isBullishSpike = false;
    bool isBearishSpike = false;
+   double spkDistAbove = 0.0, spkDistBelow = 0.0;
+   double spkDeltaAbove = 0.0, spkDeltaBelow = 0.0;
 
-   if(InpEnableFastMovingEmaSpike || InpEnableType3SpikeVelocityFilter)
-     {
-      double liveEma200 = iMA(Symbol(), Period(), InpEMA200Period, InpEMAPriceShift, MODE_EMA, PRICE_CLOSE, 0);
-      if(liveEma200 > 0.0)
-        {
-         int lookbackBars = (Period() == PERIOD_M1) ? InpType3SpikeVelocityLookbackM1 : (int)MathMax(1, 5 / Period());
-         if(Bars > lookbackBars)
-           {
-            double pastEma   = iMA(Symbol(), Period(), InpEMA200Period, InpEMAPriceShift, MODE_EMA, PRICE_CLOSE, lookbackBars);
-            double pastPrice = Close[lookbackBars];
-
-            // Bearish Spike: Price plunging away below 200 EMA and distance expanding >= $300 in 5 min OR Climax >= $1000
-            if(Bid < liveEma200)
-              {
-               double curDistBelow  = liveEma200 - Bid;
-               double pastDistBelow = (pastPrice < pastEma) ? (pastEma - pastPrice) : 0.0;
-               double deltaBelow    = curDistBelow - pastDistBelow;
-
-               if(deltaBelow >= InpType3Spike5MinDistanceChange || curDistBelow >= GetTwoWayClimaxMinDistance())
-                 {
-                  isBearishSpike = true;
-                 }
-              }
-
-            // Bullish Spike: Price rocketing away above 200 EMA and distance expanding >= $300 in 5 min OR Climax >= $1000
-            if(Ask > liveEma200)
-              {
-               double curDistAbove  = Ask - liveEma200;
-               double pastDistAbove = (pastPrice > pastEma) ? (pastPrice - pastEma) : 0.0;
-               double deltaAbove    = curDistAbove - pastDistAbove;
-
-               if(deltaAbove >= InpType3Spike5MinDistanceChange || curDistAbove >= GetTwoWayClimaxMinDistance())
-                 {
-                  isBullishSpike = true;
-                 }
-              }
-           }
-        }
-     }
+   Evaluate5MinEmaDistanceStepGap(isBullishSpike, isBearishSpike,
+                                  spkDistAbove, spkDistBelow,
+                                  spkDeltaAbove, spkDeltaBelow);
 
    bool isFastBullSpike = isBullishSpike;
    bool isFastBearSpike = isBearishSpike;
@@ -13832,9 +13806,9 @@ void OnTickCore()
         {
          s_lastSpikeBuyTime = TimeCurrent();
          OpenBuy("SPIKE_BUY");
-         DrawSpikeLifecycleSignal("SPIKE_START", 1, Ask, "Bullish Spike BUY | 5-Min EMA Distance Velocity");
-         PrintFormat(">>> [FAST SPIKE ENGINE] Created Spike BUY | Mode=%s | ActiveSpikes=%d/%d | 5-Min Distance Velocity Shock",
-                     (InpFastSpikeMarketOrder ? "MARKET" : "PENDING"), activeSpikeBuyCount + 1, InpMaxActiveSpikeOrders);
+         DrawSpikeLifecycleSignal("SPIKE_START", 1, Ask, StringFormat("Bullish Spike BUY | 5m Step Gap=+$%.2f (Dist=$%.2f)", spkDeltaAbove, spkDistAbove));
+         PrintFormat(">>> [FAST SPIKE ENGINE] Created Spike BUY | Mode=%s | ActiveSpikes=%d/%d | 5m StepGap=+$%.2f",
+                     (InpFastSpikeMarketOrder ? "MARKET" : "PENDING"), activeSpikeBuyCount + 1, InpMaxActiveSpikeOrders, spkDeltaAbove);
         }
      }
    else if(isBearishSpike)
@@ -13877,9 +13851,9 @@ void OnTickCore()
         {
          s_lastSpikeSellTime = TimeCurrent();
          OpenSell("SPIKE_SELL");
-         DrawSpikeLifecycleSignal("SPIKE_START", -1, Bid, "Bearish Spike SELL | 5-Min EMA Distance Velocity");
-         PrintFormat(">>> [FAST SPIKE ENGINE] Created Spike SELL | Mode=%s | ActiveSpikes=%d/%d | 5-Min Distance Velocity Shock",
-                     (InpFastSpikeMarketOrder ? "MARKET" : "PENDING"), activeSpikeSellCount + 1, InpMaxActiveSpikeOrders);
+         DrawSpikeLifecycleSignal("SPIKE_START", -1, Bid, StringFormat("Bearish Spike SELL | 5m Step Gap=+$%.2f (Dist=$%.2f)", spkDeltaBelow, spkDistBelow));
+         PrintFormat(">>> [FAST SPIKE ENGINE] Created Spike SELL | Mode=%s | ActiveSpikes=%d/%d | 5m StepGap=+$%.2f",
+                     (InpFastSpikeMarketOrder ? "MARKET" : "PENDING"), activeSpikeSellCount + 1, InpMaxActiveSpikeOrders, spkDeltaBelow);
         }
      }
 
