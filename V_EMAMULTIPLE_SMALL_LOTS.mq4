@@ -3,8 +3,8 @@
 //|                  TWO-STAGE PROFIT LADDER | CONTINUOUS RESET      |
 //+------------------------------------------------------------------+
 #property strict
-#property version     "11.29"
-#property description "V-SMALL-1129 | Two-Regime EMA Multiple Small Lots EA"
+#property version     "11.30"
+#property description "V-SMALL-1130 | Two-Regime EMA Multiple Small Lots EA"
 
 //$100 to $170
 //https://github.com/devcrunch2025/exnessStratagiesExperts/commit/32fb1ba20d474fc8d4adb38d2558999b2ac82c56
@@ -45,8 +45,8 @@ CheckBasketProfitClose  Total open basket profit
 
 */
 
-string glbVersion      = "V-SMALL-1129- Auto-Versioned Build & Chart/Journal Tag";
-string glbVersionShort = "V-SMALL-1129";
+string glbVersion      = "V-SMALL-1130- No Extern Variables (Pure Internal Config)";
+string glbVersionShort = "V-SMALL-1130";
 
 int AccountMultiplierLOT = 500;//100;//1000;//400;//200;//500; ALWAYS multiples of 1000 is better for best results
 //balance multiplier
@@ -392,12 +392,12 @@ double InpBothHorizontalLinesBlockMinEmaAngle         = 4.0;       // Minimum Ma
 bool   InpBlockAllOppositeWhenLineActive          = true;          // Single Active Line: true = block ALL opposite orders at ANY distance (Red blocks all BUY; Green blocks all SELL)
 
 // ===== TWO-REGIME TRADING SYSTEM (TRTS) =====
-extern bool   InpEnableTwoRegimeSystem             = true;     // Enable Two-Regime Trading System (Regime 1 Growth / Regime 2 Crisis)
-extern double InpTwoRegimeClimaxDistance           = 1000.0;   // Distance to EMA ($1000) to trigger Regime 2 (Crisis/Climax)
-extern double InpTwoRegimeResumeDistance           = 400.0;    // Distance to EMA ($400) to resume Regime 1 (Normal Growth)
-extern bool   InpTwoRegimeFreezeChasingInRegime2   = true;     // In Regime 2: Freeze low-probability trend-chasing entries into the exhaustion
-extern bool   InpTwoRegimePurgePendingInRegime2    = true;     // In Regime 2: Purge opposite pending stop orders into the floor/ceiling
-extern bool   InpTwoRegimeLiquidateRunnersInRegime2 = true;    // In Regime 2: Liquidate stale counter-trend runners with loss > $5*mult
+bool   InpEnableTwoRegimeSystem             = true;     // Enable Two-Regime Trading System (Regime 1 Growth / Regime 2 Crisis)
+double InpTwoRegimeClimaxDistance           = 1000.0;   // Distance to EMA ($1000) to trigger Regime 2 (Crisis/Climax)
+double InpTwoRegimeResumeDistance           = 400.0;    // Distance to EMA ($400) to resume Regime 1 (Normal Growth)
+bool   InpTwoRegimeFreezeChasingInRegime2   = true;     // In Regime 2: Freeze low-probability trend-chasing entries into the exhaustion
+bool   InpTwoRegimePurgePendingInRegime2    = true;     // In Regime 2: Purge opposite pending stop orders into the floor/ceiling
+bool   InpTwoRegimeLiquidateRunnersInRegime2 = true;    // In Regime 2: Liquidate stale counter-trend runners with loss > $5*mult
 
 enum ENUM_TRADING_REGIME
   {
@@ -412,24 +412,24 @@ string              g_regime2TriggerReason       = "";
 int                 g_regime2TotalTransitions    = 0;
 
 // ===== TWO-WAY ENGINE: FALLING/RISING WATERFALL & V-REBOUND (METHOD 7) =====
-extern bool   InpEnableTwoWayEngine               = true;     // Enable Method 7 Two-Way Engine (Waterfall + V-Rebound)
-extern bool   InpTwoWayEnableFallingOrders        = true;     // Enable Falling SELL orders on downward momentum
-extern bool   InpTwoWayEnableRisingOrders         = true;     // Enable Rising BUY orders on upward momentum
-extern double InpTwoWayWaterfallLotBase           = 0.01;     // Base lot size for Waterfall trend orders
-extern double InpTwoWayWaterfallStartDist         = 150.0;    // Min EMA distance ($150) to start Waterfall orders
-extern double InpTwoWayWaterfallStepRaw           = 150.0;    // Step gap ($150) between consecutive falling/rising orders as distance from EMA increases
-extern int    InpTwoWayMaxWaterfallOrders         = 6;        // Max concurrent Waterfall orders (per direction)
-extern double InpTwoWayWaterfallInitialSL         = 250.0;    // Initial StopLoss offset ($250) for Waterfall orders
-extern double InpTwoWayWaterfallTrailDist         = 100.0;    // Trailing stop gap ($100) behind price to lock profits
-extern double InpTwoWayClimaxEmaDistance          = 1000.0;   // Min EMA distance ($1000) to qualify for Climax Rebound (minimum $1000)
-extern double InpTwoWayReboundLotBase             = 0.02;     // Base lot size for Two-Way Rebound orders
-extern double InpTwoWaySLOffsetBeyondLine         = 150.0;    // StopLoss offset ($150) beyond horizontal line (Green: Line - 150, Red: Line + 150)
-extern double InpTwoWayBreakevenTriggerGap        = 100.0;    // Favorable move ($100) to move Rebound SL to Breakeven (+cushion)
-extern double InpTwoWayTrailStepUSD               = 100.0;    // Favorable move step ($100) to ratchet trailing StopLoss
-extern bool   InpTwoWayCloseAtEmaTouch            = true;     // Close Rebound order when price touches yellow 200 EMA
-extern bool   InpTwoWayPurgePendingOnHLineStart   = true;     // On Horizontal Line start: PURGE all pending stops in the previous trend direction
-extern bool   InpTwoWayFreezeTrendOnHLineStart    = true;     // Freeze new trend orders once opposite horizontal line starts (No selling after EQL-G, no buying after EQH-R)
-extern bool   InpTwoWayCutOppositeRunnersOnClimax = true;     // Liquidate/tighten opposite runners with >$5 loss when EMA distance > $500
+bool   InpEnableTwoWayEngine               = true;     // Enable Method 7 Two-Way Engine (Waterfall + V-Rebound)
+bool   InpTwoWayEnableFallingOrders        = true;     // Enable Falling SELL orders on downward momentum
+bool   InpTwoWayEnableRisingOrders         = true;     // Enable Rising BUY orders on upward momentum
+double InpTwoWayWaterfallLotBase           = 0.01;     // Base lot size for Waterfall trend orders
+double InpTwoWayWaterfallStartDist         = 150.0;    // Min EMA distance ($150) to start Waterfall orders
+double InpTwoWayWaterfallStepRaw           = 150.0;    // Step gap ($150) between consecutive falling/rising orders as distance from EMA increases
+int    InpTwoWayMaxWaterfallOrders         = 6;        // Max concurrent Waterfall orders (per direction)
+double InpTwoWayWaterfallInitialSL         = 250.0;    // Initial StopLoss offset ($250) for Waterfall orders
+double InpTwoWayWaterfallTrailDist         = 100.0;    // Trailing stop gap ($100) behind price to lock profits
+double InpTwoWayClimaxEmaDistance          = 1000.0;   // Min EMA distance ($1000) to qualify for Climax Rebound (minimum $1000)
+double InpTwoWayReboundLotBase             = 0.02;     // Base lot size for Two-Way Rebound orders
+double InpTwoWaySLOffsetBeyondLine         = 150.0;    // StopLoss offset ($150) beyond horizontal line (Green: Line - 150, Red: Line + 150)
+double InpTwoWayBreakevenTriggerGap        = 100.0;    // Favorable move ($100) to move Rebound SL to Breakeven (+cushion)
+double InpTwoWayTrailStepUSD               = 100.0;    // Favorable move step ($100) to ratchet trailing StopLoss
+bool   InpTwoWayCloseAtEmaTouch            = true;     // Close Rebound order when price touches yellow 200 EMA
+bool   InpTwoWayPurgePendingOnHLineStart   = true;     // On Horizontal Line start: PURGE all pending stops in the previous trend direction
+bool   InpTwoWayFreezeTrendOnHLineStart    = true;     // Freeze new trend orders once opposite horizontal line starts (No selling after EQL-G, no buying after EQH-R)
+bool   InpTwoWayCutOppositeRunnersOnClimax = true;     // Liquidate/tighten opposite runners with >$5 loss when EMA distance > $500
 
 // ===== LSD SWEEP (SSLS/BSLS) OPPOSITE-ORDER BLOCK IN SafeOrderSend() =====
 bool   InpEnableSweepOppositeBlock                = true;          // Block opposite orders in SafeOrderSend(): SSLS blocks SELL, BSLS blocks BUY
