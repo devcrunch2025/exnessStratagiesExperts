@@ -43,7 +43,7 @@ CheckBasketProfitClose  Total open basket profit
 
 */
 
-string glbVersion = "V-SMALL-1113- Disable V-Monitoring Weak EMA Opposite Orders";
+string glbVersion = "V-SMALL-1114- Recovery LSD Max EMA Angle Less Than 3 Deg";
 
 int AccountMultiplierLOT = 500;//100;//1000;//400;//200;//500; ALWAYS multiples of 1000 is better for best results
 //balance multiplier
@@ -536,6 +536,7 @@ double InpLsdRecoveryBasketProfitUSD        = 0.50;  // Net profit target in USD
 double InpLsdRecoveryStopLossRaw            = 3000;//300.0; // StopLoss raw points ($300) for Type 2 Recovery order
 double InpLsdRecoveryTakeProfitRaw          = 3000;//500.0; // TakeProfit raw points ($500) for Type 2 Recovery order
 int    InpLsdRecoveryMaxActiveOrders        = 1;     // Max simultaneous active Type 2 Recovery orders (default 1)
+double InpLsdRecoveryMaxEmaAngle            = 3.0;   // Max MathAbs(EMA Angle) to create Recovery LSD order (< 3.0 deg)
 
 // ===== WEAK EMA REVERSAL RECOVERY (TYPE 3) SETTINGS =====
 bool   InpEnableType3Recovery               = false; // Disabled by user request (Weak EMA Reversal Recovery)

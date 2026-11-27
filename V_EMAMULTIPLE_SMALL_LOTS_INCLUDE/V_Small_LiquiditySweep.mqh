@@ -540,6 +540,13 @@ void CheckLsdStructuralRecoveryOrders()
    if(!InpEnableLsdStructuralRecovery || GetTotalEAOrders() >= MaxOpenOrders || !IsOneCandleOrderAllowed())
       return;
 
+   // USER RULE: MathAbs(EMA Angle) must be strictly < 3.0 deg to allow Recovery LSD order
+   double curEmaAng = (GlobalEmaAngle30 != 0.0) ? GlobalEmaAngle30 : GetEmaAngleDegrees(30);
+   double absEmaAng = MathAbs(curEmaAng);
+   double maxLsdAngle = (InpLsdRecoveryMaxEmaAngle > 0.0) ? InpLsdRecoveryMaxEmaAngle : 3.0;
+   if(absEmaAng >= maxLsdAngle)
+      return;
+
    int maxActive = (InpLsdRecoveryMaxActiveOrders > 0) ? InpLsdRecoveryMaxActiveOrders : 1;
    if(CountActiveLsdRecoveryOrders() >= maxActive)
       return;
@@ -1773,6 +1780,15 @@ int CreateHorizontalLineRecoveryOrder(int parentTicket, int orderType, double li
      {
       PrintFormat(">>> [HORIZONTAL RECOVERY BLOCKED] MathAbs(EMA Angle)=%.2f >= %.1f deg (Strategy 2: Strong Trend). Horizontal recovery orders strictly blocked!",
                   absEmaAng, maxHorizAngle);
+      return -1;
+     }
+
+   // USER RULE: MathAbs(EMA Angle) must be strictly < 3.0 deg to allow Recovery LSD order
+   double maxLsdAngle = (InpLsdRecoveryMaxEmaAngle > 0.0) ? InpLsdRecoveryMaxEmaAngle : 3.0;
+   if(absEmaAng >= maxLsdAngle)
+     {
+      PrintFormat(">>> [LSD RECOVERY BLOCKED] MathAbs(EMA Angle)=%.2f >= %.1f deg. Recovery LSD orders strictly require MathAbs(EMA Angle) < %.1f deg!",
+                  absEmaAng, maxLsdAngle, maxLsdAngle);
       return -1;
      }
 
