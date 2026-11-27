@@ -2908,9 +2908,9 @@ void UpdateDashboard(DailyProtectionState &state)
      }
 
 // Status Line
-   string regimeTag = (InpEnableTwoRegimeSystem) ? (" | " + GetTwoRegimeStatusDisplay()) : "";
-   color dispStatusColor = (InpEnableTwoRegimeSystem && g_currentTradingRegime == REGIME_2_CRISIS_CLIMAX) ? clrOrangeRed : statusColor;
-   CreateDashboardLabel(DASH_PREFIX+"STATUS", "EA STATUS   : " + statusText + regimeTag, tx, y+39, 9, dispStatusColor);
+   string typeTag = " | " + GetThreeTypeActiveStatusDisplay();
+   color dispStatusColor = (IsType3SpikeActive()) ? clrOrangeRed : ((InpEnableTwoRegimeSystem && g_currentTradingRegime == REGIME_2_CRISIS_CLIMAX) ? clrOrangeRed : statusColor);
+   CreateDashboardLabel(DASH_PREFIX+"STATUS", "EA STATUS   : " + statusText + typeTag, tx, y+39, 9, dispStatusColor);
 
 // ==========================================================
 // SECTION 1: CAPITAL & EQUITY TARGETS

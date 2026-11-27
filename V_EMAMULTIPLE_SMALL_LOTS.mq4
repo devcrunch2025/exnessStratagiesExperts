@@ -43,7 +43,7 @@ CheckBasketProfitClose  Total open basket profit
 
 */
 
-string glbVersion = "V-SMALL-1120- Fast EMA Distance Expansion Spike System with 50 USD Target";
+string glbVersion = "V-SMALL-1121- 3-Type Modular Trading Architecture";
 
 int AccountMultiplierLOT = 500;//100;//1000;//400;//200;//500; ALWAYS multiples of 1000 is better for best results
 //balance multiplier
@@ -8244,6 +8244,20 @@ string   GetTwoRegimeStatusDisplay();
 color    GetTwoRegimeStatusColor();
 void     UpdateTwoRegimeStateMachine();
 bool     IsOrderAllowedUnderCurrentRegime(int orderType, string comment, int requestedDirection);
+// 3-Type Modular System Forward Declarations
+bool     IsType1OscillationActive();
+void     ManageType1ProfitBooking();
+void     RecordType1ClosedOrder(int ticket, double netPL);
+bool     IsType2GradualTrendActive();
+void     ManageType2ProfitBooking();
+void     RecordType2ClosedOrder(int ticket, double netPL);
+bool     IsType3SpikeActive();
+void     ProcessType3SpikeExecution();
+void     ManageType3ProfitBooking();
+void     RecordType3ClosedOrder(int ticket, double netPL);
+void     PrintThreeTypeTelemetrySummary();
+string   GetThreeTypeActiveStatusDisplay();
+color    GetThreeTypeActiveStatusColor();
 datetime GetLastClosedFLIPBasketSupportCloseTime();
 bool     HasOppositeOrderTypeLossOver5(int currentDirection, double &outOppositeTotalPL, double &outMaxSingleLoss);
 void     InitializeFLIPBasketSupportTracking();
@@ -13101,20 +13115,49 @@ void OnTick()
    ManageHorizontalLineEndedProfitLiveStopLoss(); // USER RULE: When ANY horizontal line ends: modify open orders (profit > $0.50) SL to live price
    Check1HourHorizontalLinePendingOrders(); // USER RULE: If horizontal line live > 1 hour & live price near $50 -> create pending order (Red: SELL, Green: BUY)
 
-   if(InpEnableTwoWayEngine)
+   // ===== 3-TYPE MODULAR SYSTEM DISPATCHER =====
+   if(IsType3SpikeActive())
      {
-      ManageTwoWayReboundAndWaterfallOrders();
-      CheckTwoWayReboundEntries();
-      double liveEmaForTwoWay = iMA(Symbol(), Period(), InpEMA200Period, InpEMAPriceShift, MODE_EMA, PRICE_CLOSE, 0);
-      double distForTwoWay = (liveEmaForTwoWay > 0.0) ? MathAbs(Bid - liveEmaForTwoWay) : 0.0;
-      CheckTwoWayClimaxRunnerLiquidation(distForTwoWay, EMADirection);
-      CheckTwoWayFallingAndRisingOrders(liveEmaForTwoWay, distForTwoWay, EMADirection);
+      // TYPE 3: SPIKE & CLIMAX ACTIVE
+      // 1. Process fast spike execution and climax reversal hand-off
+      ProcessType3SpikeExecution();
+      // 2. Process dedicated Type 3 profit booking ($50 minimum target & speed breakers)
+      ManageType3ProfitBooking();
+      // NOTE: Regular Type 1 & Type 2 profit ladder methods and stoploss modifiers are HELD/FROZEN!
      }
+   else
+     {
+      // REGULAR REGIMES (NO ACTIVE SPIKE)
+      if(InpEnableTwoWayEngine)
+        {
+         ManageTwoWayReboundAndWaterfallOrders();
+         CheckTwoWayReboundEntries();
+         double liveEmaForTwoWay = iMA(Symbol(), Period(), InpEMA200Period, InpEMAPriceShift, MODE_EMA, PRICE_CLOSE, 0);
+         double distForTwoWay = (liveEmaForTwoWay > 0.0) ? MathAbs(Bid - liveEmaForTwoWay) : 0.0;
+         CheckTwoWayClimaxRunnerLiquidation(distForTwoWay, EMADirection);
+         CheckTwoWayFallingAndRisingOrders(liveEmaForTwoWay, distForTwoWay, EMADirection);
+        }
+
+      if(IsType2GradualTrendActive())
+        {
+         // TYPE 2: GRADUAL TREND ACTIVE (|Angle| >= 4)
+         ManageType2ProfitBooking();
+        }
+      else if(IsType1OscillationActive())
+        {
+         // TYPE 1: OSCILLATION / RANGE ACTIVE (|Angle| <= 3)
+         ManageType1ProfitBooking();
+        }
+
+      // Process standard multi-order combinations only when not in Type 3 spike
+      ModifyPairProfitWithStopLoss();
+     }
+
+   // Periodic 3-Type Telemetry Diagnostics
+   PrintThreeTypeTelemetrySummary();
 
    OnTickCore();
    OnTickPerformanceEnd(tickStartMs);
-
-   ModifyPairProfitWithStopLoss(); // Method 1: Multi-order pair/triplet SL modifier (> $1*mult, $150 SL gap)
 // ModifyMethod6MultiOrderCombinationsOver5USD(); // Moved to Priority #1 before SecureOneDollarProfit() (VMULTI-1243)
    CheckAndDrawMultiOrderClosedIcons(); // Multi-order closed icons (+2, +3, +4...) for all 6 methods
    ProcessMethodAnalyticsTracker(); // Track released profit for all methods
@@ -24281,6 +24324,9 @@ bool IsEmaDistanceReduced50PercentSinceFlipold(int orderType = -1)
 #include "V_EMAMULTIPLE_SMALL_LOTS_INCLUDE/V_Small_LiquiditySweep.mqh"
 #include "V_EMAMULTIPLE_SMALL_LOTS_INCLUDE/V_Small_TwoWayEngine.mqh"
 #include "V_EMAMULTIPLE_SMALL_LOTS_INCLUDE/V_Small_TwoRegimeSystem.mqh"
+#include "V_EMAMULTIPLE_SMALL_LOTS_INCLUDE/V_Small_Type3_SpikeEngine.mqh"
+#include "V_EMAMULTIPLE_SMALL_LOTS_INCLUDE/V_Small_Type2_GradualTrend.mqh"
+#include "V_EMAMULTIPLE_SMALL_LOTS_INCLUDE/V_Small_Type1_Oscillation.mqh"
 
 //+------------------------------------------------------------------+
 
