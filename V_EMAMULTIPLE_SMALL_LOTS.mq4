@@ -43,7 +43,7 @@ CheckBasketProfitClose  Total open basket profit
 
 */
 
-string glbVersion = "V-SMALL-1126- Every 5-Min Step Gap Spike Velocity Engine";
+string glbVersion = "V-SMALL-1127- Bullish SPIKE END Close All Sells & Spike Sell Lock";
 
 int AccountMultiplierLOT = 500;//100;//1000;//400;//200;//500; ALWAYS multiples of 1000 is better for best results
 //balance multiplier
@@ -1145,6 +1145,7 @@ double InpPendingGapLossMultiplier         = 2.0;   // Pending gap multiplier on
  bool   InpType3CheckEvery5MinStepGap          = true;  // Check 5-min EMA distance step gap on every 5-min interval (start/continue/end)
  double InpType3Spike5MinEndMinStepGap         = 50.0;  // 5-Min Step End: If completed 5-min step expands < $50 (or reverses), mark SPIKE END
  bool   InpType3SpikeStrict5MinBoundaryOnly    = false; // Strict 5-Min Boundary Mode: true = only trigger at 5-min clock boundaries; false = rolling + step check
+ bool   InpType3CloseSellOnBullishSpikeEnd      = true;  // Bullish EMA + SPIKE END: Close all open SELL orders & block SELL spike orders until new spike starts
 
  // ===== SPIKE $50 MINIMUM PROFIT LADDER & CLIMAX EXIT =====
  bool   InpEnableSpikeProfitLadder             = true;  // Spike Ladder: Enable Step Profit Ladder with Maximum Profit Protection
@@ -1157,7 +1158,9 @@ double InpPendingGapLossMultiplier         = 2.0;   // Pending gap multiplier on
 double g_spikeBuyBucketPeakPL                  = 0.0;   // Peak floating profit reached by open BUY spike bucket
 double g_spikeSellBucketPeakPL                 = 0.0;   // Peak floating profit reached by open SELL spike bucket
 int    g_spikeBuyBucketLadderLevel             = 0;     // Current ladder level reached by open BUY spike bucket
-int    g_spikeSellBucketLadderLevel            = 0;     // Current ladder level reached by open SELL spike bucket
+int      g_spikeSellBucketLadderLevel          = 0;     // Current ladder level reached by open SELL spike bucket
+bool     g_blockSellSpikeUntilNewSpike         = false; // Blocks SELL spike orders after Bullish EMA SPIKE END until new spike starts
+datetime g_sellSpikeBlockedSinceEndTime        = 0;     // Timestamp when Bullish SPIKE END SELL spike lock engaged
 double MinimumSameOrderGapRawMatched =50;//30;//50;//100;//50;//30;//10;//20;//50;//20;// 50;//SSL long //SSL short
 double MinimumSameOrderGapRawUnmatched =50;//10;//10;//20;// 100;
 
@@ -13763,6 +13766,11 @@ void OnTickCore()
                                   spkDistAbove, spkDistBelow,
                                   spkDeltaAbove, spkDeltaBelow);
 
+   if(isBearishSpike && g_blockSellSpikeUntilNewSpike)
+     {
+      isBearishSpike = false;
+     }
+
    bool isFastBullSpike = isBullishSpike;
    bool isFastBearSpike = isBearishSpike;
 
@@ -13847,7 +13855,7 @@ void OnTickCore()
       else
          canCreateSpikeSell = (CountSpikePendingOrders(OP_SELLSTOP) == 0 && (TimeCurrent() - s_lastSpikeSellTime >= 1));
 
-      if(canCreateSpikeSell)
+      if(canCreateSpikeSell && !g_blockSellSpikeUntilNewSpike)
         {
          s_lastSpikeSellTime = TimeCurrent();
          OpenSell("SPIKE_SELL");
@@ -16141,6 +16149,14 @@ int SafeOrderSend(string symbol,int orderType,double lots,double price,int slipp
    bool isReverse100Order   = (StringFind(comment, "RECOVERY_") == 0 && StringFind(comment, "_REV") >= 0);
    bool isSpikeOrder        = (StringFind(comment, "SPIKE") >= 0);
    bool isTwoWayOrder       = (StringFind(comment, "M7_") == 0);
+
+   if(g_blockSellSpikeUntilNewSpike &&
+      (orderType == OP_SELL || orderType == OP_SELLSTOP || orderType == OP_SELLLIMIT) &&
+      (isSpikeOrder || StringFind(comment, "M7_FALL") == 0))
+     {
+      PrintFormat(">>> [SAFEORDERSEND BLOCKED] SELL spike/waterfall order '%s' blocked by Bullish EMA SPIKE END lock until new spike starts!", comment);
+      return -1;
+     }
 
    if(!isSpikeOrder && !isTwoWayOrder)
      {
@@ -22296,7 +22312,7 @@ double GetSSLLongShortPendingGapRaw(int orderType, bool logMessage = false)
 //+------------------------------------------------------------------+
 void OpenBuy(string MOMorder="")
   {
-   bool isSpikeOrder = (MOMorder == "SPIKE_BUY" || (InpEnableSpikeOrderCreation && EMADirection == 1 && GlobalEmaAngle30 < 0.0));
+   bool isSpikeOrder = (MOMorder == "SPIKE_BUY");
 
    if(!isSpikeOrder)
      {
@@ -22414,7 +22430,12 @@ double NormalizeLots(double lots)
 //+------------------------------------------------------------------+
 void OpenSell(string MOMorder="")
   {
-   bool isSpikeOrder = (MOMorder == "SPIKE_SELL" || (InpEnableSpikeOrderCreation && EMADirection == -1 && GlobalEmaAngle30 > 0.0));
+   bool isSpikeOrder = (MOMorder == "SPIKE_SELL");
+   if(isSpikeOrder && g_blockSellSpikeUntilNewSpike)
+     {
+      Print(">>> [SPIKE SELL BLOCKED] OpenSell('SPIKE_SELL') blocked by Bullish EMA SPIKE END lock until new spike signal starts!");
+      return;
+     }
 
    if(!isSpikeOrder)
      {

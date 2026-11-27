@@ -30,6 +30,7 @@ datetime g_lastType3LogTime       = 0;
 int      s_spikeLifecycleState    = 0;
 int      s_lastSpikeSignalDir     = 0;
 datetime s_lastSpikeSignalTime    = 0;
+datetime s_lastSpikeEndTime       = 0;
 
 // 5-Minute Step Gap Trackers (Evaluated on every 5-min boundary & rolling M1 window)
 long     g_spike5mLastStepSlot         = -1;
@@ -58,9 +59,12 @@ double   g_spike5mCacheDeltaBelow      = 0.0;
 //+------------------------------------------------------------------+
 void ResetSpikeLifecycleState()
   {
-   s_spikeLifecycleState       = 0;
-   s_lastSpikeSignalDir        = 0;
-   s_lastSpikeSignalTime       = 0;
+   s_spikeLifecycleState        = 0;
+   s_lastSpikeSignalDir         = 0;
+   s_lastSpikeSignalTime        = 0;
+   s_lastSpikeEndTime           = 0;
+   g_blockSellSpikeUntilNewSpike  = false;
+   g_sellSpikeBlockedSinceEndTime = 0;
 
    g_spike5mLastStepSlot       = -1;
    g_spike5mStepStartDistAbove = 0.0;
@@ -138,6 +142,9 @@ void Evaluate5MinEmaDistanceStepGap(bool &outBullSpike, bool &outBearSpike,
       for(int m = 1; m <= lookbackMins; m++)
         {
          datetime barT = iTime(Symbol(), PERIOD_M1, m);
+         // Do not reuse pre-SPIKE_END candles as rolling baseline once a spike has ended
+         if(s_lastSpikeEndTime > 0 && (s_spikeLifecycleState >= 2 || g_blockSellSpikeUntilNewSpike) && barT < s_lastSpikeEndTime)
+            continue;
          double   pM1  = iClose(Symbol(), PERIOD_M1, m);
          int emaShift  = (Period() == PERIOD_M1) ? m : iBarShift(Symbol(), Period(), barT, false);
          if(emaShift < 0)
@@ -252,19 +259,36 @@ void Evaluate5MinEmaDistanceStepGap(bool &outBullSpike, bool &outBearSpike,
    if(InpEnableType3SpikeVelocityFilter || InpEnableFastMovingEmaSpike)
      {
       double climaxDist = GetTwoWayClimaxMinDistance();
+      // Static climax distance only spawns spike orders before SPIKE_END; once ended, require a fresh 5m velocity shock
+      bool allowStaticClimax = (s_spikeLifecycleState <= 1 && !g_blockSellSpikeUntilNewSpike);
       if(InpType3SpikeStrict5MinBoundaryOnly)
         {
-         if(curDistAbove > 0.0 && (boundaryConfirmedBull || curDistAbove >= climaxDist))
+         if(curDistAbove > 0.0 && (boundaryConfirmedBull || (allowStaticClimax && curDistAbove >= climaxDist)))
             outBullSpike = true;
-         if(curDistBelow > 0.0 && (boundaryConfirmedBear || curDistBelow >= climaxDist))
+         if(curDistBelow > 0.0 && (boundaryConfirmedBear || (allowStaticClimax && curDistBelow >= climaxDist)))
             outBearSpike = true;
         }
       else
         {
-         if(curDistAbove > 0.0 && (bestDeltaAbove >= InpType3Spike5MinDistanceChange || curDistAbove >= climaxDist))
+         if(curDistAbove > 0.0 && (bestDeltaAbove >= InpType3Spike5MinDistanceChange || (allowStaticClimax && curDistAbove >= climaxDist)))
             outBullSpike = true;
-         if(curDistBelow > 0.0 && (bestDeltaBelow >= InpType3Spike5MinDistanceChange || curDistBelow >= climaxDist))
+         if(curDistBelow > 0.0 && (bestDeltaBelow >= InpType3Spike5MinDistanceChange || (allowStaticClimax && curDistBelow >= climaxDist)))
             outBearSpike = true;
+        }
+     }
+
+   // Unlock Bullish SPIKE END SELL lock ONLY when a genuinely NEW velocity spike signal starts (>= $300/5m after SPIKE_END)
+   if(g_blockSellSpikeUntilNewSpike && (nowServer - g_sellSpikeBlockedSinceEndTime) >= 60)
+     {
+      bool newVelocityStarted = (bestDeltaAbove >= InpType3Spike5MinDistanceChange ||
+                                 bestDeltaBelow >= InpType3Spike5MinDistanceChange ||
+                                 boundaryConfirmedBull || boundaryConfirmedBear);
+      if(newVelocityStarted && (outBullSpike || outBearSpike))
+        {
+         g_blockSellSpikeUntilNewSpike  = false;
+         g_sellSpikeBlockedSinceEndTime = 0;
+         PrintFormat(">>> [NEW SPIKE SIGNAL STARTED] Unlocking Bullish SPIKE END SELL-spike lock! (5m Delta A=$%.2f, B=$%.2f)",
+                     bestDeltaAbove, bestDeltaBelow);
         }
      }
 
@@ -291,7 +315,8 @@ bool IsType3SpikeActive()
 
    // Condition A & B: Run unified 5-min step gap evaluator (Climax >= $1000 OR 5-min gap >= $300)
    Evaluate5MinEmaDistanceStepGap(isBull5m, isBear5m, distAbove, distBelow, deltaAbove, deltaBelow);
-   if(isBull5m || isBear5m)
+   double climaxMin = GetTwoWayClimaxMinDistance();
+   if(isBull5m || isBear5m || distAbove >= climaxMin || distBelow >= climaxMin)
      {
       g_type3SpikeActiveState = true;
       return true;
@@ -458,7 +483,7 @@ void DrawSpikeLifecycleSignal(string stage, int dir, double price, string detail
             break;
            }
         }
-      if(!hasOpenSpikes && s_spikeLifecycleState != 0)
+      if(!hasOpenSpikes && s_spikeLifecycleState != 0 && stage != "SPIKE_END" && stage != "SPIKE_REV_END")
         {
          s_spikeLifecycleState = 0;
          s_lastSpikeSignalDir  = 0;
@@ -478,6 +503,13 @@ void DrawSpikeLifecycleSignal(string stage, int dir, double price, string detail
       s_spikeLifecycleState = 1; // Mark SPIKE_ACTIVE
       s_lastSpikeSignalDir  = dir;
       s_lastSpikeSignalTime = TimeCurrent();
+
+      if(g_blockSellSpikeUntilNewSpike && (TimeCurrent() - g_sellSpikeBlockedSinceEndTime) >= 5)
+        {
+         g_blockSellSpikeUntilNewSpike  = false;
+         g_sellSpikeBlockedSinceEndTime = 0;
+         PrintFormat(">>> [NEW SPIKE SIGNAL STARTED] Cleared SELL-spike lock on new SPIKE_START (Dir=%+d).", dir);
+        }
      }
    else if(stage == "SPIKE_END")
      {
@@ -486,6 +518,28 @@ void DrawSpikeLifecycleSignal(string stage, int dir, double price, string detail
 
       s_spikeLifecycleState = 2; // Mark SPIKE_ENDED
       s_lastSpikeSignalTime = TimeCurrent();
+      s_lastSpikeEndTime    = TimeCurrent();
+
+      // Re-anchor 5m step baseline strictly at SPIKE END so pre-end candles don't re-trigger immediately
+      if(liveEma200 > 0.0)
+        {
+         g_spike5mStepStartDistAbove = (Ask > liveEma200) ? (Ask - liveEma200) : 0.0;
+         g_spike5mStepStartDistBelow = (Bid < liveEma200) ? (liveEma200 - Bid) : 0.0;
+        }
+      g_spike5mPrevStepGapAbove = 0.0;
+      g_spike5mPrevStepGapBelow = 0.0;
+      g_spike5mCacheTickTime    = 0;
+
+      // USER RULE: If EMADirection is BULLISH when SPIKE END is detected -> close all open SELL orders
+      // and block SELL spike orders until a NEW spike signal starts!
+      int curEmaDir = (liveEma200 > 0.0) ? ((Bid > liveEma200) ? 1 : ((Bid < liveEma200) ? -1 : EMADirection)) : EMADirection;
+      if(InpType3CloseSellOnBullishSpikeEnd && curEmaDir == 1)
+        {
+         g_blockSellSpikeUntilNewSpike  = true;
+         g_sellSpikeBlockedSinceEndTime = TimeCurrent();
+         CloseAllOpenSellOrders("BULLISH_EMA_SPIKE_END_CLOSE_ALL_SELLS");
+         Print(">>> [BULLISH EMA + SPIKE END] Closed ALL open SELL orders and locked SELL spike creation until NEW spike signal starts!");
+        }
      }
    else if(stage == "SPIKE_REV_START")
      {
