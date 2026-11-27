@@ -313,7 +313,7 @@ void ExecuteMethod6CombinationAction(int &comboIndices[], int comboCount, double
    string emaAlignStr = isEmaAligned ? " [EMA ALIGNED 2X]" : "";
 
    string sameTypeStr = isAllSameType ? (firstComboType == OP_BUY ? " [SAME TYPE ALL-BUY 3X]" : " [SAME TYPE ALL-SELL 3X]") : " [OPPOSITE]";
-   string angleStr    = (absEmaAng > InpMethod6SteepAngleDegrees) ? (isAllSameType ? " [DOUBLED >4 deg -> 6X TOTAL]" : " [DOUBLED >4 deg -> 2X]") : "";
+   string angleStr    = (absEmaAng > InpMethod6SteepAngleDegrees) ? (isAllSameType ? " [MULTIPLIED >3 deg -> 4.5X TOTAL]" : " [MULTIPLIED >3 deg -> 1.5X]") : "";
 
    Print(">>> [METHOD 6 TRIGGERED] Combination of ", comboCount, " orders hit Profit = $", DoubleToString(comboSum, 2),
          " >= Threshold $", DoubleToString(activeThresholdUSD, 2),
@@ -701,7 +701,7 @@ void ExecuteMethod6PartialLotAction(int winIdx, int lossIdx, double partialLots,
    string emaAlignStr = isEmaAligned ? " [EMA ALIGNED 2X]" : "";
 
    string sameTypeStr = isSameTypePartial ? (winType == OP_BUY ? " [SAME TYPE BUY 3X]" : " [SAME TYPE SELL 3X]") : " [OPPOSITE]";
-   string angleStr    = (absEmaAng > InpMethod6SteepAngleDegrees) ? (isSameTypePartial ? " [DOUBLED >4 deg -> 6X TOTAL]" : " [DOUBLED >4 deg -> 2X]") : "";
+   string angleStr    = (absEmaAng > InpMethod6SteepAngleDegrees) ? (isSameTypePartial ? " [MULTIPLIED >3 deg -> 4.5X TOTAL]" : " [MULTIPLIED >3 deg -> 1.5X]") : "";
 
    Print(">>> [METHOD 6 PARTIAL LOT TRIGGERED] Winner Ticket #", winTkt,
          " (", (winType == OP_BUY ? "BUY " : "SELL "), DoubleToString(winLots, 2), "L, Total P/L=+$", DoubleToString(winPL, 2),
@@ -1817,8 +1817,8 @@ bool ExecuteMethod6StageS1(int candCount,
 
 //+------------------------------------------------------------------+
 //| STAGE S2 & S3: PROFIT COMBINATIONS (RANGE vs STRONG TREND)       |
-//| S2: MathAbs(EMA Angle) <= 4.0 -> Target = $InpMethod6ProfitThresholdUSD ($2.00) |
-//| S3: MathAbs(EMA Angle) >  4.0 -> Target = $InpMethod6ProfitThresholdUSD * 1.5 ($3.00) |
+//| S2: MathAbs(EMA Angle) <= 3.0 -> Target = $InpMethod6ProfitThresholdUSD ($2.00) |
+//| S3: MathAbs(EMA Angle) >  3.0 -> Target = $InpMethod6ProfitThresholdUSD * 1.5 ($3.00) |
 //+------------------------------------------------------------------+
 bool ExecuteMethod6StageS2_S3(int candCount,
                               int &candTickets[], int &candTypes[], double &candLots[],
@@ -1833,9 +1833,9 @@ bool ExecuteMethod6StageS2_S3(int candCount,
    bool isSteep = (absEmaAng > InpMethod6SteepAngleDegrees);
    double angleMultiplier = isSteep ? ((InpMethod6SteepAngleMultiplier > 0.0) ? InpMethod6SteepAngleMultiplier : 1.5) : 1.0;
 
-   // S2 Target ($2.00 * mult) vs S3 Target ($3.00 * mult)
+   // S2 Target ($2.00 * mult) vs S3 Target ($3.00 * mult = 1.5X)
    double requiredTarget = NormalizeDouble(baseThreshold * angleMultiplier * mult, 2);
-   string stageLabel = isSteep ? "STAGE S3 (STRONG TREND >4 deg)" : "STAGE S2 (RANGE <=4 deg)";
+   string stageLabel = isSteep ? "STAGE S3 (STRONG TREND >3 deg)" : "STAGE S2 (RANGE <=3 deg)";
 
    int selectedIndices[MAX_M6_ORDERS];
    ArrayInitialize(selectedIndices, 0);
@@ -2095,9 +2095,9 @@ void ModifyMethod6MultiOrderCombinationsOver5USD()
       return;
 
 //====================================================================
-// STAGE S2 & S3: PROFIT COMBINATIONS (RANGE <=4 deg vs STRONG TREND >4 deg)
-// USER RULE: S2: Profit combinations > InpMethod6ProfitThresholdUSD ($2.00) if MathAbs(EMA Angle) <= 4 deg.
-//            S3: Profit combinations > InpMethod6ProfitThresholdUSD * 1.5 ($3.00) if MathAbs(EMA Angle) > 4 deg.
+// STAGE S2 & S3: PROFIT COMBINATIONS (RANGE <=3 deg vs STRONG TREND >3 deg)
+// USER RULE: S2: Profit combinations > InpMethod6ProfitThresholdUSD ($2.00) if MathAbs(EMA Angle) <= 3 deg.
+//            S3: Profit combinations > InpMethod6ProfitThresholdUSD * 1.5 ($3.00) if MathAbs(EMA Angle) > 3 deg.
 //====================================================================
    if(ExecuteMethod6StageS2_S3(candCount, candTickets, candTypes, candLots,
                                candOpenPrices, candStopLosses, candTakeProfits,

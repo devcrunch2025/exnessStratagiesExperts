@@ -43,7 +43,7 @@ CheckBasketProfitClose  Total open basket profit
 
 */
 
-string glbVersion = "V-SMALL-1114- Recovery LSD Max EMA Angle Less Than 3 Deg";
+string glbVersion = "V-SMALL-1115- Method 6 Steep Angle 3 Deg 1.5X Profit Target";
 
 int AccountMultiplierLOT = 500;//100;//1000;//400;//200;//500; ALWAYS multiples of 1000 is better for best results
 //balance multiplier
@@ -8058,8 +8058,8 @@ bool   InpMethod6CreatePendingOnWinnerClose = true;   // Method 6: Create new pe
 bool   InpMethod6CloseWinnerAtMarket        = true;   // Method 6 S2/S3: true = close winners at market to bank cash; false = modify SL to live price
 bool   InpMethod6PrioritizeOppositeLosers   = true;   // Method 6: 1st Priority = Close opposite-type losers, 2nd Priority = Close same-type losers
 double InpMethod6PartialMaxCutLots          = 0.0;    // Method 6: Max partial lots to cut from loser per trigger (0.0 = auto max safe)
-double InpMethod6SteepAngleDegrees          = 4.0;    // S2/S3 Angle Boundary: EMA angle threshold in degrees (4.0 deg)
-double InpMethod6SteepAngleMultiplier       = 1.5;//2.0;    // S3 Multiplier: Threshold multiplier when MathAbs(EMA Angle) > 4 (1.5x = $3.00)
+double InpMethod6SteepAngleDegrees          = 3.0;    // S2/S3 Angle Boundary: EMA angle threshold in degrees (3.0 deg)
+double InpMethod6SteepAngleMultiplier       = 1.5;//2.0;    // S3 Multiplier: Threshold multiplier when MathAbs(EMA Angle) > 3 (1.5x = $3.00)
 double InpMethod6LowAngleThresholdUSD       = 1.0;//5/5;//5;//10;//2.0;    // Method 6: Profit threshold when MathAbs(EMA Angle) < 4 deg ($2.00 * multiplier)
 double InpMethod6LowAngleEmaDegrees         = 0;//4.0;    // Method 6: Dynamic EMA angle boundary in degrees (default 4.0)
 double InpMethod6SameTypeMultiplier         = 1.5;//3.0;    // Method 6: Threshold multiplier when all orders are same type (2+ BUY or 2+ SELL = 3.0x; if angle > 4 then 3.0 * 2.0 = 6.0x)
