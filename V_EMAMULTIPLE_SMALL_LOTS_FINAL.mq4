@@ -43,7 +43,7 @@ CheckBasketProfitClose  Total open basket profit
 
 */
 
-string glbVersion = "V-SMALL-1115- Method 6 Steep Angle 3 Deg 1.5X Profit Target";
+string glbVersion = "V-SMALL-1090- 1Hour HLine Ignore EMA Angle";
 
 int AccountMultiplierLOT = 500;//100;//1000;//400;//200;//500; ALWAYS multiples of 1000 is better for best results
 //balance multiplier
@@ -70,8 +70,8 @@ enum ENUM_RESUME_DAY_MODE
 ENUM_RESUME_DAY_MODE InpResumeDayTradingTargetMode = RESUME_MODE_TRAIL_STEP; // Resume Target Mode [0=Trail Step Mode, 1=Full Target]
 int    InpTradingResumeIconCode             = 241;  // Chart icon Wingdings code for Trading Resume (241=Play, 251=Check, 159=Circle)
 bool   InpCloseOrdersOnManualPause          = false; // When clicking Pause Trading: false = delete pending only & keep open market orders; true = close all market orders
-bool   InpCapStepTradingMomentumLot001      = true;  // Step Trading Momentum Cap: When day equity step trading started/resumed, cap strong momentum lot to max 0.01
-bool   InpStepTradingMomentumUsesMultiplier = true;  // Step Trading Momentum Lot uses Balance Multiplier (true = 0.01 * mult, false = strict 0.01)
+ bool   InpCapStepTradingMomentumLot001      = true;  // Step Trading Momentum Cap: When day equity step trading started/resumed, cap strong momentum lot to max 0.01
+ bool   InpStepTradingMomentumUsesMultiplier = true;  // Step Trading Momentum Lot uses Balance Multiplier (true = 0.01 * mult, false = strict 0.01)
 
 //--- Dynamic Hourly Target Decay (V-SMALL-1024) ---
 bool   InpEnableHourlyTargetDecay        = true;   // Enable Hourly Target Decay ($1*mult/hr down to min floor)
@@ -92,13 +92,6 @@ bool   InpDeepDrawdownTrailLiveSL          = true;  // Ratchet/trail SL higher i
 int    InpDeepDrawdownCooldownMinutes      = 30;    // Cooldown pause minutes after clamped basket exits completely
 double InpDeepDrawdownSteepAngleDeg        = 6.0;   // Minimum MathAbs(EMAangle) to allow 90% early recovery trigger (> 6.0 deg)
 double InpDeepDrawdownSteepAngleTargetPct  = 90.0;  // Recovery target percentage (90% of armed target) when MathAbs(EMAangle) > threshold
-
-//--- V-Monitoring Weak EMA Opposite Equity Protection Order ---
-bool   InpEnableVMonitoringOppositeOrders   = false;  // V-Monitoring: Create opposite order when EMA is weak to protect equity (disabled)
-double InpVMonitoringOppositeSLGapUSD       = 200.0;  // V-Monitoring: Opposite order StopLoss gap in USD ($200)
-double InpVMonitoringOppositeLots           = 0.01;   // V-Monitoring: Opposite order lot size (0.01)
-int    InpVMonitoringOppositeMaxOrders      = 1;      // V-Monitoring: Max open opposite orders active simultaneously (default 1)
-int    InpVMonitoringOppositeCooldownSec    = 300;    // V-Monitoring: Minimum cooldown seconds between opposite orders (300s = 5m)
 
 //--- Basket Loss De-Risk & Breakeven Protection ---
 bool   InpEnableBasketDeRiskOnLoss         = true;  // Enable basket de-risking when basket loss >= $10 * mult
@@ -220,8 +213,6 @@ datetime g_deepDrawdownCooldownUntil         = 0;     // Server time until which
 datetime g_deepDrawdownArmedBarTime          = 0;     // Bar time when V-Monitoring Armed was triggered
 double   g_deepDrawdownArmedPrice            = 0.0;   // Price level where V-Monitoring Armed icon was placed
 double   g_deepDrawdownArmedTarget           = 0.0;   // Target equity amount calculated when shield was armed
-datetime g_lastVMonitoringOppositeOrderTime  = 0;     // Time when last V-monitoring opposite order was created
-datetime g_lastVMonitoringOppositeBarTime    = 0;     // Bar time when last V-monitoring opposite order was created
 
 bool EnableBounceBackDetection = false;
 
@@ -366,13 +357,11 @@ int    InpHorizontalLineMinActiveWaitSeconds      = 150;           // Activation
 bool   InpModifyOppositeOrderSLToLinePrice        = true;          // On new/active horizontal line: try to modify opposite order SL to Line price
 bool   InpModifyLinePriceSLOnlyFirstOrder         = true;          // Modify SL with Line Price ONLY for the FIRST (oldest) open order
 double InpLinePriceSLOffsetRaw                    = 3000;//1000;//200;//100;//50.0;          // Offset in USD ($50) added to Line Price for StopLoss modification (Line Price + 50)
-bool   InpEnableHLineProfitLiveSLModify   = false;// true;  // USER RULE: On horizontal line start: modify profitable order SL to live price
-double InpHLineModifyProfitThresholdUSD   = 2;//0.50;   // Minimum order profit in USD ($0.0) to modify SL to live price on horizontal line start (profit > $0)
-bool   InpHLineModifyUsesMultiplier       = false; // Multiply profit threshold by balancelomultipler (default: false for strict > $0)
-double InpHLineModifyGreenLineRangeUSD    = 50.0;  // USER RULE: Only modify SELL SL if live price is near green line within range ($50 USD, 0 = any distance)
-double InpHLineModifyRedLineRangeUSD      = 0.0;   // Range in USD for RED line (0 = any distance / disabled, or custom USD)
+bool   InpEnableHLineProfitLiveSLModify   = true;  // USER RULE: On opposite horizontal line start: modify profitable order SL to live price
+double InpHLineModifyProfitThresholdUSD   = 0.50;  // Minimum order profit in USD ($0.50) to modify SL to live price on opposite horizontal line
+bool   InpHLineModifyUsesMultiplier       = true;  // USER RULE: Multiply profit threshold by balancelomultipler ($0.50 * balancelomultipler)
 bool   InpEnableHLineEndedProfitLiveSLModify      = true;          // USER RULE: When ANY horizontal line ends (Red or Green): modify open order SL to live price if profit > $0.50
-double InpHLineEndedProfitThresholdUSD            = 2;//0.50;          // Minimum individual order profit in USD ($0.50) to modify SL to live price on horizontal line ended
+double InpHLineEndedProfitThresholdUSD            = 0.50;          // Minimum individual order profit in USD ($0.50) to modify SL to live price on horizontal line ended
 bool   InpHLineEndedModifyUsesMultiplier          = true;          // USER RULE: Multiply profit threshold by balancelomultipler ($0.50 * balancelomultipler)
 int    InpHLineEndedActiveWindowSeconds           = 300;           // Window in seconds (default: 300s = 5min) after line ends to keep protecting orders with live price SL
 // ===== 1-HOUR HORIZONTAL LINE PENDING ORDER SETTINGS =====
@@ -536,7 +525,6 @@ double InpLsdRecoveryBasketProfitUSD        = 0.50;  // Net profit target in USD
 double InpLsdRecoveryStopLossRaw            = 3000;//300.0; // StopLoss raw points ($300) for Type 2 Recovery order
 double InpLsdRecoveryTakeProfitRaw          = 3000;//500.0; // TakeProfit raw points ($500) for Type 2 Recovery order
 int    InpLsdRecoveryMaxActiveOrders        = 1;     // Max simultaneous active Type 2 Recovery orders (default 1)
-double InpLsdRecoveryMaxEmaAngle            = 3.0;   // Max MathAbs(EMA Angle) to create Recovery LSD order (< 3.0 deg)
 
 // ===== WEAK EMA REVERSAL RECOVERY (TYPE 3) SETTINGS =====
 bool   InpEnableType3Recovery               = false; // Disabled by user request (Weak EMA Reversal Recovery)
@@ -656,9 +644,6 @@ void     CreateDeepDrawdownArmedChartIcon(double startBal, double lowestEq, doub
 void     CreateDeepDrawdownClampedChartIcon(double curEq, double recTarget, double emaAngle = 0.0, bool isSteepAngle = false);
 void     CreateDeepDrawdownEndChartIcon(double finalBal);
 void     DeleteDeepDrawdownChartIcons();
-void     ManageVMonitoringWeakEmaOppositeOrder();
-int      CountOpenVMonitoringOppositeOrders();
-void     DrawVMonitoringOppositeOrderIcon(int ticket, int orderType, double entryPrice, double stopLoss, double slGap);
 void     CheckBasketLossDeRiskAndBreakevenProtection();
 double   GetSSLLongShortPendingGapRaw(int orderType, bool logMessage = false);
 void     CreateDashboardButton(string name, string text, int x, int y, int width, int height, color bgColor, color textColor, color borderColor);
@@ -670,9 +655,6 @@ void     ClearSweepGlobalVariables();
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
-bool     IsSameCandleEmaFlip(int requestedDirection);
-bool     IsType1BullishSpike(bool checkCandleLimit = true);
-bool     IsType1BearishSpike(bool checkCandleLimit = true);
 datetime GetActualEmaFlipTime(int targetType = 0);
 double   GetEmaFlipPrice();
 double   EMAflipdistance(int orderType = -1);
@@ -738,41 +720,41 @@ ENUM_DAY_START_SESSION_MODE InpDayStartSessionMode = DAY_START_AUTO; // Day Star
 // ==================================================================
 void GetAccountDubaiResetHours(int acct, int &resetHr1, int &resetHr2, string &sessionDesc)
   {
-// --- DEFAULT FOR ALL ACCOUNTS: Dubai 8:00 AM & 8:00 PM Dual Reset ---
+   // --- DEFAULT FOR ALL ACCOUNTS: Dubai 8:00 AM & 8:00 PM Dual Reset ---
    resetHr1    = 8;   // Morning reset hour (08:00 Dubai)
    resetHr2    = 20;  // Night reset hour (20:00 Dubai)
    sessionDesc = "Both Sessions (Dubai 8:00 AM & 8:00 PM)";
 
-// ===============================================================
-// FUTURE ACCOUNT CUSTOMIZATIONS: Add Account Numbers Below
-// ===============================================================
-//
-// Example 1: Account 12345678 -> Dual Reset at 10:00 AM and 16:00 PM (4:00 PM)
-// if(acct == 12345678)
-//   {
-//    resetHr1    = 10;
-//    resetHr2    = 16;
-//    sessionDesc = "Account 12345678 (Dubai 10:00 AM & 4:00 PM)";
-//    return;
-//   }
-//
-// Example 2: Account 23456789 -> Single Reset at 20:00 PM (8:00 PM Clean Trend)
-// if(acct == 23456789)
-//   {
-//    resetHr1    = 20;
-//    resetHr2    = -1; // -1 means single reset per day
-//    sessionDesc = "Account 23456789 (Dubai 8:00 PM Only)";
-//    return;
-//   }
-//
-// Example 3: Account 34567890 -> Single Reset at 16:00 PM (4:00 PM US Session)
-// if(acct == 34567890)
-//   {
-//    resetHr1    = 16;
-//    resetHr2    = -1;
-//    sessionDesc = "Account 34567890 (Dubai 4:00 PM Only)";
-//    return;
-//   }
+   // ===============================================================
+   // FUTURE ACCOUNT CUSTOMIZATIONS: Add Account Numbers Below
+   // ===============================================================
+   //
+   // Example 1: Account 12345678 -> Dual Reset at 10:00 AM and 16:00 PM (4:00 PM)
+   // if(acct == 12345678)
+   //   {
+   //    resetHr1    = 10;
+   //    resetHr2    = 16;
+   //    sessionDesc = "Account 12345678 (Dubai 10:00 AM & 4:00 PM)";
+   //    return;
+   //   }
+   //
+   // Example 2: Account 23456789 -> Single Reset at 20:00 PM (8:00 PM Clean Trend)
+   // if(acct == 23456789)
+   //   {
+   //    resetHr1    = 20;
+   //    resetHr2    = -1; // -1 means single reset per day
+   //    sessionDesc = "Account 23456789 (Dubai 8:00 PM Only)";
+   //    return;
+   //   }
+   //
+   // Example 3: Account 34567890 -> Single Reset at 16:00 PM (4:00 PM US Session)
+   // if(acct == 34567890)
+   //   {
+   //    resetHr1    = 16;
+   //    resetHr2    = -1;
+   //    sessionDesc = "Account 34567890 (Dubai 4:00 PM Only)";
+   //    return;
+   //   }
   }
 
 //+------------------------------------------------------------------+
@@ -789,22 +771,16 @@ int GetEffectiveDayStartSessionMode()
 
    if(hr2 >= 0)
      {
-      if(hr1 == 8 && hr2 == 20)
-         return (int)DAY_START_BOTH_0800_2000;
-      if(hr1 == 10 && hr2 == 20)
-         return (int)DAY_START_BOTH_1000_2000;
-      if(hr1 == 10 && hr2 == 16)
-         return (int)DAY_START_BOTH_1000_1600;
+      if(hr1 == 8 && hr2 == 20)  return (int)DAY_START_BOTH_0800_2000;
+      if(hr1 == 10 && hr2 == 20) return (int)DAY_START_BOTH_1000_2000;
+      if(hr1 == 10 && hr2 == 16) return (int)DAY_START_BOTH_1000_1600;
       return (int)DAY_START_BOTH_0800_2000;
      }
    else
      {
-      if(hr1 == 20)
-         return (int)DAY_START_DUBAI_2000;
-      if(hr1 == 16)
-         return (int)DAY_START_DUBAI_1600;
-      if(hr1 == 10)
-         return (int)DAY_START_DUBAI_1000;
+      if(hr1 == 20) return (int)DAY_START_DUBAI_2000;
+      if(hr1 == 16) return (int)DAY_START_DUBAI_1600;
+      if(hr1 == 10) return (int)DAY_START_DUBAI_1000;
       return (int)DAY_START_DUBAI_2000;
      }
   }
@@ -821,18 +797,12 @@ string GetDayStartSessionModeName()
    int mode = (int)InpDayStartSessionMode;
    if(mode != DAY_START_AUTO)
      {
-      if(mode == DAY_START_BOTH_0800_2000)
-         return "Both Sessions (Dubai 8:00 AM & 8:00 PM)";
-      if(mode == DAY_START_DUBAI_2000)
-         return "Dubai 20:00 (8:00 PM Clean Trend)";
-      if(mode == DAY_START_DUBAI_1600)
-         return "Dubai 16:00 (4:00 PM)";
-      if(mode == DAY_START_DUBAI_1000)
-         return "Dubai 10:00 (10:00 AM London)";
-      if(mode == DAY_START_BOTH_1000_2000)
-         return "Both Sessions (10:00 & 20:00)";
-      if(mode == DAY_START_BOTH_1000_1600)
-         return "Both Sessions (10:00 & 16:00)";
+      if(mode == DAY_START_BOTH_0800_2000) return "Both Sessions (Dubai 8:00 AM & 8:00 PM)";
+      if(mode == DAY_START_DUBAI_2000)     return "Dubai 20:00 (8:00 PM Clean Trend)";
+      if(mode == DAY_START_DUBAI_1600)     return "Dubai 16:00 (4:00 PM)";
+      if(mode == DAY_START_DUBAI_1000)     return "Dubai 10:00 (10:00 AM London)";
+      if(mode == DAY_START_BOTH_1000_2000) return "Both Sessions (10:00 & 20:00)";
+      if(mode == DAY_START_BOTH_1000_1600) return "Both Sessions (10:00 & 16:00)";
      }
 
    return desc;
@@ -850,18 +820,12 @@ string GetDayStartSessionShortTag()
    int mode = (int)InpDayStartSessionMode;
    if(mode != DAY_START_AUTO)
      {
-      if(mode == DAY_START_BOTH_0800_2000)
-         return "8AM/8PM";
-      if(mode == DAY_START_DUBAI_2000)
-         return "8PM";
-      if(mode == DAY_START_DUBAI_1600)
-         return "4PM";
-      if(mode == DAY_START_DUBAI_1000)
-         return "10AM";
-      if(mode == DAY_START_BOTH_1000_2000)
-         return "10AM/8PM";
-      if(mode == DAY_START_BOTH_1000_1600)
-         return "10AM/4PM";
+      if(mode == DAY_START_BOTH_0800_2000) return "8AM/8PM";
+      if(mode == DAY_START_DUBAI_2000)     return "8PM";
+      if(mode == DAY_START_DUBAI_1600)     return "4PM";
+      if(mode == DAY_START_DUBAI_1000)     return "10AM";
+      if(mode == DAY_START_BOTH_1000_2000) return "10AM/8PM";
+      if(mode == DAY_START_BOTH_1000_1600) return "10AM/4PM";
      }
 
    if(hr2 >= 0)
@@ -884,28 +848,22 @@ string GetActiveSessionResumeReason(datetime dubaiTime)
       if(mode == DAY_START_BOTH_0800_2000)
         {
          int h = TimeHour(dubaiTime);
-         if(h >= 8 && h < 20)
-            return "DUBAI 08:00 MORNING SESSION START";
+         if(h >= 8 && h < 20) return "DUBAI 08:00 MORNING SESSION START";
          return "DUBAI 20:00 NIGHT SESSION START";
         }
-      if(mode == DAY_START_DUBAI_2000)
-         return "DUBAI 20:00 CLEAN TREND DAY START";
-      if(mode == DAY_START_DUBAI_1600)
-         return "DUBAI 16:00 FRESH DAY START";
-      if(mode == DAY_START_DUBAI_1000)
-         return "DUBAI 10:00 LONDON FRESH DAY START";
+      if(mode == DAY_START_DUBAI_2000) return "DUBAI 20:00 CLEAN TREND DAY START";
+      if(mode == DAY_START_DUBAI_1600) return "DUBAI 16:00 FRESH DAY START";
+      if(mode == DAY_START_DUBAI_1000) return "DUBAI 10:00 LONDON FRESH DAY START";
       if(mode == DAY_START_BOTH_1000_2000)
         {
          int h = TimeHour(dubaiTime);
-         if(h >= 10 && h < 20)
-            return "DUBAI 10:00 LONDON SESSION START";
+         if(h >= 10 && h < 20) return "DUBAI 10:00 LONDON SESSION START";
          return "DUBAI 20:00 US CLEAN TREND SESSION START";
         }
       if(mode == DAY_START_BOTH_1000_1600)
         {
          int h = TimeHour(dubaiTime);
-         if(h >= 10 && h < 16)
-            return "DUBAI 10:00 LONDON SESSION START";
+         if(h >= 10 && h < 16) return "DUBAI 10:00 LONDON SESSION START";
          return "DUBAI 16:00 US SESSION START";
         }
      }
@@ -938,18 +896,12 @@ string GetNextSessionWaitHourStr(datetime dubaiTime = 0)
    int mode = (int)InpDayStartSessionMode;
    if(mode != DAY_START_AUTO)
      {
-      if(mode == DAY_START_BOTH_0800_2000)
-         return (hr >= 8 && hr < 20) ? "20:00" : "08:00";
-      if(mode == DAY_START_DUBAI_2000)
-         return "20:00";
-      if(mode == DAY_START_DUBAI_1600)
-         return "16:00";
-      if(mode == DAY_START_DUBAI_1000)
-         return "10:00";
-      if(mode == DAY_START_BOTH_1000_2000)
-         return (hr >= 10 && hr < 20) ? "20:00" : "10:00";
-      if(mode == DAY_START_BOTH_1000_1600)
-         return (hr >= 10 && hr < 16) ? "16:00" : "10:00";
+      if(mode == DAY_START_BOTH_0800_2000) return (hr >= 8 && hr < 20) ? "20:00" : "08:00";
+      if(mode == DAY_START_DUBAI_2000)     return "20:00";
+      if(mode == DAY_START_DUBAI_1600)     return "16:00";
+      if(mode == DAY_START_DUBAI_1000)     return "10:00";
+      if(mode == DAY_START_BOTH_1000_2000) return (hr >= 10 && hr < 20) ? "20:00" : "10:00";
+      if(mode == DAY_START_BOTH_1000_1600) return (hr >= 10 && hr < 16) ? "16:00" : "10:00";
      }
 
    if(hr2 >= 0)
@@ -1039,7 +991,7 @@ int      InpDubaiNightIconFontSize           = 10;    // Chart icon text font si
 
 
 // ===== SPREAD & RISK SETTINGS =====
-bool InpEnableSpreadFilter = false; // Spread Spike Filter: Block trades when current spread > MaxAllowedSpreadUSD (false = DISABLED)
+ bool InpEnableSpreadFilter = false; // Spread Spike Filter: Block trades when current spread > MaxAllowedSpreadUSD (false = DISABLED)
 double MaxAllowedSpreadUSD = 35.0;
 double OriginalStopLossUSD = 30;//0;//6;//4;
 double StopLossRawPriceGap =3000;// 2000.0;   // Raw price gap ($2000 BTC price points) for StopLoss
@@ -1124,37 +1076,24 @@ bool   InpEnablePendingGapDoubleOnLoss     = true;  // Double pending order gap 
 double InpPendingGapDoubleLossThresholdUSD = 30;//10.0;  // Basket floating loss threshold ($10 * multiplier) to double pending gap
 double InpPendingGapLossMultiplier         = 2.0;   // Pending gap multiplier on basket loss threshold (2.0 = double)
 // double MinimumSameOrderGapRawSSLLongShort =50;// 50;
-double InpDynamicGapAngleThreshold        = 4.0;   // Dynamic Order Gap: EMA angle boundary (if MathAbs(EMA Angle) < 4.0: Required Gap = Base Gap; if >= 4.0: Base Gap * Drawdown Mult * Sweep Mult)
-bool   InpDisableDDAndSweepGapWhenEmaUnmatched = true; // Dynamic Order Gap: Disable DD Scaling & Sweep Guard when MathAbs(EMA Angle) >= 4.0 and OrderType != EMADirection
-bool   InpEnableTrendLossGapHalving           = true;  // Dynamic Order Gap: Reduce gap when opposite basket is in loss & trend aligned (BUY gap halved on SELL loss; SELL gap halved on BUY loss)
-double InpTrendLossGapMinAngleDegrees         = 3.0;   // Dynamic Order Gap: Minimum EMA angle to reduce gap (3.0 deg, 0 = ignore angle)
-double InpTrendLossGapThresholdUSD            = 5.0;   // Dynamic Order Gap: Opposite basket floating loss threshold ($5.00 * multiplier)
-double InpTrendLossGapReductionMult           = 0.5;   // Dynamic Order Gap: Gap reduction multiplier (0.5 = halved gap to $25)
-double InpTrendLossGapFloorUSD                = 25.0;  // Dynamic Order Gap: Minimum floor distance for reduced gap ($25.0 USD)
-bool   InpEnableSpikeOrderCreation            = true; // Spike Orders: When EMADirection is 1 but angle < 0 create BUY; when -1 and angle > 0 create SELL
-int    InpSpikeOrderCooldownSec               = 5;    // Spike Orders: Cooldown seconds between consecutive spike order attempts (default 5s)
-int    InpMaxSpikePendingOrders               = 1;    // Spike Orders: Max simultaneous pending stop orders (default 1)
-bool   InpSpikeOrderBypassSameTypeGap         = true; // Spike Orders: Bypass wide same-type minimum gap during sudden spike momentum
-double InpSpikeOrderPendingGapUSD             = 50.0;  // Spike Orders: Pending stop entry gap ($0 = open market orders without pending, >0 = pending stop gap)
-double InpSpikeOrderMinGapUSD                 = 50.0;  // Spike Orders: Minimal gap between consecutive spike orders ($50 USD)
-double InpSpikeOrderStaleCleanupDistUSD       = 100.0; // Spike Orders: Distance to delete stale pending spike order ($100 USD)
-double InpSpikeOrderStopLossRawPriceGap       = 200.0; // Spike Orders: StopLoss raw price gap ($200 USD for spike vs $3000 normal)
-bool   InpSpikeBypassHorizontalLineBlock      = true;  // Spike Orders: Bypass active opposite horizontal line block (EQH-R/EQH-G)
-bool   InpSpikeBypassSweepBlock               = true;  // Spike Orders: Bypass active liquidity sweep block (SSLS/BSLS)
-bool   InpEnableMethod2CandleSpike            = true;  // Method 2: Enable 1-Bar Candle Spike Velocity Detection
-double InpSpikeCandleMinSurgeUSD              = 300.0; // Method 2: Minimum candle surge in USD ($300 USD)
-double InpSpikeCandleMinAtrMult               = 2.5;   // Method 2: Minimum ATR(14) multiplier (2.5x ATR, 0 = disabled)
-double InpSpikeWickPullbackUSD                = 30.0;  // Method 2: Minimum wick pullback/rejection from extreme USD ($30 USD)
-int    InpSpikeMaxOrdersPerCandle             = 1;     // Method 2: Max spike orders per candle bar (1 = max 1 per bar)
-double InpMethod2SpikeMinAngleDegrees         = 3.0;   // Method 2: Minimum MathAbs(EMA Angle) to create spike order (3.0 deg, 0 = disabled)
-bool   InpType1SpikeRequireSameCandleEmaFlip  = true;  // Type 1 Spike: Only create spike order on the single candle that flipped EMA direction
-int    InpType1SpikeMaxOrdersPerCandle        = 1;     // Type 1 Spike: Max orders on flip candle (1 = max 1 order per flip candle, 0 = unlimited)
-bool   InpFollowEmaIgnoreSsl                  = true;  // Trade Direction: Follow EMADirection (Bull=BUY, Bear=SELL) & Ignore SSL Signal
-bool   InpEnableSpikeProfitLadder             = true;  // Spike Ladder: Enable Step Profit Ladder with 50% Protection
-bool   InpSpikeLadderUseMultiplier            = true;  // Spike Ladder: Use Balance Multiplier (1Xmul for min profit & step)
-double InpSpikeMinProfitToProtectUSD          = 1.0;   // Spike Ladder: Base min profit to start logic ($1.00 * multiplier)
-double InpSpikeLadderStepUSD                  = 5.0;   // Spike Ladder: Base step size in USD ($5.00 * multiplier)
-double InpSpikeLadderProtectPct               = 50.0;  // Spike Ladder: Protected profit % on market reversal (50%)
+ double InpDynamicGapAngleThreshold        = 4.0;   // Dynamic Order Gap: EMA angle boundary (if MathAbs(EMA Angle) < 4.0: Required Gap = Base Gap; if >= 4.0: Base Gap * Drawdown Mult * Sweep Mult)
+ bool   InpDisableDDAndSweepGapWhenEmaUnmatched = true; // Dynamic Order Gap: Disable DD Scaling & Sweep Guard when MathAbs(EMA Angle) >= 4.0 and OrderType != EMADirection
+ bool   InpEnableSpikeOrderCreation            = true; // Spike Orders: When EMADirection is 1 but angle < 0 create BUY; when -1 and angle > 0 create SELL
+ int    InpSpikeOrderCooldownSec               = 5;    // Spike Orders: Cooldown seconds between consecutive spike order attempts (default 5s)
+ int    InpMaxSpikePendingOrders               = 1;    // Spike Orders: Max simultaneous pending stop orders (default 1)
+ bool   InpSpikeOrderBypassSameTypeGap         = true; // Spike Orders: Bypass wide same-type minimum gap during sudden spike momentum
+ double InpSpikeOrderPendingGapUSD             = 50.0;  // Spike Orders: Pending stop entry gap ($0 = open market orders without pending, >0 = pending stop gap)
+ double InpSpikeOrderMinGapUSD                 = 50.0;  // Spike Orders: Minimal gap between consecutive spike orders ($50 USD)
+ double InpSpikeOrderStaleCleanupDistUSD       = 100.0; // Spike Orders: Distance to delete stale pending spike order ($100 USD)
+ double InpSpikeOrderStopLossRawPriceGap       = 200.0; // Spike Orders: StopLoss raw price gap ($200 USD for spike vs $3000 normal)
+ bool   InpSpikeBypassHorizontalLineBlock      = true;  // Spike Orders: Bypass active opposite horizontal line block (EQH-R/EQH-G)
+ bool   InpSpikeBypassSweepBlock               = true;  // Spike Orders: Bypass active liquidity sweep block (SSLS/BSLS)
+ bool   InpFollowEmaIgnoreSsl                  = true;  // Trade Direction: Follow EMADirection (Bull=BUY, Bear=SELL) & Ignore SSL Signal
+ bool   InpEnableSpikeProfitLadder             = true;  // Spike Ladder: Enable Step Profit Ladder with 50% Protection
+ bool   InpSpikeLadderUseMultiplier            = true;  // Spike Ladder: Use Balance Multiplier (1Xmul for min profit & step)
+ double InpSpikeMinProfitToProtectUSD          = 1.0;   // Spike Ladder: Base min profit to start logic ($1.00 * multiplier)
+ double InpSpikeLadderStepUSD                  = 5.0;   // Spike Ladder: Base step size in USD ($5.00 * multiplier)
+ double InpSpikeLadderProtectPct               = 50.0;  // Spike Ladder: Protected profit % on market reversal (50%)
 
 double g_spikeBuyBucketPeakPL                  = 0.0;   // Peak floating profit reached by open BUY spike bucket
 double g_spikeSellBucketPeakPL                 = 0.0;   // Peak floating profit reached by open SELL spike bucket
@@ -1307,20 +1246,19 @@ bool ShowDashboardToggleButton      = true;   // Display SHOW/HIDE Dashboard but
 bool g_dashboardsUserHidden         = false;  // Runtime toggle state for SHOW/HIDE Dashboard (true = hidden)
 enum ENUM_NO_MANUAL_WARN_POS
   {
-   WARN_POS_RIGHT_SIDE         = 0, // Right Side on Second Line (Anchored Near Right Dashboard)
-   WARN_POS_SECOND_LINE_CENTER = 1, // Second Line Center (Centered Below Top Buttons)
-   WARN_POS_RIGHT_UPPER_CORNER = 2, // Far Top Right Corner of Chart
-   WARN_POS_ABOVE_RIGHT_DASH   = 3, // Above Right Dashboard
-   WARN_POS_TOP_CENTER         = 4, // Top Center (Original Row 1)
-   WARN_POS_CUSTOM             = 5  // Custom (Use InpNoManualWarningCustomX/Y)
+   WARN_POS_RIGHT_SIDE         = 0, // Right Side (Next to Right Dashboard)
+   WARN_POS_RIGHT_UPPER_CORNER = 1, // Far Top Right Corner of Chart
+   WARN_POS_ABOVE_RIGHT_DASH   = 2, // Above Right Dashboard
+   WARN_POS_TOP_CENTER         = 3, // Top Center (Original)
+   WARN_POS_CUSTOM             = 4  // Custom (Use InpNoManualWarningCustomX/Y)
   };
 
 //+------------------------------------------------------------------+
 //|                                                                  |
 //+------------------------------------------------------------------+
-bool                    ShowTopCenterNoManualWarning  = true;                 // Display RED warning message ("DO NOT CREATE MANUAL ORDERS - LOSS ")
-string                  InpTopCenterNoManualText      = "DO NOT CREATE MANUAL ORDERS - LOSS - $200 balance"; // Warning text displayed in RED
-ENUM_NO_MANUAL_WARN_POS InpNoManualWarningPosition    = WARN_POS_RIGHT_SIDE;  // Warning Position [Default: Right Side on Second Line]
+bool                    ShowTopCenterNoManualWarning  = true;                 // Display RED warning message ("NO MANUAL ORDERS - LOSS ")
+string                  InpTopCenterNoManualText      = "NO MANUAL ORDERS - LOSS - $200 balance"; // Warning text displayed in RED
+ENUM_NO_MANUAL_WARN_POS InpNoManualWarningPosition    = WARN_POS_RIGHT_SIDE;  // Warning Position [Default: Right Side]
 int                     InpNoManualWarningCustomX     = 0;                    // Custom X coordinate (when Position = Custom)
 int                     InpNoManualWarningCustomY     = 0;                    // Custom Y coordinate (when Position = Custom, 0 = Auto)
 bool InpShowLeftDashHourlyEngineRows = false;  // Left Dash: Show 1H Engine rows (1H A/B/C/D, 1H A-D, Dubai Time) [Default: false = HIDDEN]
@@ -1408,12 +1346,6 @@ int ProtectedEquityWaitMinutes = 0;
 double GlobalEmaAngle30 = 0.0;
 double GlobalEmaAngle200 = 0.0;
 int    GlobalSSLDirection = 0;
-bool   g_isMethod2BullishSpike = false;
-bool   g_isMethod2BearishSpike = false;
-datetime g_lastMethod2SpikeTime = 0;
-datetime g_emaFlipCandleTime    = 0;     // Candle bar Time[0] when current EMA flip occurred
-int      g_emaFlipDirection     = 0;     // Direction of current EMA flip (+1 Bullish, -1 Bearish)
-datetime g_lastType1SpikeTime   = 0;     // Time[0] of last created Type 1 spike order
 double GlobalBuyPL = 0.0;
 double GlobalSellPL = 0.0;
 double Global30MinDiffBuy = 0.0;
@@ -1617,9 +1549,9 @@ bool PassesUserRules(int orderType)
    int baseMarketType     = (requestedDirection == 1) ? OP_BUY : OP_SELL;
    double currentPL       = (baseMarketType == OP_BUY) ? GlobalBuyPL : GlobalSellPL;
 
-// USER RULE: Spike Order Exception (Legacy Angle Mismatch OR Method 2 Candle Spike Velocity)
-   bool isBullishSpikeOrder = (InpEnableSpikeOrderCreation && requestedDirection == 1 && ((EMADirection == 1 && emaAngle < 0.0 && (!InpType1SpikeRequireSameCandleEmaFlip || IsSameCandleEmaFlip(1))) || g_isMethod2BullishSpike));
-   bool isBearishSpikeOrder = (InpEnableSpikeOrderCreation && requestedDirection == -1 && ((EMADirection == -1 && emaAngle > 0.0 && (!InpType1SpikeRequireSameCandleEmaFlip || IsSameCandleEmaFlip(-1))) || g_isMethod2BearishSpike));
+   // USER RULE: Spike Order Exception (EMADirection == 1 with angle < 0 is Bullish Spike; EMADirection == -1 with angle > 0 is Bearish Spike)
+   bool isBullishSpikeOrder = (InpEnableSpikeOrderCreation && requestedDirection == 1 && EMADirection == 1 && emaAngle < 0.0);
+   bool isBearishSpikeOrder = (InpEnableSpikeOrderCreation && requestedDirection == -1 && EMADirection == -1 && emaAngle > 0.0);
 
    if(InpFollowEmaIgnoreSsl)
      {
@@ -1633,25 +1565,24 @@ bool PassesUserRules(int orderType)
            }
          // Bullish EMA: Buy order allowed, SSL signal is completely IGNORED
         }
+      else if(EMADirection == -1)
+        {
+         if(requestedDirection != -1)
+           {
+            Print("TRADE BLOCKED | EMADirection is Bearish (-1) -> Counter-EMA Buy order blocked");
+            return false;
+           }
+         // Bearish EMA: Sell order allowed, SSL signal is completely IGNORED
+        }
       else
-         if(EMADirection == -1)
+        {
+         // Flat EMA (0): Fall back to standard SSL matching
+         if(!isBullishSpikeOrder && !isBearishSpikeOrder && currentSSL != requestedDirection)
            {
-            if(requestedDirection != -1)
-              {
-               Print("TRADE BLOCKED | EMADirection is Bearish (-1) -> Counter-EMA Buy order blocked");
-               return false;
-              }
-            // Bearish EMA: Sell order allowed, SSL signal is completely IGNORED
+            Print("TRADE BLOCKED | SSL does not match requested direction  "+currentSSL+" :  "+requestedDirection);
+            return false;
            }
-         else
-           {
-            // Flat EMA (0): Fall back to standard SSL matching
-            if(!isBullishSpikeOrder && !isBearishSpikeOrder && currentSSL != requestedDirection)
-              {
-               Print("TRADE BLOCKED | SSL does not match requested direction  "+currentSSL+" :  "+requestedDirection);
-               return false;
-              }
-           }
+        }
      }
    else
      {
@@ -3328,46 +3259,17 @@ int GetDubai16TradingDayKey(datetime dubaiTime)
    int mode = (int)InpDayStartSessionMode;
    if(mode != DAY_START_AUTO)
      {
-      if(mode == DAY_START_BOTH_0800_2000)
-        {
-         hr1 = 8;
-         hr2 = 20;
-        }
-      else
-         if(mode == DAY_START_DUBAI_2000)
-           {
-            hr1 = 20;
-            hr2 = -1;
-           }
-         else
-            if(mode == DAY_START_DUBAI_1600)
-              {
-               hr1 = 16;
-               hr2 = -1;
-              }
-            else
-               if(mode == DAY_START_DUBAI_1000)
-                 {
-                  hr1 = 10;
-                  hr2 = -1;
-                 }
-               else
-                  if(mode == DAY_START_BOTH_1000_2000)
-                    {
-                     hr1 = 10;
-                     hr2 = 20;
-                    }
-                  else
-                     if(mode == DAY_START_BOTH_1000_1600)
-                       {
-                        hr1 = 10;
-                        hr2 = 16;
-                       }
+      if(mode == DAY_START_BOTH_0800_2000)    { hr1 = 8;  hr2 = 20; }
+      else if(mode == DAY_START_DUBAI_2000)   { hr1 = 20; hr2 = -1; }
+      else if(mode == DAY_START_DUBAI_1600)   { hr1 = 16; hr2 = -1; }
+      else if(mode == DAY_START_DUBAI_1000)   { hr1 = 10; hr2 = -1; }
+      else if(mode == DAY_START_BOTH_1000_2000){ hr1 = 10; hr2 = 20; }
+      else if(mode == DAY_START_BOTH_1000_1600){ hr1 = 10; hr2 = 16; }
      }
 
    int hr = TimeHour(dubaiTime);
 
-// Dual session reset (hr1 and hr2)
+   // Dual session reset (hr1 and hr2)
    if(hr2 >= 0)
      {
       int startHr = MathMin(hr1, hr2);
@@ -8040,37 +7942,29 @@ bool   InpEnableOverallBasketProfitModify   =false;// true;   // Method 5: Enabl
 double InpOverallBasketProfitTargetUSD      = 5;//1.0;    // Method 5: Overall hedged basket profit target in USD ($1.00 * multiplier)
 double InpOverallBasketSLGapUSD             = 100.0;  // Method 5: Overall hedged basket StopLoss gap in USD points ($150)
 
-// Method 6: Multi-Order Combinations (S0-S3 4-Stage Pipeline)
-bool   InpEnableMethod6CombinationSLModify  = true;   // Method 6: Enable Multi-Order Combination Engine (S0-S3)
-double InpMethod6ProfitThresholdUSD         = 2.0;//10/5;//5;//10;//20.0;   // S2 Base Threshold: Range profit threshold in USD ($2.00 * multiplier)
+// Method 6: Multi-Order Combinations (> 2 orders, Profit or Loss mix) > $20 Profit SL Modifier
+bool   InpEnableMethod6CombinationSLModify  = true;   // Method 6: Check combinations of >2 orders (profit/loss mix) > $20 profit
+double InpMethod6ProfitThresholdUSD         = 2.0;//10/5;//5;//10;//20.0;   // Method 6: Base profit threshold in USD ($2.00 * multiplier)
 double InpMethod6SLDistanceUSD              = 20.0;  // Method 6: StopLoss gap in USD points ($150)
-int    InpMethod6MinOrderCount              = 2;      // Method 6: Minimum number of orders in combination (default 2)
+int    InpMethod6MinOrderCount              = 2;      // Method 6: Minimum number of orders in combination (default 2 or 3)
 bool   InpDrawMethod6HitIcon                = true;   // Method 6: Draw chart icon when combination profit threshold is hit
 color  InpMethod6HitIconColor               = clrGold;// Method 6: Chart icon & text color
 int    InpMethod6HitFontSize                = 10;     // Method 6: Chart icon text font size
-int    InpMethod6HitIconCode                = 159;    // Method 6: Chart icon Wingdings code (159=circle dot)
-void   DrawMethod6HitIcon(int orderCount, double comboProfit, datetime hitTime = 0, double hitPrice = 0.0,
-                          string stageName = "", double reqThreshold = -999999.0, string actionDesc = "");
+int    InpMethod6HitIconCode                = 159;    // Method 6: Chart icon Wingdings code (159=circle dot, 171=star, 251=check)
+void   DrawMethod6HitIcon(int orderCount, double comboProfit, datetime hitTime = 0, double hitPrice = 0.0);
 bool   InpMethod6EnablePartialLotCombination= true;   // Method 6: Allow partial LOT combination close when full combo cannot reach threshold
 bool   InpMethod6PartialCloseWinnerAtMarket = true;   // Method 6: Close winning order at market (true) or tighten SL to live price (false)
 bool   InpMethod6PartialHalfCloseWinner     = true;   // Method 6 partial combo: if winner > 0.01L close half lot; if 0.01L full close
 bool   InpMethod6CreatePendingOnWinnerClose = true;   // Method 6: Create new pending order (SSL Long/Short) in same direction after closing profit order (only when open order count == 0)
-bool   InpMethod6CloseWinnerAtMarket        = true;   // Method 6 S2/S3: true = close winners at market to bank cash; false = modify SL to live price
+bool   InpMethod6CloseWinnerAtMarket        = true;   // Method 6 full combo: true = close winner at market and create pending with regular SSL gap; false = modify SL to live price
 bool   InpMethod6PrioritizeOppositeLosers   = true;   // Method 6: 1st Priority = Close opposite-type losers, 2nd Priority = Close same-type losers
 double InpMethod6PartialMaxCutLots          = 0.0;    // Method 6: Max partial lots to cut from loser per trigger (0.0 = auto max safe)
-double InpMethod6SteepAngleDegrees          = 3.0;    // S2/S3 Angle Boundary: EMA angle threshold in degrees (3.0 deg)
-double InpMethod6SteepAngleMultiplier       = 1.5;//2.0;    // S3 Multiplier: Threshold multiplier when MathAbs(EMA Angle) > 3 (1.5x = $3.00)
+double InpMethod6SteepAngleDegrees          = 4.0;    // Method 6: EMA angle threshold in degrees (if MathAbs > 4: threshold is doubled)
+double InpMethod6SteepAngleMultiplier       = 2.0;    // Method 6: Threshold multiplier when MathAbs(EMA Angle) > 4 (default 2.0 = double)
 double InpMethod6LowAngleThresholdUSD       = 1.0;//5/5;//5;//10;//2.0;    // Method 6: Profit threshold when MathAbs(EMA Angle) < 4 deg ($2.00 * multiplier)
 double InpMethod6LowAngleEmaDegrees         = 0;//4.0;    // Method 6: Dynamic EMA angle boundary in degrees (default 4.0)
-double InpMethod6SameTypeMultiplier         = 1.5;//3.0;    // Method 6: Threshold multiplier when all orders are same type (2+ BUY or 2+ SELL = 3.0x; if angle > 4 then 3.0 * 2.0 = 6.0x)
-double InpMethod6EmaAlignedMultiplier       = 1.5;//2.0;    // Method 6: Additional threshold multiplier when all combo orders match EMADirection (default 2.0x -> 3X * 2X = 6X; if angle > 4 then 3X * 2X * 2X = 12X)
-bool   InpMethod6EnableZeroNetLossCutSLModify = true;   // Method 6 S0/S1: Close losing order (or partial cut) when combo net >= $0 & modify winner SL to $50
-double InpMethod6ZeroNetMinProfitUSD          = 0.0;    // Method 6 S0/S1: Zero-Net Relief minimum net profit ($0.00 = pure break-even relief, no extra profit required)
-double InpMethod6LivePriceSLGapUSD          = 50.0;   // Method 6: StopLoss buffer from live price ($50 USD: Bullish = Bid - $50, Bearish = Ask + $50)
-bool   InpMethod6S3ModifySLInsteadOfClose   = true;   // Method 6 S3: In strong trend (>4 deg), modify SL with $50 live gap instead of closing at market
-bool   InpMethod6CreatePendingOnSLHit       = true;   // Method 6: If modified SL order hits StopLoss, create pending order in same direction if MathAbs(EMA Angle) > 4.0 deg
-double InpMethod6PendingOnSLEmaAngle        = 4.0;    // Method 6: Minimum MathAbs(EMA Angle) to create pending order when SL is hit (4.0 deg)
-bool   InpMethod6PendingSLRequireZeroOpen   = false;  // Method 6: When creating pending after SL hit, require 0 open orders (false = place pending immediately if min gap met)
+double InpMethod6SameTypeMultiplier         = 3.0;    // Method 6: Threshold multiplier when all orders are same type (2+ BUY or 2+ SELL = 3.0x; if angle > 4 then 3.0 * 2.0 = 6.0x)
+double InpMethod6EmaAlignedMultiplier       = 2.0;    // Method 6: Additional threshold multiplier when all combo orders match EMADirection (default 2.0x -> 3X * 2X = 6X; if angle > 4 then 3X * 2X * 2X = 12X)
 
 // Universal Trend-Aware StopLoss Modifier (Applies across all order modify methods)
 // User Rule:
@@ -8175,17 +8069,7 @@ double GetEquityLadder2HourPriceDiff();
 void   MonitorLowestEquityRecovery();
 void   CheckBasketProfitClose();
 void   ModifyMethod6MultiOrderCombinationsOver5USD();
-bool   ApplyMethod6LivePriceStopLoss(int ticket, int orderType, double openPrice, double currentSL, double takeProfit);
-bool   ExecuteMethod6StageS0(int candCount, int &candTickets[], int &candTypes[], double &candLots[], double &candOpenPrices[], double &candStopLosses[], double &candTakeProfits[], double &candProfits[], bool &isProcessed[]);
-bool   ExecuteMethod6StageS1(int candCount, int &candTickets[], int &candTypes[], double &candLots[], double &candOpenPrices[], double &candStopLosses[], double &candTakeProfits[], double &candProfits[], bool &isProcessed[]);
-bool   ExecuteMethod6StageS2_S3(int candCount, int &candTickets[], int &candTypes[], double &candLots[], double &candOpenPrices[], double &candStopLosses[], double &candTakeProfits[], double &candProfits[], bool &isProcessed[]);
-bool   ExecuteMethod6ZeroNetRelief(int candCount,
-                                   int &candTickets[], int &candTypes[], double &candLots[],
-                                   double &candOpenPrices[], double &candStopLosses[], double &candTakeProfits[],
-                                   double &candProfits[], bool &isProcessed[]);
-void   CreateMethod6PendingOrderAfterClose(int winType, bool requireZeroOpen = true);
-void   RegisterMethod6ModifiedSLOrder(int ticket, int orderType, double targetSL);
-void   CheckMethod6SLHitPendingReEntry();
+void   CreateMethod6PendingOrderAfterClose(int winType);
 void   ExecuteMethod6PartialLotSearch(bool targetOpposite, double threshold, int candCount,
                                       int &candTickets[], int &candTypes[], double &candLots[],
                                       double &candOpenPrices[], double &candTakeProfits[],
@@ -8896,8 +8780,7 @@ void DrawMultiOrderClosedIcon(int orderCount, datetime closeTime, double closePr
 //| Draws chart icon and text label when Method 6 combination hits:  |
 //| InpEnableMethod6CombinationSLModify + InpMethod6ProfitThresholdUSD|
 //+------------------------------------------------------------------+
-void DrawMethod6HitIcon(int orderCount, double comboProfit, datetime hitTime = 0, double hitPrice = 0.0,
-                        string stageName = "", double reqThreshold = -999999.0, string actionDesc = "")
+void DrawMethod6HitIcon(int orderCount, double comboProfit, datetime hitTime = 0, double hitPrice = 0.0)
   {
    if(!InpDrawMethod6HitIcon)
       return;
@@ -8927,14 +8810,9 @@ void DrawMethod6HitIcon(int orderCount, double comboProfit, datetime hitTime = 0
 
    string txtName = baseName + "_TXT";
    string labelText = StringFormat("M6 +%d ($%.2f)", orderCount, comboProfit);
-
-   string stageTitle = (stageName != "") ? stageName : "Method 6 Combination Hit";
-   double targetPL   = (reqThreshold > -999990.0) ? reqThreshold : InpMethod6ProfitThresholdUSD;
-   string actionStr  = (actionDesc != "") ? StringFormat(" | Action: %s", actionDesc) : "";
-
-   string tooltip = StringFormat("[%s] Orders: +%d | Net P/L: +$%.2f (Threshold: >=$%.2f)%s | Time: %s",
-                                 stageTitle, orderCount, comboProfit, targetPL, actionStr,
-                                 TimeToString(hitTime, TIME_DATE|TIME_MINUTES|TIME_SECONDS));
+   string tooltip   = StringFormat("Method 6 Combination Hit (>2 Orders >$5) | Orders: +%d | Profit: +$%.2f (Threshold: $%.2f) | SL Gap: $%.1f | Time: %s",
+                                   orderCount, comboProfit, InpMethod6ProfitThresholdUSD, InpMethod6SLDistanceUSD,
+                                   TimeToString(hitTime, TIME_DATE|TIME_MINUTES|TIME_SECONDS));
 
 // 1. Solid Marker Icon
    ObjectCreate(0, baseName, OBJ_ARROW, 0, barTime, markerPrice);
@@ -10142,8 +10020,6 @@ void TrackEmaFlip()
          ApplyEmaFlipWideBreathingProtection(LastTrackedEmaDirection, currentDirection);
         }
       EmaFlipTime = TimeCurrent();
-      g_emaFlipCandleTime = Time[0];
-      g_emaFlipDirection  = currentDirection;
       g_emaFlipPrice = (currentDirection == 1 ? Ask : Bid);
 
       TradingHaltedUntilNextFlip = false;
@@ -11858,9 +11734,8 @@ void CheckAndResumeDayTradingOnStrongAngleAndSSL()
    int liveEmaDir = 0;
    if(Close[0] > ema)
       liveEmaDir = 1;
-   else
-      if(Close[0] < ema)
-         liveEmaDir = -1;
+   else if(Close[0] < ema)
+      liveEmaDir = -1;
 
    if(liveEmaDir == 0)
       return;
@@ -11868,9 +11743,9 @@ void CheckAndResumeDayTradingOnStrongAngleAndSSL()
    double curEmaAng = GetEmaAngleDegrees(30);
    double absAngle  = MathAbs(curEmaAng);
 
-// Condition 3 Spike Mismatch Early Check:
-// - Bullish Spike: EMADirection == 1 (Bull) && Angle < 0.0
-// - Bearish Spike: EMADirection == -1 (Bear) && Angle > 0.0
+   // Condition 3 Spike Mismatch Early Check:
+   // - Bullish Spike: EMADirection == 1 (Bull) && Angle < 0.0
+   // - Bearish Spike: EMADirection == -1 (Bear) && Angle > 0.0
    bool isBullSpike = (liveEmaDir == 1 && curEmaAng < 0.0);
    bool isBearSpike = (liveEmaDir == -1 && curEmaAng > 0.0);
    bool isCond3Spike = (ResumeDayTradingOnSpikeMismatch && (isBullSpike || isBearSpike));
@@ -11897,23 +11772,22 @@ void CheckAndResumeDayTradingOnStrongAngleAndSSL()
    bool isCond1HighAngle = false;
    bool isCond2LowAngleHLine = false;
 
-// Condition 1: MathAbs(EMA Angle) is more than 4 (>= 4.0 deg) with slope confirming trend direction
+   // Condition 1: MathAbs(EMA Angle) is more than 4 (>= 4.0 deg) with slope confirming trend direction
    if(absAngle >= ResumeDayTradingHighEmaAngle)
      {
       if(liveEmaDir == 1 && curEmaAng >= ResumeDayTradingHighEmaAngle)
          isCond1HighAngle = true;
-      else
-         if(liveEmaDir == -1 && curEmaAng <= -ResumeDayTradingHighEmaAngle)
-            isCond1HighAngle = true;
+      else if(liveEmaDir == -1 && curEmaAng <= -ResumeDayTradingHighEmaAngle)
+         isCond1HighAngle = true;
      }
 
-// Condition 2: MathAbs(EMA Angle) is less than 2 (<= 2.0 deg) AND Horizontal lines are started
+   // Condition 2: MathAbs(EMA Angle) is less than 2 (<= 2.0 deg) AND Horizontal lines are started
    if(absAngle <= ResumeDayTradingLowEmaAngle && hasActiveHLine)
      {
       isCond2LowAngleHLine = true;
      }
 
-// None of the 3 conditions satisfied -> do not resume!
+   // None of the 3 conditions satisfied -> do not resume!
    if(!isCond1HighAngle && !isCond2LowAngleHLine && !isCond3Spike)
       return;
 
@@ -11926,22 +11800,20 @@ void CheckAndResumeDayTradingOnStrongAngleAndSSL()
       if(curSslDir == 0 || curSslDir != liveEmaDir)
          return;
      }
-   else
-      if(isCond2LowAngleHLine)
-        {
-         if(curSslDir == 0)
-            return;
-         bool hLineSslAligned = (curSslDir == liveEmaDir) ||
-                                (hasActiveGreenLine && curSslDir == 1) ||
-                                (hasActiveRedLine && curSslDir == -1);
-         if(!hLineSslAligned)
-            return;
-        }
-      else
-         if(isCond3Spike)
-           {
-            // Spike Mismatch confirmed!
-           }
+   else if(isCond2LowAngleHLine)
+     {
+      if(curSslDir == 0)
+         return;
+      bool hLineSslAligned = (curSslDir == liveEmaDir) ||
+                             (hasActiveGreenLine && curSslDir == 1) ||
+                             (hasActiveRedLine && curSslDir == -1);
+      if(!hLineSslAligned)
+         return;
+     }
+   else if(isCond3Spike)
+     {
+      // Spike Mismatch confirmed!
+     }
 
 // 4. Choice A Freshness Check:
 // - If pause happened in same direction, require that SSL flipped during pullback OR a fresh cross occurred
@@ -11952,42 +11824,36 @@ void CheckAndResumeDayTradingOnStrongAngleAndSSL()
      {
       isFreshSignal = true;
      }
-   else
-      if(isCond3Spike)
-        {
-         // A Spike Mismatch is a sudden fresh momentum breakout!
-         isFreshSignal = true;
-        }
-      else
-         if(liveEmaDir != g_dailyEquityPauseSSLDirection)
-           {
-            // Complete trend reversal! (e.g. paused on BUY, now strong BEARISH wave with Angle <= -4 and SSL == -1)
-            isFreshSignal = true;
-           }
-         else
-            if(g_dailyEquityPauseSslFlipped)
-              {
-               // Continuation wave after pullback! (SSL dipped during pullback and freshly flipped back to align)
-               isFreshSignal = true;
-              }
-            else
-               if(IsBuySignal(0) || IsSellSignal(0) || IsBuySignal(1) || IsSellSignal(1))
-                 {
-                  // Fresh SSL cross confirmed on current or previous bar
-                  isFreshSignal = true;
-                 }
-               else
-                  if(isCond2LowAngleHLine && hasActiveHLine)
-                    {
-                     // Fresh Horizontal Line active/started in low angle range
-                     isFreshSignal = true;
-                    }
-                  else
-                     if(g_dailyEquityPauseTime > 0 && (TimeCurrent() - g_dailyEquityPauseTime) >= (MathMax(ResumeDayTradingMinCooldownMin, 15) * 60))
-                       {
-                        // Cooldown buffer (at least 15m) fully elapsed and strong momentum maintained
-                        isFreshSignal = true;
-                       }
+   else if(isCond3Spike)
+     {
+      // A Spike Mismatch is a sudden fresh momentum breakout!
+      isFreshSignal = true;
+     }
+   else if(liveEmaDir != g_dailyEquityPauseSSLDirection)
+     {
+      // Complete trend reversal! (e.g. paused on BUY, now strong BEARISH wave with Angle <= -4 and SSL == -1)
+      isFreshSignal = true;
+     }
+   else if(g_dailyEquityPauseSslFlipped)
+     {
+      // Continuation wave after pullback! (SSL dipped during pullback and freshly flipped back to align)
+      isFreshSignal = true;
+     }
+   else if(IsBuySignal(0) || IsSellSignal(0) || IsBuySignal(1) || IsSellSignal(1))
+     {
+      // Fresh SSL cross confirmed on current or previous bar
+      isFreshSignal = true;
+     }
+   else if(isCond2LowAngleHLine && hasActiveHLine)
+     {
+      // Fresh Horizontal Line active/started in low angle range
+      isFreshSignal = true;
+     }
+   else if(g_dailyEquityPauseTime > 0 && (TimeCurrent() - g_dailyEquityPauseTime) >= (MathMax(ResumeDayTradingMinCooldownMin, 15) * 60))
+     {
+      // Cooldown buffer (at least 15m) fully elapsed and strong momentum maintained
+      isFreshSignal = true;
+     }
 
    if(!isFreshSignal)
       return;
@@ -11999,19 +11865,17 @@ void CheckAndResumeDayTradingOnStrongAngleAndSSL()
       reason = StringFormat("STRONG TREND RESUME (Cond 1: EMA Angle=%+.1f deg >= %.1f | SSL=%s)",
                             curEmaAng, ResumeDayTradingHighEmaAngle, dirStr);
      }
-   else
-      if(isCond2LowAngleHLine)
-        {
-         string hLineTag = (hasActiveRedLine && hasActiveGreenLine) ? "BOTH(R+G)" : (hasActiveRedLine ? "EQH-R(Red)" : "EQH-G(Green)");
-         reason = StringFormat("STRONG TREND RESUME (Cond 2: Low Angle=%+.1f deg <= %.1f | H-Line=%s | SSL=%s)",
-                               curEmaAng, ResumeDayTradingLowEmaAngle, hLineTag, dirStr);
-        }
-      else
-         if(isCond3Spike)
-           {
-            reason = StringFormat("SPIKE RESUME (Cond 3: Spike Mismatch EMA=%+d Angle=%+.1f deg | %s)",
-                                  liveEmaDir, curEmaAng, (isBullSpike ? "BULL SPIKE" : "BEAR SPIKE"));
-           }
+   else if(isCond2LowAngleHLine)
+     {
+      string hLineTag = (hasActiveRedLine && hasActiveGreenLine) ? "BOTH(R+G)" : (hasActiveRedLine ? "EQH-R(Red)" : "EQH-G(Green)");
+      reason = StringFormat("STRONG TREND RESUME (Cond 2: Low Angle=%+.1f deg <= %.1f | H-Line=%s | SSL=%s)",
+                            curEmaAng, ResumeDayTradingLowEmaAngle, hLineTag, dirStr);
+     }
+   else if(isCond3Spike)
+     {
+      reason = StringFormat("SPIKE RESUME (Cond 3: Spike Mismatch EMA=%+d Angle=%+.1f deg | %s)",
+                            liveEmaDir, curEmaAng, (isBullSpike ? "BULL SPIKE" : "BEAR SPIKE"));
+     }
 
    PerformDayTradingResume(reason);
   }
@@ -12610,8 +12474,6 @@ void CheckDeepDrawdownRecoveryShield()
       g_deepDrawdownLiveSlClamped         = false;
       g_deepDrawdownCycleArmed            = false;
       g_deepDrawdownArmedTarget           = 0.0;
-      g_lastVMonitoringOppositeOrderTime  = 0;
-      g_lastVMonitoringOppositeBarTime    = 0;
       return;
      }
 
@@ -12669,10 +12531,6 @@ void CheckDeepDrawdownRecoveryShield()
       if(g_deepDrawdownArmedTarget <= 0.0)
          g_deepDrawdownArmedTarget = recTarget;
 
-      // USER RULE: When V-Monitoring started and active and target is decided,
-      // create opposite orders when EMA is weak to protect equity (SL $200 gap)
-      ManageVMonitoringWeakEmaOppositeOrder();
-
       double curEmaAng = (GlobalEmaAngle30 != 0.0) ? GlobalEmaAngle30 : GetEmaAngleDegrees(30);
       double absEmaAng = MathAbs(curEmaAng);
 
@@ -12721,179 +12579,6 @@ void CheckDeepDrawdownRecoveryShield()
    if(g_deepDrawdownLiveSlClamped && InpDeepDrawdownTrailLiveSL)
      {
       ModifyOpenOrdersToCurrentPriceSL("Deep Drawdown Recovery Trailing", true);
-     }
-  }
-
-//+------------------------------------------------------------------+
-//| CountOpenVMonitoringOppositeOrders                               |
-//| Counts active open market orders tagged as VMON_OPP              |
-//+------------------------------------------------------------------+
-int CountOpenVMonitoringOppositeOrders()
-  {
-   int count = 0;
-   for(int i = OrdersTotal() - 1; i >= 0; i--)
-     {
-      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
-         continue;
-      if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber)
-         continue;
-      if(OrderType() != OP_BUY && OrderType() != OP_SELL)
-         continue;
-      if(StringFind(OrderComment(), "VMON_OPP") >= 0)
-         count++;
-     }
-   return count;
-  }
-
-//+------------------------------------------------------------------+
-//| DrawVMonitoringOppositeOrderIcon                                 |
-//| Draws chart marker and text label when V-Monitoring opposite     |
-//| order is placed to protect equity.                               |
-//+------------------------------------------------------------------+
-void DrawVMonitoringOppositeOrderIcon(int ticket, int orderType, double entryPrice, double stopLoss, double slGap)
-  {
-   datetime barTime = Time[0];
-   double atr = iATR(Symbol(), Period(), 14, 0);
-   if(atr <= 0.0)
-      atr = 30.0 * Point;
-
-   double markerPrice = (orderType == OP_BUY) ? (Low[0] - (atr * 0.35)) : (High[0] + (atr * 0.35));
-   double labelPrice  = (orderType == OP_BUY) ? (markerPrice - (atr * 0.35)) : (markerPrice + (atr * 0.35));
-
-   static int vmonOppSeq = 0;
-   vmonOppSeq++;
-   string baseName = PREFIX + "VMON_OPP_" + IntegerToString((int)barTime) + "_" + IntegerToString(vmonOppSeq);
-   string txtName  = baseName + "_TXT";
-
-   color iconColor = (orderType == OP_BUY) ? clrDeepSkyBlue : clrOrangeRed;
-   int   iconCode  = (orderType == OP_BUY) ? 233 : 234; // Wingdings 233 = up arrow, 234 = down arrow
-
-   ObjectCreate(0, baseName, OBJ_ARROW, 0, barTime, markerPrice);
-   ObjectSetInteger(0, baseName, OBJPROP_ARROWCODE, iconCode);
-   ObjectSetInteger(0, baseName, OBJPROP_COLOR, iconColor);
-   ObjectSetInteger(0, baseName, OBJPROP_WIDTH, 3);
-   ObjectSetInteger(0, baseName, OBJPROP_BACK, false);
-   ObjectSetInteger(0, baseName, OBJPROP_SELECTABLE, false);
-   ObjectSetInteger(0, baseName, OBJPROP_HIDDEN, false);
-
-   string tooltip = StringFormat("V-Monitoring Opposite Protection Order #%d | %s at %s | SL: %s ($%.0f gap) | Bounce Tgt: $%.2f | Time: %s",
-                                 ticket, (orderType == OP_BUY ? "BUY" : "SELL"),
-                                 DoubleToString(entryPrice, Digits), DoubleToString(stopLoss, Digits),
-                                 slGap, g_deepDrawdownArmedTarget,
-                                 TimeToString(TimeCurrent(), TIME_DATE|TIME_MINUTES|TIME_SECONDS));
-   ObjectSetString(0, baseName, OBJPROP_TOOLTIP, tooltip);
-
-   string labelText = StringFormat("V-MON OPP #%d (%s SL:$%.0f)", ticket, (orderType == OP_BUY ? "BUY" : "SELL"), slGap);
-   ObjectCreate(0, txtName, OBJ_TEXT, 0, barTime, labelPrice);
-   ObjectSetString(0, txtName, OBJPROP_TEXT, labelText);
-   ObjectSetString(0, txtName, OBJPROP_FONT, "Arial Black");
-   ObjectSetInteger(0, txtName, OBJPROP_FONTSIZE, 9);
-   ObjectSetInteger(0, txtName, OBJPROP_COLOR, iconColor);
-   ObjectSetInteger(0, txtName, OBJPROP_BACK, false);
-   ObjectSetInteger(0, txtName, OBJPROP_SELECTABLE, false);
-   ObjectSetInteger(0, txtName, OBJPROP_HIDDEN, false);
-   ObjectSetString(0, txtName, OBJPROP_TOOLTIP, tooltip);
-
-   ChartRedraw(0);
-  }
-
-//+------------------------------------------------------------------+
-//| ManageVMonitoringWeakEmaOppositeOrder                            |
-//| USER RULE: When V-Monitoring started and active and target is    |
-//| decided -> create opposite orders when EMA is weak with $200 SL  |
-//| gap to protect equity.                                           |
-//+------------------------------------------------------------------+
-void ManageVMonitoringWeakEmaOppositeOrder()
-  {
-   if(!InpEnableVMonitoringOppositeOrders)
-      return;
-
-   // 1. Must be currently armed in V-Monitoring with decided target and not yet clamped
-   if(!g_deepDrawdownCycleArmed || g_deepDrawdownLiveSlClamped || g_deepDrawdownArmedTarget <= 0.0)
-      return;
-
-   // 2. Must have active open market orders in the basket
-   int openMarketOrders = CountOrdersByType(OP_BUY) + CountOrdersByType(OP_SELL);
-   if(openMarketOrders <= 0)
-      return;
-
-   // 3. Check open V-monitoring opposite orders limit
-   int existingVMonOppOrders = CountOpenVMonitoringOppositeOrders();
-   if(existingVMonOppOrders >= InpVMonitoringOppositeMaxOrders)
-      return;
-
-   // 4. Bar cooldown / throttle to prevent rapid-fire multiple orders
-   if(Time[0] == g_lastVMonitoringOppositeBarTime)
-      return;
-
-   if(g_lastVMonitoringOppositeOrderTime > 0 && (TimeCurrent() - g_lastVMonitoringOppositeOrderTime) < InpVMonitoringOppositeCooldownSec)
-      return;
-
-   // 5. Must have clear EMA direction (1 = Buy trend, -1 = Sell trend)
-   if(EMADirection != 1 && EMADirection != -1)
-      return;
-
-   int oppOrderType = (EMADirection == 1) ? OP_SELL : OP_BUY;
-
-   // 6. Check if EMA is WEAK (pullback >= $100 from peak or distance reduced >= 50%)
-   bool isEmaWeak = (IsEmaWEAKDistanceReduced50PercentFromPeak(oppOrderType) || !emaflipstrongorweak());
-   if(!isEmaWeak)
-      return;
-
-   // 7. Prepare entry price and stop loss ($200 gap)
-   RefreshRates();
-   double entryPrice = 0.0;
-   double stopLoss   = 0.0;
-   double slGap      = (InpVMonitoringOppositeSLGapUSD > 0.0) ? InpVMonitoringOppositeSLGapUSD : 200.0;
-   color  arrowColor = clrNONE;
-
-   if(oppOrderType == OP_BUY)
-     {
-      entryPrice = Ask;
-      stopLoss   = NormalizeDouble(Bid - slGap, Digits);
-      arrowColor = clrAqua;
-     }
-   else
-     {
-      entryPrice = Bid;
-      stopLoss   = NormalizeDouble(Ask + slGap, Digits);
-      arrowColor = clrCrimson;
-     }
-
-   double lots = (InpVMonitoringOppositeLots > 0.0) ? InpVMonitoringOppositeLots : Lots;
-   if(lots <= 0.0)
-      lots = 0.01;
-   lots = NormalizeLots(lots);
-
-   string comment = "VMON_OPP";
-
-   PrintFormat(">>> [V-MONITORING WEAK EMA DETECTED] V-Monitoring Active | Target=$%.2f | EMADir=%s is WEAK! Placing opposite %s order (Lots=%.2f, Px=%s, SL=%s -$%.0f Gap) to protect equity...",
-               g_deepDrawdownArmedTarget, (EMADirection == 1 ? "BUY (+1)" : "SELL (-1)"),
-               (oppOrderType == OP_BUY ? "BUY" : "SELL"), lots,
-               DoubleToString(entryPrice, Digits), DoubleToString(stopLoss, Digits), slGap);
-
-   int ticket = SafeOrderSend(Symbol(), oppOrderType, lots, entryPrice, Slippage, stopLoss, 0.0, comment, MagicNumber, arrowColor);
-   if(ticket > 0)
-     {
-      g_lastVMonitoringOppositeOrderTime = TimeCurrent();
-      g_lastVMonitoringOppositeBarTime   = Time[0];
-
-      PrintFormat(">>> [V-MONITORING OPPOSITE ORDER PLACED SUCCESSFULLY] Ticket #%d (%s %.2fL at %s | SL=%s) | V-Bounce Tgt=$%.2f | LowEq=$%.2f | CurEq=$%.2f",
-                  ticket, (oppOrderType == OP_BUY ? "BUY" : "SELL"), lots,
-                  DoubleToString(entryPrice, Digits), DoubleToString(stopLoss, Digits),
-                  g_deepDrawdownArmedTarget, g_deepDrawdownCycleLowestEquity, AccountEquity());
-
-      LogEAEvent("INFO", "DEEP_DD_SHIELD",
-                 StringFormat("V-Mon Opposite %s Order #%d opened at %s SL=%s ($%.0f gap) to protect equity (EMADir=%d Weak)",
-                              (oppOrderType == OP_BUY ? "BUY" : "SELL"), ticket,
-                              DoubleToString(entryPrice, Digits), DoubleToString(stopLoss, Digits), slGap, EMADirection));
-
-      // Draw chart icon and text label for visual feedback
-      DrawVMonitoringOppositeOrderIcon(ticket, oppOrderType, entryPrice, stopLoss, slGap);
-     }
-   else
-     {
-      PrintFormat(">>> [V-MONITORING OPPOSITE ORDER FAILED] SafeOrderSend returned %d | LastError=%d", ticket, GetLastError());
      }
   }
 
@@ -13148,13 +12833,13 @@ void OnTick()
    CheckBasketLossDeRiskAndBreakevenProtection(); // Basket Loss >= $10: Below order BE SL at +$50 raw & Older order BE exit
    IsDailyEquityStopReached(); // Check target every tick; sets g_dailyEquityTradingBlocked and closes all orders if hit
 
-// Record every tick highest spike bucket profit and protect 50% of profit (runs on every incoming tick)
+   // Record every tick highest spike bucket profit and protect 50% of profit (runs on every incoming tick)
    ManageSpikeProfitLadder();
 
-// USER RULE: On opposite horizontal line start: modify profitable order SL to live price
+   // USER RULE: On opposite horizontal line start: modify profitable order SL to live price
    ManageHorizontalLineProfitLiveStopLoss();
 
-// USER RULE: When ANY horizontal line ends: modify open orders (profit > $0.50) SL to live price
+   // USER RULE: When ANY horizontal line ends: modify open orders (profit > $0.50) SL to live price
    ManageHorizontalLineEndedProfitLiveStopLoss();
 
    bool isTradingPausedOrBlocked = (g_dailyEquityTradingBlocked || g_manualTradingPaused || DayProfitLadderTradingStopped || g_dailyEquityAdverseLossHitToday || TradingHaltedUntilNextFlip);
@@ -13270,7 +12955,6 @@ void OnTick()
 
 // Priority #1 (VMULTI-1243): Method 6 Multi-Order Combination Close / Release
    ModifyMethod6MultiOrderCombinationsOver5USD();
-   CheckMethod6SLHitPendingReEntry();
 // Priority #2: Individual Order Profit Ladder (All Lots + Level 1+ Half-Close)
    if(g_lastMethod6ActionTick != CurrentTickSequence)
       SecureOneDollarProfit();
@@ -13287,7 +12971,7 @@ void OnTick()
    if(InpEnableBasketProfitClose)
       CheckBasketProfitClose();
 
-// USER RULE: Spike Profit Ladder ($5 step ladder, live SL trail & 50% profit protection)
+   // USER RULE: Spike Profit Ladder ($5 step ladder, live SL trail & 50% profit protection)
    ManageSpikeProfitLadder();
 
    if(InpCancelPendingReEntryOnLoss)
@@ -13906,12 +13590,11 @@ void OnTickCore()
          currentTrend = 1;
          sellSignal   = false;
         }
-      else
-         if(EMADirection == -1)
-           {
-            currentTrend = -1;
-            buySignal    = false;
-           }
+      else if(EMADirection == -1)
+        {
+         currentTrend = -1;
+         buySignal    = false;
+        }
      }
 
    bool missingBuyOrder = (currentTrend == 1 && CountDirectionOrders(OP_BUY) == 0 && CountDirectionOrders(OP_BUYSTOP) == 0);
@@ -13924,47 +13607,19 @@ void OnTickCore()
          sellSignal       = false;
          missingSellOrder = false;
         }
-      else
-         if(EMADirection == -1)
-           {
-            buySignal        = false;
-            missingBuyOrder  = false;
-           }
-     }
-
-// USER RULE: Unconditional Spike Order Creation
-// "create spike orders without any condition"
-// "EMAdirection is 1 , but ema angle is negative means spike in bullish so create BUY orders.
-//  similary EMAdirection is -1 but EMAangle is positive value then create SELL orders normal ssl orders with pending orders"
-// Method 2: 1-Bar Candle Spike Velocity (Surge >= $300 with Wick Rejection)
-   bool method2Bullish = false;
-   bool method2Bearish = false;
-   CheckCandleSpikeVelocity(method2Bullish, method2Bearish);
-   g_isMethod2BullishSpike = method2Bullish;
-   g_isMethod2BearishSpike = method2Bearish;
-
-   bool isBullishSpike = false;
-   bool isBearishSpike = false;
-
-   if(method2Bullish)
-     {
-      isBullishSpike = true;
-     }
-   else
-      if(method2Bearish)
+      else if(EMADirection == -1)
         {
-         isBearishSpike = true;
+         buySignal        = false;
+         missingBuyOrder  = false;
         }
-      else
-         if(IsType1BullishSpike(true))
-           {
-            isBullishSpike = true;
-           }
-         else
-            if(IsType1BearishSpike(true))
-              {
-               isBearishSpike = true;
-              }
+     }
+
+   // USER RULE: Unconditional Spike Order Creation
+   // "create spike orders without any condition"
+   // "EMAdirection is 1 , but ema angle is negative means spike in bullish so create BUY orders. 
+   //  similary EMAdirection is -1 but EMAangle is positive value then create SELL orders normal ssl orders with pending orders"
+   bool isBullishSpike = (InpEnableSpikeOrderCreation && EMADirection == 1 && GlobalEmaAngle30 < 0.0);
+   bool isBearishSpike = (InpEnableSpikeOrderCreation && EMADirection == -1 && GlobalEmaAngle30 > 0.0);
 
    if(isBullishSpike)
      {
@@ -13985,38 +13640,31 @@ void OnTickCore()
       if(canCreateSpikeBuy)
         {
          s_lastSpikeBuyTime = TimeCurrent();
-         if(!method2Bullish)
-            g_lastType1SpikeTime = Time[0];
-         g_lastMethod2SpikeTime = Time[0];
          OpenBuy("SPIKE_BUY");
         }
      }
-   else
-      if(isBearishSpike)
+   else if(isBearishSpike)
+     {
+      buySignal = false;
+      missingBuyOrder = false;
+
+      // Clean up stale pending spike orders if price drifted away (or delete all pending if operating in direct market mode)
+      CleanupStaleSpikePendingOrders(OP_SELLSTOP, (InpSpikeOrderPendingGapUSD <= 0.0 ? 0.0 : InpSpikeOrderStaleCleanupDistUSD));
+
+      // Create Spike SELL order: when pending value is 0 open market orders without pending; when > 0 maintain 1 pending stop
+      static datetime s_lastSpikeSellTime = 0;
+      bool canCreateSpikeSell = false;
+      if(InpSpikeOrderPendingGapUSD <= 0.0)
+         canCreateSpikeSell = (TimeCurrent() - s_lastSpikeSellTime >= InpSpikeOrderCooldownSec);
+      else
+         canCreateSpikeSell = (CountSpikePendingOrders(OP_SELLSTOP) == 0 && (TimeCurrent() - s_lastSpikeSellTime >= 1));
+
+      if(canCreateSpikeSell)
         {
-         buySignal = false;
-         missingBuyOrder = false;
-
-         // Clean up stale pending spike orders if price drifted away (or delete all pending if operating in direct market mode)
-         CleanupStaleSpikePendingOrders(OP_SELLSTOP, (InpSpikeOrderPendingGapUSD <= 0.0 ? 0.0 : InpSpikeOrderStaleCleanupDistUSD));
-
-         // Create Spike SELL order: when pending value is 0 open market orders without pending; when > 0 maintain 1 pending stop
-         static datetime s_lastSpikeSellTime = 0;
-         bool canCreateSpikeSell = false;
-         if(InpSpikeOrderPendingGapUSD <= 0.0)
-            canCreateSpikeSell = (TimeCurrent() - s_lastSpikeSellTime >= InpSpikeOrderCooldownSec);
-         else
-            canCreateSpikeSell = (CountSpikePendingOrders(OP_SELLSTOP) == 0 && (TimeCurrent() - s_lastSpikeSellTime >= 1));
-
-         if(canCreateSpikeSell)
-           {
-            s_lastSpikeSellTime = TimeCurrent();
-            if(!method2Bearish)
-               g_lastType1SpikeTime = Time[0];
-            g_lastMethod2SpikeTime = Time[0];
-            OpenSell("SPIKE_SELL");
-           }
+         s_lastSpikeSellTime = TimeCurrent();
+         OpenSell("SPIKE_SELL");
         }
+     }
 
    if(buySignal || missingBuyOrder)
      {
@@ -14590,197 +14238,6 @@ int CountDirectionOrders(int orderType)
          count++;
      }
    return count;
-  }
-
-//+------------------------------------------------------------------+
-//| IsSameCandleEmaFlip                                              |
-//| Verifies if the current candle (Bar 0) is the single candle      |
-//| where the EMA direction flipped from one direction to another.   |
-//| Rejects if more than 1 candle has crossed since the flip.        |
-//+------------------------------------------------------------------+
-bool IsSameCandleEmaFlip(int requestedDirection)
-  {
-   if(Bars < 2)
-      return false;
-
-   double ema0 = iMA(Symbol(), Period(), InpEMA200Period, InpEMAPriceShift, MODE_EMA, PRICE_CLOSE, 0);
-   double ema1 = iMA(Symbol(), Period(), InpEMA200Period, InpEMAPriceShift, MODE_EMA, PRICE_CLOSE, 1);
-   if(ema0 <= 0.0 || ema1 <= 0.0)
-      return false;
-
-// Direction 1: Bullish (+1) -> price flipped above EMA
-   if(requestedDirection == 1)
-     {
-      // 1. Structural check: previous candle (Bar 1) closed below or at EMA, and Bar 0 is above EMA
-      bool prevWasBearish = (Close[1] <= ema1);
-
-      // 2. Intra-bar runtime check: EMA flipped to Bullish on current candle Bar 0
-      bool runtimeFlipThisBar = (g_emaFlipCandleTime == Time[0] && g_emaFlipDirection == 1);
-
-      // 3. Historical scanner check: actual EMA flip occurred on Bar 0
-      bool scannerFlipThisBar = (GetActualEmaFlipTime(1) == Time[0]);
-
-      return (prevWasBearish || runtimeFlipThisBar || scannerFlipThisBar);
-     }
-// Direction -1: Bearish (-1) -> price flipped below EMA
-   else
-      if(requestedDirection == -1)
-        {
-         // 1. Structural check: previous candle (Bar 1) closed above or at EMA, and Bar 0 is below EMA
-         bool prevWasBullish = (Close[1] >= ema1);
-
-         // 2. Intra-bar runtime check: EMA flipped to Bearish on current candle Bar 0
-         bool runtimeFlipThisBar = (g_emaFlipCandleTime == Time[0] && g_emaFlipDirection == -1);
-
-         // 3. Historical scanner check: actual EMA flip occurred on Bar 0
-         bool scannerFlipThisBar = (GetActualEmaFlipTime(-1) == Time[0]);
-
-         return (prevWasBullish || runtimeFlipThisBar || scannerFlipThisBar);
-        }
-
-   return false;
-  }
-
-//+------------------------------------------------------------------+
-//| IsType1BullishSpike / IsType1BearishSpike                        |
-//| Evaluates Type 1 Spike condition: Angle mismatch + Single candle |
-//| EMA flip requirement.                                            |
-//+------------------------------------------------------------------+
-bool IsType1BullishSpike(bool checkCandleLimit = true)
-  {
-   if(!InpEnableSpikeOrderCreation)
-      return false;
-   if(EMADirection != 1 || GlobalEmaAngle30 >= 0.0)
-      return false;
-   if(InpType1SpikeRequireSameCandleEmaFlip && !IsSameCandleEmaFlip(1))
-      return false;
-   if(checkCandleLimit && InpType1SpikeMaxOrdersPerCandle > 0 && g_lastType1SpikeTime == Time[0])
-      return false;
-   return true;
-  }
-
-//+------------------------------------------------------------------+
-//|                                                                  |
-//+------------------------------------------------------------------+
-bool IsType1BearishSpike(bool checkCandleLimit = true)
-  {
-   if(!InpEnableSpikeOrderCreation)
-      return false;
-   if(EMADirection != -1 || GlobalEmaAngle30 <= 0.0)
-      return false;
-   if(InpType1SpikeRequireSameCandleEmaFlip && !IsSameCandleEmaFlip(-1))
-      return false;
-   if(checkCandleLimit && InpType1SpikeMaxOrdersPerCandle > 0 && g_lastType1SpikeTime == Time[0])
-      return false;
-   return true;
-  }
-
-//+------------------------------------------------------------------+
-//| CheckCandleSpikeVelocity: Method 2 Spike Detection               |
-//| Detects 1-Bar Candle Spike Velocity (ATR or Dollar Range Surge)  |
-//| and Upper/Lower Wick Rejection                                   |
-//| - Upward Surge + Upper Wick Pullback -> Bearish Spike (SELL)     |
-//| - Downward Dump + Lower Wick Bounce  -> Bullish Spike (BUY)      |
-//+------------------------------------------------------------------+
-void CheckCandleSpikeVelocity(bool &outBullishSpike, bool &outBearishSpike)
-  {
-   outBullishSpike = false;
-   outBearishSpike = false;
-
-   if(!InpEnableMethod2CandleSpike || !InpEnableSpikeOrderCreation)
-      return;
-
-// USER RULE: MathAbs minimum EMA angle is 3.0 degrees
-   double curEmaAngle = (GlobalEmaAngle30 != 0.0) ? GlobalEmaAngle30 : GetEmaAngleDegrees(30);
-   if(InpMethod2SpikeMinAngleDegrees > 0.0 && MathAbs(curEmaAngle) < InpMethod2SpikeMinAngleDegrees)
-      return;
-
-// Prevent multiple spike orders on the same candle if limited
-   if(InpSpikeMaxOrdersPerCandle > 0 && g_lastMethod2SpikeTime == Time[0])
-      return;
-
-   double atr = iATR(Symbol(), Period(), 14, 1);
-   if(atr <= 0)
-      atr = 50.0 * Point;
-
-// Effective surge threshold: minimum dollar amount required ($300 default)
-   double minSurgeUSD = InpSpikeCandleMinSurgeUSD;
-   if(minSurgeUSD <= 0.0)
-      minSurgeUSD = 300.0;
-
-// 1. LIVE CANDLE (Bar 0) INTRABAR CHECK:
-// Bearish Spike: Candle surged UP, topped out, and pulled back forming upper wick -> SELL
-   double surgeUp0  = High[0] - Open[0];
-   double range0    = High[0] - Low[0];
-   double pullBack0 = High[0] - Bid;
-   bool isSurgeUp0  = ((surgeUp0 >= minSurgeUSD || (range0 >= minSurgeUSD && Bid > Open[0])) &&
-                       (InpSpikeCandleMinAtrMult <= 0.0 || surgeUp0 >= InpSpikeCandleMinAtrMult * atr));
-   bool isWickDown0 = (pullBack0 >= InpSpikeWickPullbackUSD);
-
-   if(isSurgeUp0 && isWickDown0)
-     {
-      outBearishSpike = true;
-      static datetime lastLogBear0 = 0;
-      if(TimeCurrent() - lastLogBear0 >= 5)
-        {
-         lastLogBear0 = TimeCurrent();
-         PrintFormat(">>> [METHOD 2 SPIKE DETECTED] BEARISH SPIKE (Bar 0) | SurgeUp=$%.2f (Req=$%.2f), Pullback=$%.2f (Req=$%.2f), ATR=$%.2f -> SELL SPIKE",
-                     surgeUp0, minSurgeUSD, pullBack0, InpSpikeWickPullbackUSD, atr);
-        }
-      return;
-     }
-
-// Bullish Spike: Candle dumped DOWN, bottomed out, and bounced forming lower wick -> BUY
-   double dumpDown0 = Open[0] - Low[0];
-   double bounce0   = Ask - Low[0];
-   bool isDumpDown0 = ((dumpDown0 >= minSurgeUSD || (range0 >= minSurgeUSD && Ask < Open[0])) &&
-                       (InpSpikeCandleMinAtrMult <= 0.0 || dumpDown0 >= InpSpikeCandleMinAtrMult * atr));
-   bool isWickUp0   = (bounce0 >= InpSpikeWickPullbackUSD);
-
-   if(isDumpDown0 && isWickUp0)
-     {
-      outBullishSpike = true;
-      static datetime lastLogBull0 = 0;
-      if(TimeCurrent() - lastLogBull0 >= 5)
-        {
-         lastLogBull0 = TimeCurrent();
-         PrintFormat(">>> [METHOD 2 SPIKE DETECTED] BULLISH SPIKE (Bar 0) | DumpDown=$%.2f (Req=$%.2f), Bounce=$%.2f (Req=$%.2f), ATR=$%.2f -> BUY SPIKE",
-                     dumpDown0, minSurgeUSD, bounce0, InpSpikeWickPullbackUSD, atr);
-        }
-      return;
-     }
-
-// 2. PREVIOUS COMPLETED CANDLE (Bar 1) CHECK (Within first 15 seconds of new candle):
-   if(TimeCurrent() - Time[0] <= 15 && g_lastMethod2SpikeTime != Time[1])
-     {
-      double surgeUp1  = High[1] - Open[1];
-      double wickUp1   = High[1] - MathMax(Open[1], Close[1]);
-      bool isSurgeUp1  = ((surgeUp1 >= minSurgeUSD || (High[1] - Low[1] >= minSurgeUSD && Close[1] > Open[1])) &&
-                          (InpSpikeCandleMinAtrMult <= 0.0 || surgeUp1 >= InpSpikeCandleMinAtrMult * atr));
-      bool isWickDown1 = (wickUp1 >= InpSpikeWickPullbackUSD);
-
-      if(isSurgeUp1 && isWickDown1)
-        {
-         outBearishSpike = true;
-         PrintFormat(">>> [METHOD 2 SPIKE DETECTED] BEARISH SPIKE (Bar 1 Closed) | SurgeUp=$%.2f, Wick=$%.2f -> SELL SPIKE",
-                     surgeUp1, wickUp1);
-         return;
-        }
-
-      double dumpDown1 = Open[1] - Low[1];
-      double wickDown1 = MathMin(Open[1], Close[1]) - Low[1];
-      bool isDumpDown1 = ((dumpDown1 >= minSurgeUSD || (High[1] - Low[1] >= minSurgeUSD && Close[1] < Open[1])) &&
-                          (InpSpikeCandleMinAtrMult <= 0.0 || dumpDown1 >= InpSpikeCandleMinAtrMult * atr));
-      bool isWickUp1   = (wickDown1 >= InpSpikeWickPullbackUSD);
-
-      if(isDumpDown1 && isWickUp1)
-        {
-         outBullishSpike = true;
-         PrintFormat(">>> [METHOD 2 SPIKE DETECTED] BULLISH SPIKE (Bar 1 Closed) | DumpDown=$%.2f, Wick=$%.2f -> BUY SPIKE",
-                     dumpDown1, wickDown1);
-         return;
-        }
-     }
   }
 
 //+------------------------------------------------------------------+
@@ -16489,12 +15946,11 @@ string TradeMonitoringLog2="";
 //+------------------------------------------------------------------+
 int SafeOrderSend(string symbol,int orderType,double lots,double price,int slippage,double stopLoss,double takeProfit,string comment,int magic,color arrowColor)
   {
-   bool isFlipBasketSupport   = IsFLIPBasketSupportOrder(-1, comment);
-   bool isReverse100Order     = (StringFind(comment, "RECOVERY_") == 0 && StringFind(comment, "_REV") >= 0);
-   bool isSpikeOrder          = (StringFind(comment, "SPIKE") >= 0);
-   bool isVMonitoringOpposite = (StringFind(comment, "VMON_OPP") >= 0 || StringFind(comment, "V_OPP") >= 0);
+   bool isFlipBasketSupport = IsFLIPBasketSupportOrder(-1, comment);
+   bool isReverse100Order   = (StringFind(comment, "RECOVERY_") == 0 && StringFind(comment, "_REV") >= 0);
+   bool isSpikeOrder        = (StringFind(comment, "SPIKE") >= 0);
 
-   if(!isSpikeOrder && !isVMonitoringOpposite)
+   if(!isSpikeOrder)
      {
       if(OnlyAllowFLIPBasketSupportOrders && !isFlipBasketSupport)
         {
@@ -16587,8 +16043,8 @@ int SafeOrderSend(string symbol,int orderType,double lots,double price,int slipp
       ignoreFlipTime = true;
 
 
-// USER RULE (V-SMALL-1059): Dubai Hours Counter-Trend Block (14:00, 16:00, 17:00 Dubai Time) - DISABLED by default
-   if(InpEnableDubaiHoursCounterTrendBlock && !isVMonitoringOpposite)
+   // USER RULE (V-SMALL-1059): Dubai Hours Counter-Trend Block (14:00, 16:00, 17:00 Dubai Time) - DISABLED by default
+   if(InpEnableDubaiHoursCounterTrendBlock)
      {
       datetime dubaiTime = TimeCurrent() + (ServerToDubaiOffsetHours * 3600);
       int currentHour = TimeHour(dubaiTime);
@@ -16599,9 +16055,9 @@ int SafeOrderSend(string symbol,int orderType,double lots,double price,int slipp
         }
      }
 
-   if(!isSpikeOrder && !isVMonitoringOpposite)
+   if(!isSpikeOrder)
      {
-      if(IsEmaWEAKDistanceReduced50PercentFromPeak(orderType) && EMADirection== requestedDirection && MathAbs(GlobalEmaAngle30)>4)
+      if(IsEmaWEAKDistanceReduced50PercentFromPeak(orderType) && EMADirection== requestedDirection && MathAbs(GlobalEmaAngle30)>4 )
         {
          Print("TRADE BLOCKED | IsEmaWEAKDistanceReduced50PercentFromPeak");
          return -1;
@@ -16772,7 +16228,7 @@ int SafeOrderSend(string symbol,int orderType,double lots,double price,int slipp
                            StoredSignalOverride; // <-- Added memory override flag
 
 // --- STRATEGY FILTERS (IGNORED FOR BOUNCE ORDERS) ---
-   if(!isVShapeOverride && !isVMonitoringOpposite)
+   if(!isVShapeOverride)
      {
       double currentAngle = GlobalEmaAngle30;
 
@@ -16854,13 +16310,13 @@ int SafeOrderSend(string symbol,int orderType,double lots,double price,int slipp
      }
 
 // Physical Gate: Both-lines confusion block + single active Red/Green line $50 opposite-order block
-   if(!isVMonitoringOpposite && IsBlockedByActiveHorizontalLines(orderType, price, comment))
+   if(IsBlockedByActiveHorizontalLines(orderType, price, comment))
       return -1;
 
-   if(!isVMonitoringOpposite && IsBlockedByActiveSweepOppositeRule(orderType, comment))
+   if(IsBlockedByActiveSweepOppositeRule(orderType, comment))
       return -1;
 
-   if(Enable30MinuteMomentumFilter && Enable30MinuteMomentumForAllOrders && !isVShapeOverride && !isReverse100Order && !isVMonitoringOpposite)
+   if(Enable30MinuteMomentumFilter && Enable30MinuteMomentumForAllOrders && !isVShapeOverride && !isReverse100Order)
      {
       if(!PassesDeferredMomentum(orderType))
          return QueueDeferredOrder(symbol,orderType,lots,price,slippage,stopLoss,takeProfit,comment,magic,arrowColor);
@@ -19120,8 +18576,8 @@ bool PassesOscillationBoundaryFilter(int orderType)
       if(isBullishBreakout)
          return true;
 
-      // USER RULE: Bullish Spike Exception (Angle mismatch OR Method 2 Candle Spike -> allow BUY orders)
-      if(InpEnableSpikeOrderCreation && (IsType1BullishSpike(false) || g_isMethod2BullishSpike))
+      // USER RULE: Bullish Spike Exception (EMADirection == 1 with negative angle -> allow BUY orders)
+      if(InpEnableSpikeOrderCreation && EMADirection == 1 && GlobalEmaAngle30 < 0.0)
          return true;
 
       // Inside oscillation: Block BUY if price is in Upper Ceiling Zone (>= 65%)
@@ -19166,8 +18622,8 @@ bool PassesOscillationBoundaryFilter(int orderType)
          if(isBearishBreakout)
             return true;
 
-         // USER RULE: Bearish Spike Exception (Angle mismatch OR Method 2 Candle Spike -> allow SELL orders)
-         if(InpEnableSpikeOrderCreation && (IsType1BearishSpike(false) || g_isMethod2BearishSpike))
+         // USER RULE: Bearish Spike Exception (EMADirection == -1 with positive angle -> allow SELL orders)
+         if(InpEnableSpikeOrderCreation && EMADirection == -1 && GlobalEmaAngle30 > 0.0)
             return true;
 
          // Inside oscillation: Block SELL if price is in Lower Floor Zone (<= 35%)
@@ -19297,11 +18753,11 @@ double GetDynamicOrderGapDetails(int orderType, double &rawGapBeforeCap, string 
    double angleThreshold = (InpDynamicGapAngleThreshold > 0.0) ? InpDynamicGapAngleThreshold : 4.0;
    bool isAngleSteepForGap = (absEmaAng >= angleThreshold);
 
-// Check if orderType matches EMADirection (+1 Bullish matches BUY, -1 Bearish matches SELL)
+   // Check if orderType matches EMADirection (+1 Bullish matches BUY, -1 Bearish matches SELL)
    bool isEmaDirMatched = (emaDir == 1 && (orderType == OP_BUY || orderType == OP_BUYSTOP || orderType == OP_BUYLIMIT)) ||
                           (emaDir == -1 && (orderType == OP_SELL || orderType == OP_SELLSTOP || orderType == OP_SELLLIMIT));
 
-// Base multipliers
+   // Base multipliers
    int multiplier = 1;
    double sweepMult = 1.0;
    string sweepName = "";
@@ -19324,9 +18780,8 @@ double GetDynamicOrderGapDetails(int orderType, double &rawGapBeforeCap, string 
 
          if(isWeak)
             multiplier = MathMax(multiplier, 2);
-         else
-            if(isConflicted)
-               multiplier = MathMax(multiplier, 2);
+         else if(isConflicted)
+            multiplier = MathMax(multiplier, 2);
 
          // 2. Floating loss scaling: progressively widen gap on drawdown (Angle >= 4.0)
          double pl = GetOpenPL(orderType);
@@ -19350,11 +18805,10 @@ double GetDynamicOrderGapDetails(int orderType, double &rawGapBeforeCap, string 
                  {
                   if(orderType == OP_BUY || orderType == OP_BUYSTOP || orderType == OP_BUYLIMIT)
                      trendConfirmed = (sslDir == 1 && (Close[0] >= Open[0] || Bid >= Close[1]));
+                  else if(orderType == OP_SELL || orderType == OP_SELLSTOP || orderType == OP_SELLLIMIT)
+                     trendConfirmed = (sslDir == -1 && (Close[0] <= Open[0] || Ask <= Close[1]));
                   else
-                     if(orderType == OP_SELL || orderType == OP_SELLSTOP || orderType == OP_SELLLIMIT)
-                        trendConfirmed = (sslDir == -1 && (Close[0] <= Open[0] || Ask <= Close[1]));
-                     else
-                        trendConfirmed = false;
+                     trendConfirmed = false;
                  }
 
                if(trendConfirmed)
@@ -19401,28 +18855,27 @@ double GetDynamicOrderGapDetails(int orderType, double &rawGapBeforeCap, string 
                  }
               }
            }
-         else
-            if(sweepSig == 1 && (orderType == OP_SELL || orderType == OP_SELLSTOP || orderType == OP_SELLLIMIT))
+         else if(sweepSig == 1 && (orderType == OP_SELL || orderType == OP_SELLSTOP || orderType == OP_SELLLIMIT))
+           {
+            sweepMult = (InpLsdAdverseSweepGapMultiplier > 0.0) ? InpLsdAdverseSweepGapMultiplier : 2.0;
+            sweepName = "SSLS 2X";
+            if(logMessages)
               {
-               sweepMult = (InpLsdAdverseSweepGapMultiplier > 0.0) ? InpLsdAdverseSweepGapMultiplier : 2.0;
-               sweepName = "SSLS 2X";
-               if(logMessages)
+               static datetime lastSslsGapLog = 0;
+               if(TimeCurrent() - lastSslsGapLog >= 60)
                  {
-                  static datetime lastSslsGapLog = 0;
-                  if(TimeCurrent() - lastSslsGapLog >= 60)
-                    {
-                     lastSslsGapLog = TimeCurrent();
-                     Print(">>> [LSD SSLS SQUEEZE GUARD] SSLS active -> SELL order gap DOUBLED (", DoubleToString(sweepMult, 1),
-                           "X) to protect against pump squeeze!");
-                    }
+                  lastSslsGapLog = TimeCurrent();
+                  Print(">>> [LSD SSLS SQUEEZE GUARD] SSLS active -> SELL order gap DOUBLED (", DoubleToString(sweepMult, 1),
+                        "X) to protect against pump squeeze!");
                  }
               }
+           }
         }
      }
 
    double resultGap = 0.0;
-// USER RULE (V-SMALL-1052): Required Gap = Base Gap when EMA angle < 4.
-//                           Required Gap = Base Gap * Drawdown Multiplier * Sweep Guard Multiplier when EMA angle >= 4.
+   // USER RULE (V-SMALL-1052): Required Gap = Base Gap when EMA angle < 4.
+   //                           Required Gap = Base Gap * Drawdown Multiplier * Sweep Guard Multiplier when EMA angle >= 4.
    if(!isAngleSteepForGap)
      {
       resultGap = baseGap;
@@ -19447,65 +18900,18 @@ double GetDynamicOrderGapDetails(int orderType, double &rawGapBeforeCap, string 
       // Build descriptive reason string
       if(!isEmaDirMatched && InpDisableDDAndSweepGapWhenEmaUnmatched)
          reasonStr = StringFormat("EMA Unmatched (Ang %.1f>=%.1f: DD & Sweep Disabled)", absEmaAng, angleThreshold);
+      else if(multiplier > 1 && sweepMult > 1.0)
+         reasonStr = StringFormat("DD %dX * %s (Ang %.1f>=%.1f)", multiplier, sweepName, absEmaAng, angleThreshold);
+      else if(sweepMult > 1.0)
+         reasonStr = StringFormat("%s (Ang %.1f>=%.1f)", sweepName, absEmaAng, angleThreshold);
+      else if(multiplier > 1)
+         reasonStr = StringFormat("DD %dX (Ang %.1f>=%.1f)", multiplier, absEmaAng, angleThreshold);
+      else if(isAdaptive)
+         reasonStr = StringFormat("Adaptive Grid (Ang %.1f>=%.1f)", absEmaAng, angleThreshold);
+      else if(sslMatches)
+         reasonStr = StringFormat("SSL Matched (Ang %.1f>=%.1f)", absEmaAng, angleThreshold);
       else
-         if(multiplier > 1 && sweepMult > 1.0)
-            reasonStr = StringFormat("DD %dX * %s (Ang %.1f>=%.1f)", multiplier, sweepName, absEmaAng, angleThreshold);
-         else
-            if(sweepMult > 1.0)
-               reasonStr = StringFormat("%s (Ang %.1f>=%.1f)", sweepName, absEmaAng, angleThreshold);
-            else
-               if(multiplier > 1)
-                  reasonStr = StringFormat("DD %dX (Ang %.1f>=%.1f)", multiplier, absEmaAng, angleThreshold);
-               else
-                  if(isAdaptive)
-                     reasonStr = StringFormat("Adaptive Grid (Ang %.1f>=%.1f)", absEmaAng, angleThreshold);
-                  else
-                     if(sslMatches)
-                        reasonStr = StringFormat("SSL Matched (Ang %.1f>=%.1f)", absEmaAng, angleThreshold);
-                     else
-                        reasonStr = StringFormat("Unmatched (Ang %.1f>=%.1f)", absEmaAng, angleThreshold);
-     }
-
-// USER RULE:
-// 1. SELL basket in loss & EMADirection is Bullish (1) -> Reduce BUY order gap only.
-// 2. BUY basket in loss & EMADirection is Bearish (-1) -> Reduce SELL order gap only.
-   if(InpEnableTrendLossGapHalving)
-     {
-      bool isBuyOrder = (orderType == OP_BUY || orderType == OP_BUYSTOP || orderType == OP_BUYLIMIT);
-      bool isSellOrder = (orderType == OP_SELL || orderType == OP_SELLSTOP || orderType == OP_SELLLIMIT);
-
-      bool triggerOppositeRelief = false;
-      double oppPL = 0.0;
-      int bMult = (balancelomultipler > 0) ? balancelomultipler : 1;
-      double lossLimit = -InpTrendLossGapThresholdUSD * bMult;
-
-      if(isBuyOrder && EMADirection == 1)
-        {
-         oppPL = GetOpenPL(OP_SELL);
-         if(oppPL < lossLimit)
-            triggerOppositeRelief = true;
-        }
-      else if(isSellOrder && EMADirection == -1)
-        {
-         oppPL = GetOpenPL(OP_BUY);
-         if(oppPL < lossLimit)
-            triggerOppositeRelief = true;
-        }
-
-      if(triggerOppositeRelief)
-        {
-         double dirEmaAngle = (GlobalEmaAngle30 != 0.0) ? GlobalEmaAngle30 : GetEmaAngleDegrees(30);
-         if(InpTrendLossGapMinAngleDegrees <= 0.0 || MathAbs(dirEmaAngle) >= InpTrendLossGapMinAngleDegrees)
-           {
-            double halvedGap = resultGap * InpTrendLossGapReductionMult;
-            double minFloor = MathMax(InpTrendLossGapFloorUSD, GetRequiredStopDistance());
-            if(halvedGap < minFloor)
-               halvedGap = minFloor;
-            resultGap = halvedGap;
-            reasonStr += StringFormat(" [OppLoss Gap Reduced: %s Loss=$%.1f < -$%.1f, Ang=%.1f -> $%.1f]",
-                                      (isBuyOrder ? "SELL" : "BUY"), oppPL, lossLimit, MathAbs(dirEmaAngle), resultGap);
-           }
-        }
+         reasonStr = StringFormat("Unmatched (Ang %.1f>=%.1f)", absEmaAng, angleThreshold);
      }
 
    rawGapBeforeCap = resultGap;
@@ -20107,15 +19513,12 @@ void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep,s
 
    if(buyOpenPL <-10* bMult && sellOpenPL<=-10* bMult && (buyOpenPL + sellOpenPL) <= -20.0 * bMult && Lots <= 0.01 &&  EMADirection==requestedDirection)
      {
-      //Lots = 0.02;
+      Lots = 0.02;
       Print(">>> [CHANGE_LOTS BOOST] Basket loss <= -$", DoubleToString(30.0 * bMult, 2),
             " (BuyPL: ", DoubleToString(buyOpenPL, 2), ", SellPL: ", DoubleToString(sellOpenPL, 2),
             ", TotalPL: ", DoubleToString(buyOpenPL + sellOpenPL, 2),
             ") -> Lots boosted to 0.02 (pre-multiplier) | Type: ", orderType, " | Reason: ", reason);
-     }
-
-
-
+     } 
 
 
 
@@ -22527,46 +21930,6 @@ void CreateProfitReEntryStop(int closedOrderType, double closedPrice, DailyProte
          if(sweepSig == 1 && (closedOrderType == OP_SELL || closedOrderType == OP_SELLSTOP))
             reEntryGap *= (InpLsdAdverseSweepGapMultiplier > 0.0 ? InpLsdAdverseSweepGapMultiplier : 2.0);
      }
-
-// USER RULE:
-// 1. SELL basket in loss & EMADirection is Bullish (1) -> Reduce BUY re-entry gap only.
-// 2. BUY basket in loss & EMADirection is Bearish (-1) -> Reduce SELL re-entry gap only.
-   if(InpEnableTrendLossGapHalving)
-     {
-      bool isBuyReEntry = (closedOrderType == OP_BUY || closedOrderType == OP_BUYSTOP);
-      bool isSellReEntry = (closedOrderType == OP_SELL || closedOrderType == OP_SELLSTOP);
-
-      bool triggerOppositeReliefReEntry = false;
-      double oppPL = 0.0;
-      int bMult = (balancelomultipler > 0) ? balancelomultipler : 1;
-      double lossLimit = -InpTrendLossGapThresholdUSD * bMult;
-
-      if(isBuyReEntry && EMADirection == 1)
-        {
-         oppPL = GetOpenPL(OP_SELL);
-         if(oppPL < lossLimit)
-            triggerOppositeReliefReEntry = true;
-        }
-      else if(isSellReEntry && EMADirection == -1)
-        {
-         oppPL = GetOpenPL(OP_BUY);
-         if(oppPL < lossLimit)
-            triggerOppositeReliefReEntry = true;
-        }
-
-      if(triggerOppositeReliefReEntry)
-        {
-         double curReEntryAngle = (GlobalEmaAngle30 != 0.0) ? GlobalEmaAngle30 : GetEmaAngleDegrees(30);
-         if(InpTrendLossGapMinAngleDegrees <= 0.0 || MathAbs(curReEntryAngle) >= InpTrendLossGapMinAngleDegrees)
-           {
-            double halvedReEntry = reEntryGap * InpTrendLossGapReductionMult;
-            if(halvedReEntry < InpTrendLossGapFloorUSD)
-               halvedReEntry = InpTrendLossGapFloorUSD;
-            reEntryGap = halvedReEntry;
-           }
-        }
-     }
-
    if(!HasMinimumSameOrderGap(closedOrderType, reEntryGap, entryPrice))
       return;
    ResetLastError();
@@ -22721,7 +22084,7 @@ double GetSSLLongShortPendingGapRaw(int orderType, bool logMessage = false)
 //+------------------------------------------------------------------+
 void OpenBuy(string MOMorder="")
   {
-   bool isSpikeOrder = (MOMorder == "SPIKE_BUY" || (InpEnableSpikeOrderCreation && (IsType1BullishSpike(false) || g_isMethod2BullishSpike)));
+   bool isSpikeOrder = (MOMorder == "SPIKE_BUY" || (InpEnableSpikeOrderCreation && EMADirection == 1 && GlobalEmaAngle30 < 0.0));
 
    if(!isSpikeOrder)
      {
@@ -22754,7 +22117,7 @@ void OpenBuy(string MOMorder="")
       entryPrice = NormalizeDouble(entryPrice, Digits);
      }
 
-// USER RULE: Spike orders verify minimum gap between two orders is $50 (InpSpikeOrderMinGapUSD)
+   // USER RULE: Spike orders verify minimum gap between two orders is $50 (InpSpikeOrderMinGapUSD)
    double requiredGap = isSpikeOrder ? InpSpikeOrderMinGapUSD : GetDynamicOrderGap(OP_BUY);
    if(!HasMinimumSameOrderGap(OP_BUY, requiredGap, entryPrice))
      {
@@ -22764,8 +22127,8 @@ void OpenBuy(string MOMorder="")
    reEntryCounter=0;
    SaveReEntryCounter();
    ChangeLots(GlobalSellPL,"SSL Long",OP_BUY,0,MOMorder);
-
-
+   
+   
    if(isSpikeOrder)
       StopLossRawPriceGap = (InpSpikeOrderStopLossRawPriceGap > 0.0) ? InpSpikeOrderStopLossRawPriceGap : 200.0;
    else
@@ -22781,9 +22144,9 @@ void OpenBuy(string MOMorder="")
       DeleteOppositePendingOrders(OP_BUY);
 
    string buyComment = isSpikeOrder ? "SSL Long SPIKE" : ((MOMorder == "MOM_BUY" || isMOMOrder) ? "SSL Long MOM" : "SSL Long");
-
-
-
+   
+  
+   
    int ticket = 0;
    if(isSpikeMarketOrder)
      {
@@ -22839,7 +22202,7 @@ double NormalizeLots(double lots)
 //+------------------------------------------------------------------+
 void OpenSell(string MOMorder="")
   {
-   bool isSpikeOrder = (MOMorder == "SPIKE_SELL" || (InpEnableSpikeOrderCreation && (IsType1BearishSpike(false) || g_isMethod2BearishSpike)));
+   bool isSpikeOrder = (MOMorder == "SPIKE_SELL" || (InpEnableSpikeOrderCreation && EMADirection == -1 && GlobalEmaAngle30 > 0.0));
 
    if(!isSpikeOrder)
      {
@@ -22872,7 +22235,7 @@ void OpenSell(string MOMorder="")
       entryPrice = NormalizeDouble(entryPrice, Digits);
      }
 
-// USER RULE: Spike orders verify minimum gap between two orders is $50 (InpSpikeOrderMinGapUSD)
+   // USER RULE: Spike orders verify minimum gap between two orders is $50 (InpSpikeOrderMinGapUSD)
    double requiredGap = isSpikeOrder ? InpSpikeOrderMinGapUSD : GetDynamicOrderGap(OP_SELL);
    if(!HasMinimumSameOrderGap(OP_SELL, requiredGap, entryPrice))
      {
@@ -22882,7 +22245,7 @@ void OpenSell(string MOMorder="")
    reEntryCounter=0;
    SaveReEntryCounter();
    ChangeLots(GlobalBuyPL,"SSL Short",OP_SELL,0,MOMorder);
-
+   
    if(isSpikeOrder)
       StopLossRawPriceGap = (InpSpikeOrderStopLossRawPriceGap > 0.0) ? InpSpikeOrderStopLossRawPriceGap : 200.0;
    else

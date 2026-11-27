@@ -540,13 +540,6 @@ void CheckLsdStructuralRecoveryOrders()
    if(!InpEnableLsdStructuralRecovery || GetTotalEAOrders() >= MaxOpenOrders || !IsOneCandleOrderAllowed())
       return;
 
-   // USER RULE: MathAbs(EMA Angle) must be strictly < 3.0 deg to allow Recovery LSD order
-   double curEmaAng = (GlobalEmaAngle30 != 0.0) ? GlobalEmaAngle30 : GetEmaAngleDegrees(30);
-   double absEmaAng = MathAbs(curEmaAng);
-   double maxLsdAngle = (InpLsdRecoveryMaxEmaAngle > 0.0) ? InpLsdRecoveryMaxEmaAngle : 3.0;
-   if(absEmaAng >= maxLsdAngle)
-      return;
-
    int maxActive = (InpLsdRecoveryMaxActiveOrders > 0) ? InpLsdRecoveryMaxActiveOrders : 1;
    if(CountActiveLsdRecoveryOrders() >= maxActive)
       return;
@@ -1783,15 +1776,6 @@ int CreateHorizontalLineRecoveryOrder(int parentTicket, int orderType, double li
       return -1;
      }
 
-   // USER RULE: MathAbs(EMA Angle) must be strictly < 3.0 deg to allow Recovery LSD order
-   double maxLsdAngle = (InpLsdRecoveryMaxEmaAngle > 0.0) ? InpLsdRecoveryMaxEmaAngle : 3.0;
-   if(absEmaAng >= maxLsdAngle)
-     {
-      PrintFormat(">>> [LSD RECOVERY BLOCKED] MathAbs(EMA Angle)=%.2f >= %.1f deg. Recovery LSD orders strictly require MathAbs(EMA Angle) < %.1f deg!",
-                  absEmaAng, maxLsdAngle, maxLsdAngle);
-      return -1;
-     }
-
    if(!OrderSelect(parentTicket, SELECT_BY_TICKET, MODE_TRADES))
       return -1;
    if(!InpAllowRecoveryForHorizontalOrders && IsHorizontalLineOrder(parentTicket, OrderComment()))
@@ -2329,7 +2313,7 @@ void CheckNewRedLineCloseBuyAndOpenSell()
            }
         }
 
-      // Step 2b-2: USER RULE: "RED horizontal line is started then BUY orders are in profit >$0 then modify all open BUY orders stoploss with live price"
+      // Step 2b-2: USER RULE: "EMADIRECTION is bullish , SELL order is open and current tick with profit>=$0.50 , horizontal RED line is started then modify BUY order stoploss with current live price"
       ManageHorizontalLineProfitLiveStopLoss();
 
       // Step 2c: USER RULE: "When horizantal line is started. create recovery order which is smallest loss amount.
@@ -2732,7 +2716,7 @@ void CheckNewGreenLineCloseSellAndOpenBuy()
            }
         }
 
-      // Step 2b-2: USER RULE: "GREEEN horizontal line is started then SELL orders are in profit >$0 then modify all open SELL orders stoploss with liveprice"
+      // Step 2b-2: USER RULE: "EMAdirection is bearish , SELL order is open and current tick with profit >=$0.50, Horizontal GREENLINE Is started then modify SELL order stoploss with current live price"
       ManageHorizontalLineProfitLiveStopLoss();
 
       // Step 2c: USER RULE: "When horizantal line is started. create recovery order which is smallest loss amount.
