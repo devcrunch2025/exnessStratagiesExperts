@@ -43,7 +43,7 @@ CheckBasketProfitClose  Total open basket profit
 
 */
 
-string glbVersion = "V-SMALL-1122- Type 3 5-Min 300 USD EMA Distance Spike Velocity Engine";
+string glbVersion = "V-SMALL-1123- Spike Lifecycle Chart Signal Visualizer";
 
 int AccountMultiplierLOT = 500;//100;//1000;//400;//200;//500; ALWAYS multiples of 1000 is better for best results
 //balance multiplier
@@ -1141,6 +1141,7 @@ double InpPendingGapLossMultiplier         = 2.0;   // Pending gap multiplier on
  bool   InpEnableType3SpikeVelocityFilter      = true;  // Type 3 Spike Velocity: Confirm Spike if EMA distance expanded >= $300 in 5 min
  double InpType3Spike5MinDistanceChange        = 300.0; // Type 3 Spike Velocity: Min EMA distance expansion ($300) in 5 min (User Observation)
  int    InpType3SpikeVelocityLookbackM1        = 5;     // Type 3 Spike Velocity: Lookback bars (5 min on M1)
+ bool   InpEnableSpikeLifecycleVisuals         = true;  // Spike Lifecycle Signals: Display icons & labels for START, END, REV START, REV END
 
  // ===== SPIKE $50 MINIMUM PROFIT LADDER & CLIMAX EXIT =====
  bool   InpEnableSpikeProfitLadder             = true;  // Spike Ladder: Enable Step Profit Ladder with Maximum Profit Protection
@@ -8261,6 +8262,7 @@ void     RecordType3ClosedOrder(int ticket, double netPL);
 void     PrintThreeTypeTelemetrySummary();
 string   GetThreeTypeActiveStatusDisplay();
 color    GetThreeTypeActiveStatusColor();
+void     DrawSpikeLifecycleSignal(string stage, int dir, double price, string details = "");
 datetime GetLastClosedFLIPBasketSupportCloseTime();
 bool     HasOppositeOrderTypeLossOver5(int currentDirection, double &outOppositeTotalPL, double &outMaxSingleLoss);
 void     InitializeFLIPBasketSupportTracking();
@@ -13845,6 +13847,7 @@ void OnTickCore()
         {
          s_lastSpikeBuyTime = TimeCurrent();
          OpenBuy("SPIKE_BUY");
+         DrawSpikeLifecycleSignal("SPIKE_START", 1, Ask, StringFormat("Fast Bull Spike BUY | Angle=%.1f deg", GlobalEmaAngle30));
          PrintFormat(">>> [FAST SPIKE ENGINE] Created Spike BUY | Mode=%s | ActiveSpikes=%d/%d | Angle=%.1f deg",
                      (InpFastSpikeMarketOrder ? "MARKET" : "PENDING"), activeSpikeBuyCount + 1, InpMaxActiveSpikeOrders, GlobalEmaAngle30);
         }
@@ -13889,6 +13892,7 @@ void OnTickCore()
         {
          s_lastSpikeSellTime = TimeCurrent();
          OpenSell("SPIKE_SELL");
+         DrawSpikeLifecycleSignal("SPIKE_START", -1, Bid, StringFormat("Fast Bear Spike SELL | Angle=%.1f deg", GlobalEmaAngle30));
          PrintFormat(">>> [FAST SPIKE ENGINE] Created Spike SELL | Mode=%s | ActiveSpikes=%d/%d | Angle=%.1f deg",
                      (InpFastSpikeMarketOrder ? "MARKET" : "PENDING"), activeSpikeSellCount + 1, InpMaxActiveSpikeOrders, GlobalEmaAngle30);
         }

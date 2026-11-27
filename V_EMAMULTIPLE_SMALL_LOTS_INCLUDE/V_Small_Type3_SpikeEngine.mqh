@@ -203,3 +203,135 @@ color GetThreeTypeActiveStatusColor()
       return clrAqua;
    return clrLime;
   }
+
+
+//+------------------------------------------------------------------+
+//| DrawSpikeLifecycleSignal: Display Visual Icons & Labels on Chart|
+//| Stages:                                                          |
+//| 1. "SPIKE_START"     : SPIKE started                             |
+//| 2. "SPIKE_END"       : SPIKE END                                 |
+//| 3. "SPIKE_REV_START" : SPIKE reverse started                     |
+//| 4. "SPIKE_REV_END"   : SPIKE REVER END                           |
+//+------------------------------------------------------------------+
+void DrawSpikeLifecycleSignal(string stage, int dir, double price, string details = "")
+  {
+   if(!InpEnableSpikeLifecycleVisuals)
+      return;
+
+   static int s_spikeObjSeq = 0;
+   s_spikeObjSeq++;
+
+   datetime barTime = Time[0];
+   double offset = (SignalDistancePoints > 0 ? SignalDistancePoints : 100) * Point;
+   if(offset < 10.0 * Point)
+      offset = 10.0 * Point;
+
+   int    iconCode    = 233;
+   color  sigColor    = clrLime;
+   string labelText   = "";
+   double markerPrice = price;
+   double textPrice   = price;
+
+   if(stage == "SPIKE_START")
+     {
+      if(dir >= 0) // Bullish Spike
+        {
+         iconCode    = 233; // Wingdings Bold UP Arrow
+         sigColor    = clrLime;
+         labelText   = "▲ SPIKE STARTED [BULL]";
+         markerPrice = Low[0] - offset;
+         textPrice   = markerPrice - (offset * 0.8);
+        }
+      else // Bearish Spike
+        {
+         iconCode    = 234; // Wingdings Bold DOWN Arrow
+         sigColor    = clrRed;
+         labelText   = "▼ SPIKE STARTED [BEAR]";
+         markerPrice = High[0] + offset;
+         textPrice   = markerPrice + (offset * 0.8);
+        }
+     }
+   else if(stage == "SPIKE_END")
+     {
+      iconCode = 254; // Wingdings Solid Square (Speed Breaker Barrier)
+      sigColor = clrOrangeRed;
+      if(dir >= 0) // Top ceiling hit (EQH-R)
+        {
+         labelText   = "■ SPIKE END [EQH-R CEILING]";
+         markerPrice = (price > 0.0) ? price : High[0];
+         textPrice   = markerPrice + offset;
+        }
+      else // Bottom floor hit (EQL-G)
+        {
+         labelText   = "■ SPIKE END [EQL-G FLOOR]";
+         markerPrice = (price > 0.0) ? price : Low[0];
+         textPrice   = markerPrice - offset;
+        }
+     }
+   else if(stage == "SPIKE_REV_START")
+     {
+      iconCode = 171; // Wingdings Solid Star (Rebound Ignition)
+      if(dir >= 0) // BUY Rebound off floor
+        {
+         sigColor    = clrAqua;
+         labelText   = "★ SPIKE REVERSE STARTED [BUY -> EMA]";
+         markerPrice = Low[0] - offset;
+         textPrice   = markerPrice - (offset * 0.8);
+        }
+      else // SELL Rebound off ceiling
+        {
+         sigColor    = clrMagenta;
+         labelText   = "★ SPIKE REVERSE STARTED [SELL -> EMA]";
+         markerPrice = High[0] + offset;
+         textPrice   = markerPrice + (offset * 0.8);
+        }
+     }
+   else if(stage == "SPIKE_REV_END")
+     {
+      iconCode    = 251; // Wingdings Checkmark (Target reached)
+      sigColor    = clrGold;
+      labelText   = "✔ SPIKE REVER END [200 EMA TOUCH]";
+      markerPrice = (price > 0.0) ? price : Close[0];
+      textPrice   = (dir >= 0) ? (markerPrice + offset * 0.8) : (markerPrice - offset * 0.8);
+     }
+   else
+     {
+      return;
+     }
+
+   string baseName = StringFormat("SPK_MKR_%s_%d_%d", stage, (int)TimeCurrent(), s_spikeObjSeq);
+   string txtName  = StringFormat("SPK_TXT_%s_%d_%d", stage, (int)TimeCurrent(), s_spikeObjSeq);
+   string tooltip  = StringFormat("%s at %.2f | %s | %s", labelText, price, TimeToString(TimeCurrent(), TIME_DATE|TIME_SECONDS), details);
+
+   // 1. Icon Marker
+   if(ObjectFind(0, baseName) < 0)
+      ObjectCreate(0, baseName, OBJ_ARROW, 0, barTime, markerPrice);
+   else
+      ObjectMove(0, baseName, 0, barTime, markerPrice);
+   ObjectSetInteger(0, baseName, OBJPROP_ARROWCODE, iconCode);
+   ObjectSetInteger(0, baseName, OBJPROP_COLOR, sigColor);
+   ObjectSetInteger(0, baseName, OBJPROP_WIDTH, 4);
+   ObjectSetInteger(0, baseName, OBJPROP_BACK, false);
+   ObjectSetInteger(0, baseName, OBJPROP_SELECTABLE, false);
+   ObjectSetInteger(0, baseName, OBJPROP_HIDDEN, false);
+   ObjectSetString(0, baseName, OBJPROP_TOOLTIP, tooltip);
+
+   // 2. Bold Text Label
+   if(ObjectFind(0, txtName) < 0)
+      ObjectCreate(0, txtName, OBJ_TEXT, 0, barTime, textPrice);
+   else
+      ObjectMove(0, txtName, 0, barTime, textPrice);
+   ObjectSetString(0, txtName, OBJPROP_TEXT, labelText);
+   ObjectSetString(0, txtName, OBJPROP_FONT, "Arial Black");
+   ObjectSetInteger(0, txtName, OBJPROP_FONTSIZE, 9);
+   ObjectSetInteger(0, txtName, OBJPROP_COLOR, sigColor);
+   ObjectSetInteger(0, txtName, OBJPROP_BACK, false);
+   ObjectSetInteger(0, txtName, OBJPROP_SELECTABLE, false);
+   ObjectSetInteger(0, txtName, OBJPROP_HIDDEN, false);
+   ObjectSetString(0, txtName, OBJPROP_TOOLTIP, tooltip);
+
+   ChartRedraw(0);
+
+   PrintFormat(">>> [SPIKE CHART SIGNAL] Placed '%s' at %.2f | Bar=%s | Details: %s",
+               labelText, price, TimeToString(barTime, TIME_DATE|TIME_MINUTES), details);
+  }

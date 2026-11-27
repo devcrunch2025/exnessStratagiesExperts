@@ -225,6 +225,7 @@ void CheckTwoWayFallingAndRisingOrders(double liveEma, double emaDist, int emaDi
                     {
                      s_lastFallingMilestoneDist = curDistBelow;
                      s_lastTwoWayFallOrderTime = TimeCurrent();
+                     DrawSpikeLifecycleSignal("SPIKE_START", -1, Bid, StringFormat("Waterfall Falling SELL #%d | Dist to EMA=$%.2f", tkt, curDistBelow));
                      PrintFormat(">>> [TWO-WAY ENGINE] Opened Falling SELL #%d (Order #%d/%d) at %.2f | Dist to EMA=$%.2f (Milestone Step=$%.2f)",
                                  tkt, fallingCount + 1, maxOrders, Bid, curDistBelow, stepDist);
                     }
@@ -287,6 +288,7 @@ void CheckTwoWayFallingAndRisingOrders(double liveEma, double emaDist, int emaDi
                     {
                      s_lastRisingMilestoneDist = curDistAbove;
                      s_lastTwoWayRiseOrderTime = TimeCurrent();
+                     DrawSpikeLifecycleSignal("SPIKE_START", 1, Ask, StringFormat("Waterfall Rising BUY #%d | Dist to EMA=$%.2f", tkt, curDistAbove));
                      PrintFormat(">>> [TWO-WAY ENGINE] Opened Rising BUY #%d (Order #%d/%d) at %.2f | Dist to EMA=$%.2f (Milestone Step=$%.2f)",
                                  tkt, risingCount + 1, maxOrders, Ask, curDistAbove, stepDist);
                     }
@@ -332,6 +334,13 @@ void CheckTwoWayReboundEntries()
       // Check distance qualification (minimum $1000 per user rule)
       if(distBelowEma >= minClimax)
         {
+         static datetime s_lastSpikeEndEqlSignal = 0;
+         if(s_lastSpikeEndEqlSignal != curEqlStart)
+           {
+            s_lastSpikeEndEqlSignal = curEqlStart;
+            DrawSpikeLifecycleSignal("SPIKE_END", -1, g_lastEqLowPrice, StringFormat("EQL-G Climax Floor Speed Breaker at %.2f (Dist=$%.2f)", g_lastEqLowPrice, distBelowEma));
+           }
+
          if(s_lastTwoWayHandledEqlStart != curEqlStart)
            {
             RefreshRates();
@@ -342,6 +351,7 @@ void CheckTwoWayReboundEntries()
             if(tkt > 0)
               {
                s_lastTwoWayHandledEqlStart = curEqlStart;
+               DrawSpikeLifecycleSignal("SPIKE_REV_START", 1, Ask, StringFormat("Climax Floor Rebound BUY #%d (Target: 200 EMA)", tkt));
                PrintFormat(">>> [TWO-WAY ENGINE] Climax Floor Rebound BUY #%d opened at %.2f | GreenLine=%.2f | SL=%.2f (Cushion=$%.1f) | DistToEMA=$%.2f",
                            tkt, Ask, g_lastEqLowPrice, sl, InpTwoWaySLOffsetBeyondLine, distBelowEma);
               }
@@ -367,6 +377,13 @@ void CheckTwoWayReboundEntries()
       // Check distance qualification (minimum $1000 per user rule)
       if(distAboveEma >= minClimax)
         {
+         static datetime s_lastSpikeEndEqhSignal = 0;
+         if(s_lastSpikeEndEqhSignal != curEqhStart)
+           {
+            s_lastSpikeEndEqhSignal = curEqhStart;
+            DrawSpikeLifecycleSignal("SPIKE_END", 1, g_lastEqHighPrice, StringFormat("EQH-R Climax Ceiling Speed Breaker at %.2f (Dist=$%.2f)", g_lastEqHighPrice, distAboveEma));
+           }
+
          if(s_lastTwoWayHandledEqhStart != curEqhStart)
            {
             RefreshRates();
@@ -377,6 +394,7 @@ void CheckTwoWayReboundEntries()
             if(tkt > 0)
               {
                s_lastTwoWayHandledEqhStart = curEqhStart;
+               DrawSpikeLifecycleSignal("SPIKE_REV_START", -1, Bid, StringFormat("Climax Ceiling Rebound SELL #%d (Target: 200 EMA)", tkt));
                PrintFormat(">>> [TWO-WAY ENGINE] Climax Ceiling Rebound SELL #%d opened at %.2f | RedLine=%.2f | SL=%.2f (Cushion=$%.1f) | DistToEMA=$%.2f",
                            tkt, Bid, g_lastEqHighPrice, sl, InpTwoWaySLOffsetBeyondLine, distAboveEma);
               }
@@ -419,6 +437,7 @@ void ManageTwoWayReboundAndWaterfallOrders()
          // EMA Touch Take-Profit Exit
          if(InpTwoWayCloseAtEmaTouch && liveEma > 0.0 && Bid >= liveEma)
            {
+            DrawSpikeLifecycleSignal("SPIKE_REV_END", 1, liveEma, StringFormat("Rebound BUY #%d reached yellow 200 EMA (Bid=%.2f >= EMA=%.2f) | P/L=$%.2f", tkt, Bid, liveEma, OrderProfit()));
             PrintFormat(">>> [TWO-WAY ENGINE PROFIT] Rebound BUY #%d reached yellow 200 EMA (Bid=%.2f >= EMA=%.2f). Closing with FULL PROFIT! P/L=$%.2f",
                         tkt, Bid, liveEma, OrderProfit());
             SafeOrderCloseMarket(tkt, OrderLots(), Slippage, clrGold);
@@ -454,6 +473,7 @@ void ManageTwoWayReboundAndWaterfallOrders()
          // EMA Touch Take-Profit Exit
          if(InpTwoWayCloseAtEmaTouch && liveEma > 0.0 && Ask <= liveEma)
            {
+            DrawSpikeLifecycleSignal("SPIKE_REV_END", -1, liveEma, StringFormat("Rebound SELL #%d reached yellow 200 EMA (Ask=%.2f <= EMA=%.2f) | P/L=$%.2f", tkt, Ask, liveEma, OrderProfit()));
             PrintFormat(">>> [TWO-WAY ENGINE PROFIT] Rebound SELL #%d reached yellow 200 EMA (Ask=%.2f <= EMA=%.2f). Closing with FULL PROFIT! P/L=$%.2f",
                         tkt, Ask, liveEma, OrderProfit());
             SafeOrderCloseMarket(tkt, OrderLots(), Slippage, clrGold);

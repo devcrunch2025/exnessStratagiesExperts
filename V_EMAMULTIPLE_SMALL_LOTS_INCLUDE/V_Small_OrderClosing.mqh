@@ -3404,6 +3404,7 @@ void ManageSpikeProfitLadder()
             string closeReason = isClimaxHLineTakeProfit ?
                StringFormat("Spike BUY Climax Ceiling EQH-R Hit: Peak=$%.2f, Closed=$%.2f >= Min=$%.2f! Full Profit Booked!", g_spikeBuyBucketPeakPL, spikeBuyPL, minToProtect) :
                StringFormat("Spike BUY Ladder Retrace Hit: Peak=$%.2f, Closed=$%.2f <= Floor=$%.2f (Min=$%.2f, Lvl %d)", g_spikeBuyBucketPeakPL, spikeBuyPL, protectFloorPL, minToProtect, curLevel);
+            DrawSpikeLifecycleSignal("SPIKE_END", 1, (isClimaxHLineTakeProfit ? g_lastEqHighPrice : Ask), closeReason);
             Print(">>> [SPIKE BUCKET CLOSE - BUY] ", closeReason);
             CloseAllOpenSpikeOrders(OP_BUY, closeReason);
             CleanupStaleSpikePendingOrders(OP_BUYSTOP, 0.0);
@@ -3487,6 +3488,7 @@ void ManageSpikeProfitLadder()
             string closeReason = isClimaxHLineTakeProfit ?
                StringFormat("Spike SELL Climax Floor EQL-G Hit: Peak=$%.2f, Closed=$%.2f >= Min=$%.2f! Full Profit Booked!", g_spikeSellBucketPeakPL, spikeSellPL, minToProtect) :
                StringFormat("Spike SELL Ladder Retrace Hit: Peak=$%.2f, Closed=$%.2f <= Floor=$%.2f (Min=$%.2f, Lvl %d)", g_spikeSellBucketPeakPL, spikeSellPL, protectFloorPL, minToProtect, curLevel);
+            DrawSpikeLifecycleSignal("SPIKE_END", -1, (isClimaxHLineTakeProfit ? g_lastEqLowPrice : Bid), closeReason);
             Print(">>> [SPIKE BUCKET CLOSE - SELL] ", closeReason);
             CloseAllOpenSpikeOrders(OP_SELL, closeReason);
             CleanupStaleSpikePendingOrders(OP_SELLSTOP, 0.0);
