@@ -22,6 +22,14 @@ static datetime s_lastTwoWayFallOrderTime   = 0;
 static datetime s_lastTwoWayRiseOrderTime   = 0;
 
 //+------------------------------------------------------------------+
+//| GetTwoWayClimaxMinDistance: Enforces minimum $1000 threshold     |
+//+------------------------------------------------------------------+
+double GetTwoWayClimaxMinDistance()
+  {
+   return (InpTwoWayClimaxEmaDistance >= 1000.0) ? InpTwoWayClimaxEmaDistance : 1000.0;
+  }
+
+//+------------------------------------------------------------------+
 //| IsTwoWayFreezeTrendActive: Check if trend orders should be frozen|
 //+------------------------------------------------------------------+
 bool IsTwoWayFreezeTrendActive(int requestedDirection)
@@ -33,6 +41,8 @@ bool IsTwoWayFreezeTrendActive(int requestedDirection)
    if(liveEma <= 0.0)
       return false;
 
+   double minClimaxDist = GetTwoWayClimaxMinDistance();
+
    // If SELL requested (trend following dump), check if Green Line (EQL-G) is active at the floor
    if(requestedDirection == -1)
      {
@@ -41,7 +51,7 @@ bool IsTwoWayFreezeTrendActive(int requestedDirection)
       if(isGreenActive && Bid < liveEma)
         {
          double distBelowEma = liveEma - Bid;
-         if(distBelowEma >= InpTwoWayClimaxEmaDistance)
+         if(distBelowEma >= minClimaxDist)
             return true; // FREEZE trend SELL into the bottom!
         }
      }
@@ -54,7 +64,7 @@ bool IsTwoWayFreezeTrendActive(int requestedDirection)
       if(isRedActive && Ask > liveEma)
         {
          double distAboveEma = Ask - liveEma;
-         if(distAboveEma >= InpTwoWayClimaxEmaDistance)
+         if(distAboveEma >= minClimaxDist)
             return true; // FREEZE trend BUY into the top!
         }
      }
@@ -100,7 +110,8 @@ void PurgeTwoWayPendingStopsOnHLine(int sideToPurge)
 //+------------------------------------------------------------------+
 void CheckTwoWayClimaxRunnerLiquidation(double emaDist, int emaDir)
   {
-   if(!InpTwoWayCutOppositeRunnersOnClimax || emaDist < InpTwoWayClimaxEmaDistance)
+   double minClimax = GetTwoWayClimaxMinDistance();
+   if(!InpTwoWayCutOppositeRunnersOnClimax || emaDist < minClimax)
       return;
 
    double mult = (balancelomultipler > 0) ? balancelomultipler : 1.0;
@@ -120,7 +131,7 @@ void CheckTwoWayClimaxRunnerLiquidation(double emaDist, int emaDir)
          if(pl <= -maxLossThreshold)
            {
             PrintFormat(">>> [TWO-WAY ENGINE RUNNER CUT] Climax fall detected (EMA Dist=$%.2f >= $%.2f). Liquidating counter-trend BUY #%d (P/L=$%.2f) to protect equity!",
-                        emaDist, InpTwoWayClimaxEmaDistance, OrderTicket(), pl);
+                        emaDist, minClimax, OrderTicket(), pl);
             SafeOrderCloseMarket(OrderTicket(), OrderLots(), Slippage, clrYellow);
            }
         }
@@ -132,7 +143,7 @@ void CheckTwoWayClimaxRunnerLiquidation(double emaDist, int emaDir)
          if(pl <= -maxLossThreshold)
            {
             PrintFormat(">>> [TWO-WAY ENGINE RUNNER CUT] Climax rocket detected (EMA Dist=$%.2f >= $%.2f). Liquidating counter-trend SELL #%d (P/L=$%.2f) to protect equity!",
-                        emaDist, InpTwoWayClimaxEmaDistance, OrderTicket(), pl);
+                        emaDist, minClimax, OrderTicket(), pl);
             SafeOrderCloseMarket(OrderTicket(), OrderLots(), Slippage, clrYellow);
            }
         }
@@ -273,8 +284,10 @@ void CheckTwoWayReboundEntries()
          PurgeTwoWayPendingStopsOnHLine(-1);
         }
 
-      // Check distance qualification (works for 500, 1000, 2000, 3000)
-      if(distBelowEma >= InpTwoWayClimaxEmaDistance)
+      double minClimax = GetTwoWayClimaxMinDistance();
+
+      // Check distance qualification (minimum $1000 per user rule)
+      if(distBelowEma >= minClimax)
         {
          if(s_lastTwoWayHandledEqlStart != curEqlStart)
            {
@@ -306,8 +319,10 @@ void CheckTwoWayReboundEntries()
          PurgeTwoWayPendingStopsOnHLine(1);
         }
 
-      // Check distance qualification (works for 500, 1000, 2000, 3000)
-      if(distAboveEma >= InpTwoWayClimaxEmaDistance)
+      double minClimax = GetTwoWayClimaxMinDistance();
+
+      // Check distance qualification (minimum $1000 per user rule)
+      if(distAboveEma >= minClimax)
         {
          if(s_lastTwoWayHandledEqhStart != curEqhStart)
            {

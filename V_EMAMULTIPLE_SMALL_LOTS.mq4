@@ -43,7 +43,7 @@ CheckBasketProfitClose  Total open basket profit
 
 */
 
-string glbVersion = "V-SMALL-1116- Two-Way Waterfall and Horizontal Line Rebound Engine";
+string glbVersion = "V-SMALL-1117- Two-Way Engine Minimum Climax EMA Distance 1000";
 
 int AccountMultiplierLOT = 500;//100;//1000;//400;//200;//500; ALWAYS multiples of 1000 is better for best results
 //balance multiplier
@@ -392,7 +392,7 @@ bool   InpBlockAllOppositeWhenLineActive          = true;          // Single Act
 extern bool   InpEnableTwoWayEngine               = true;     // Enable Method 7 Two-Way Engine (Waterfall + V-Rebound)
 extern bool   InpTwoWayEnableFallingOrders        = true;     // Enable Falling SELL orders on downward momentum
 extern bool   InpTwoWayEnableRisingOrders         = true;     // Enable Rising BUY orders on upward momentum
-extern double InpTwoWayClimaxEmaDistance          = 500.0;    // Min EMA distance ($500) to qualify for Climax Rebound (works for 500, 1000, 2000, 3000)
+extern double InpTwoWayClimaxEmaDistance          = 1000.0;   // Min EMA distance ($1000) to qualify for Climax Rebound (minimum $1000)
 extern double InpTwoWayWaterfallStepRaw           = 150.0;    // Step gap ($150) between consecutive falling/rising orders
 extern double InpTwoWayReboundLotBase             = 0.02;     // Base lot size for Two-Way Rebound orders
 extern double InpTwoWaySLOffsetBeyondLine         = 150.0;    // StopLoss offset ($150) beyond horizontal line (Green: Line - 150, Red: Line + 150)
