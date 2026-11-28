@@ -3,8 +3,8 @@
 //|                  TWO-STAGE PROFIT LADDER | CONTINUOUS RESET      |
 //+------------------------------------------------------------------+
 #property strict
-#property version     "11.46"
-#property description "V-SMALL-1146 | Two-Regime EMA Multiple Small Lots EA"
+#property version     "11.47"
+#property description "V-SMALL-1147 | Two-Regime EMA Multiple Small Lots EA"
 
 //$100 to $170
 //https://github.com/devcrunch2025/exnessStratagiesExperts/commit/32fb1ba20d474fc8d4adb38d2558999b2ac82c56
@@ -45,8 +45,8 @@ CheckBasketProfitClose  Total open basket profit
 
 */
 
-string glbVersion      = "V-SMALL-1146- Partial Loss Cut (Side Loss <= -$40*mult OR Adverse EMA Angle > 4 deg)";
-string glbVersionShort = "V-SMALL-1146";
+string glbVersion      = "V-SMALL-1147- M7 Waterfall Dynamic Momentum Lot Scaling (0.01->0.04 x mult)";
+string glbVersionShort = "V-SMALL-1147";
 
 int AccountMultiplierLOT = 500;//100;//1000;//400;//200;//500; ALWAYS multiples of 1000 is better for best results
 //balance multiplier
@@ -416,7 +416,15 @@ int                 g_regime2EntrySide           = 0;        // +1 if entered ab
 bool   InpEnableTwoWayEngine               = true;     // Enable Method 7 Two-Way Engine (Waterfall + V-Rebound)
 bool   InpTwoWayEnableFallingOrders        = true;     // Enable Falling SELL orders on downward momentum
 bool   InpTwoWayEnableRisingOrders         = true;     // Enable Rising BUY orders on upward momentum
-double InpTwoWayWaterfallLotBase           = 0.01;     // Base lot size for Waterfall trend orders
+double InpTwoWayWaterfallLotBase           = 0.01;     // Base lot size for Waterfall trend orders (Tier 1)
+bool   InpTwoWayEnableMomentumLots         = true;     // Scale M7_FALL_SELL / M7_RISE_BUY lots dynamically with momentum (reduce on slowdown)
+double InpTwoWayWaterfallLotTier2          = 0.02;     // Waterfall Tier 2 lot base (when 5m momentum >= $200)
+double InpTwoWayWaterfallLotTier3          = 0.03;     // Waterfall Tier 3 lot base (when 5m momentum >= $350)
+double InpTwoWayWaterfallLotTier4          = 0.04;     // Waterfall Tier 4 max lot base (when 5m momentum >= $500)
+double InpTwoWayMomentumSpeedT2            = 200.0;    // 5m EMA-distance speed ($200) to step up to Tier 2 (0.02)
+double InpTwoWayMomentumSpeedT3            = 350.0;    // 5m EMA-distance speed ($350) to step up to Tier 3 (0.03)
+double InpTwoWayMomentumSpeedT4            = 500.0;    // 5m EMA-distance speed ($500) to step up to Tier 4 (0.04)
+double InpTwoWayMomentumReduceRatio        = 0.85;     // Reduce lot tier when curSpeed < prevEntrySpeed * 0.85 (momentum slowing)
 double InpTwoWayWaterfallStartDist         = 150.0;    // Min EMA distance ($150) to start Waterfall orders
 double InpTwoWayWaterfallStepRaw           = 150.0;    // Step gap ($150) between consecutive falling/rising orders as distance from EMA increases
 int    InpTwoWayMaxWaterfallOrders         = 6;        // Max concurrent Waterfall orders (per direction)
@@ -8305,6 +8313,10 @@ void     Check1HourHorizontalLinePendingOrders();
 bool     IsTwoWayFreezeTrendActive(int requestedDirection);
 void     PurgeTwoWayPendingStopsOnHLine(int sideToPurge);
 void     CheckTwoWayClimaxRunnerLiquidation(double emaDist, int emaDir);
+void     ResetTwoWayWaterfallState(int dir = 0);
+double   CalculateTwoWayWaterfallLot(int dir, double &outSpeed, int &outTier, string &outReason);
+void     RecordTwoWayWaterfallEntry(int dir, double speed, int tier);
+void     ProcessTwoWayWaterfallDirection(int dir, double liveEma, double startDist, double stepDist, int maxOrders, double initSL);
 void     CheckTwoWayFallingAndRisingOrders(double liveEma, double emaDist, int emaDir);
 void     CheckTwoWayReboundEntries();
 void     ManageTwoWayReboundAndWaterfallOrders();
@@ -10658,6 +10670,7 @@ void ResetAllRuntimeVariablesOnFreshStart()
    Ladder5PercentBaseline              = 0.0;
    ResetReverse100RuntimeState();
    ResetSpikeLifecycleState();
+   ResetTwoWayWaterfallState(0);
    g_currentTradingRegime    = REGIME_1_NORMAL_GROWTH;
    g_regime2EnteredTime      = 0;
    g_regime2PeakDistance     = 0.0;
