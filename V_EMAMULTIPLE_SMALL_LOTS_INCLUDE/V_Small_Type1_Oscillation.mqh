@@ -179,7 +179,7 @@ void UpdateType1OrderPeakState(int ticket, int oType, double openPrice, datetime
 //+------------------------------------------------------------------+
 void CreateType1StallBreakoutPendingOrder(int dirType)
   {
-   if(!InpType1StallCreatePendingOnClose || (dirType != OP_BUY && dirType != OP_SELL))
+   if(!InpEnableType1Orders || !InpType1StallCreatePendingOnClose || (dirType != OP_BUY && dirType != OP_SELL))
       return;
 
    bool isBuy = (dirType == OP_BUY);

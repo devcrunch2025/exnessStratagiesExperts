@@ -1619,6 +1619,9 @@ bool HasMinimumHorizontalOrderGap(int orderType, double proposedPrice, double mi
 //+------------------------------------------------------------------+
 int SendLsdRedLineSellOrder(double sellLot, double linePrice = 0.0)
   {
+   if(!IsOrderCreationAllowedByTypeSwitches("EQH-R Short", true))
+      return -1;
+
    // USER RULE: "do not create any horizontal order when mathabs emaangle is more than >=4"
    double curEmaAng = (GlobalEmaAngle30 != 0.0) ? GlobalEmaAngle30 : GetEmaAngleDegrees(30);
    double absEmaAng = MathAbs(curEmaAng);
@@ -1765,6 +1768,9 @@ int GetSmallestLossOrderTicket(int targetType)
 //+------------------------------------------------------------------+
 int CreateHorizontalLineRecoveryOrder(int parentTicket, int orderType, double linePrice)
   {
+   if(!IsOrderCreationAllowedByTypeSwitches("RECOVERY_LSD", true))
+      return -1;
+
    // USER RULE: "do not create any horizontal order when mathabs emaangle is more than >=4"
    double curEmaAng = (GlobalEmaAngle30 != 0.0) ? GlobalEmaAngle30 : GetEmaAngleDegrees(30);
    double absEmaAng = MathAbs(curEmaAng);
@@ -2064,7 +2070,7 @@ bool TryModifyOrderStopLossToLinePrice(int ticket, double linePrice, string line
 //+------------------------------------------------------------------+
 void CheckNewRedLineCloseBuyAndOpenSell()
   {
-   if(!InpCloseBuyOnNewEqhRedLine)
+   if(!InpCloseBuyOnNewEqhRedLine || !IsOrderCreationAllowedByTypeSwitches("EQH-R Short", true))
       return;
 
 
@@ -2381,6 +2387,9 @@ void CheckNewRedLineCloseBuyAndOpenSell()
 //+------------------------------------------------------------------+
 int SendLsdGreenLineBuyOrder(double buyLot, double linePrice = 0.0)
   {
+   if(!IsOrderCreationAllowedByTypeSwitches("EQH-G Long", true))
+      return -1;
+
    // USER RULE: "do not create any horizontal order when mathabs emaangle is more than >=4"
    double curEmaAng = (GlobalEmaAngle30 != 0.0) ? GlobalEmaAngle30 : GetEmaAngleDegrees(30);
    double absEmaAng = MathAbs(curEmaAng);
@@ -2471,7 +2480,7 @@ int SendLsdGreenLineBuyOrder(double buyLot, double linePrice = 0.0)
 //+------------------------------------------------------------------+
 void CheckNewGreenLineCloseSellAndOpenBuy()
   {
-   if(!InpCloseSellOnNewEqlGreenLine)
+   if(!InpCloseSellOnNewEqlGreenLine || !IsOrderCreationAllowedByTypeSwitches("EQH-G Long", true))
       return;
    if(!EAStartupComplete)
       return;
@@ -3085,7 +3094,7 @@ void Check1HourHorizontalLinePendingOrders()
                  }
               }
 
-            if(!hasExistingRedPending)
+            if(!hasExistingRedPending && IsOrderCreationAllowedByTypeSwitches("EQH-R 1h Pending", true))
               {
                int pendingType = OP_SELLLIMIT;
                double targetPrice = NormalizeDouble(g_lastEqHighPrice, Digits);
@@ -3185,7 +3194,7 @@ void Check1HourHorizontalLinePendingOrders()
                  }
               }
 
-            if(!hasExistingGreenPending)
+            if(!hasExistingGreenPending && IsOrderCreationAllowedByTypeSwitches("EQH-G 1h Pending", true))
               {
                int pendingType = OP_BUYLIMIT;
                double targetPrice = NormalizeDouble(g_lastEqLowPrice, Digits);

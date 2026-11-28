@@ -3,8 +3,8 @@
 //|                  TWO-STAGE PROFIT LADDER | CONTINUOUS RESET      |
 //+------------------------------------------------------------------+
 #property strict
-#property version     "11.40"
-#property description "V-SMALL-1140 | Two-Regime EMA Multiple Small Lots EA"
+#property version     "11.41"
+#property description "V-SMALL-1141 | Two-Regime EMA Multiple Small Lots EA"
 
 //$100 to $170
 //https://github.com/devcrunch2025/exnessStratagiesExperts/commit/32fb1ba20d474fc8d4adb38d2558999b2ac82c56
@@ -45,8 +45,8 @@ CheckBasketProfitClose  Total open basket profit
 
 */
 
-string glbVersion      = "V-SMALL-1140- Active Type 3 Spike Scaling + House-Money (1.25x/$2) + Retrace Shield";
-string glbVersionShort = "V-SMALL-1140";
+string glbVersion      = "V-SMALL-1141- Independent Type 1 / Type 2 / Type 3 Order Creation Toggles";
+string glbVersionShort = "V-SMALL-1141";
 
 int AccountMultiplierLOT = 500;//100;//1000;//400;//200;//500; ALWAYS multiples of 1000 is better for best results
 //balance multiplier
@@ -1121,6 +1121,10 @@ double InpPendingGapLossMultiplier         = 2.0;   // Pending gap multiplier on
 // double MinimumSameOrderGapRawSSLLongShort =50;// 50;
  double InpDynamicGapAngleThreshold        = 4.0;   // Dynamic Order Gap: EMA angle boundary (if MathAbs(EMA Angle) < 4.0: Required Gap = Base Gap; if >= 4.0: Base Gap * Drawdown Mult * Sweep Mult)
  bool   InpDisableDDAndSweepGapWhenEmaUnmatched = true; // Dynamic Order Gap: Disable DD Scaling & Sweep Guard when MathAbs(EMA Angle) >= 4.0 and OrderType != EMADirection
+ // ===== 3-TYPE ORDER CREATION MASTER TOGGLES (ENABLE / DISABLE INDEPENDENTLY) =====
+ bool   InpEnableType1Orders                   = true; // TYPE 1: Enable Oscillation/Range & Steep orders (|Angle| <= 3.0 or > 8.0 + T1_STALL_PENDING)
+ bool   InpEnableType2Orders                   = true; // TYPE 2: Enable Gradual Trend orders (3.0 < |EMA Angle| <= 8.0)
+ bool   InpEnableType3Orders                   = true; // TYPE 3: Enable Spike & Climax orders (SPIKE_BUY/SELL + M7_ Two-Way Engine)
  bool   InpEnableType1FlatGapReduction         = true; // Type 1 Flat (|Angle| <= 3.0): apply 0.5x reduction to Base Gap with $40 safe floor
  double InpType1FlatGapMultiplier              = 0.5;  // Type 1 Flat (|Angle| <= 3.0): Same-order gap multiplier (0.5x)
  double InpType1FlatGapMinFloorRaw             = 40.0; // Type 1 Flat (|Angle| <= 3.0): Hard safe minimum gap floor ($40 raw)
@@ -7330,6 +7334,9 @@ bool IsBlockedByActiveHorizontalLines(int orderType, double reqPrice, string ord
 //+------------------------------------------------------------------+
 int SendFLIPBasketSupportOrder(int pendingType, double lots, double price, double stopLoss, double takeProfit, string comment, color arrowColor)
   {
+   if(!IsOrderCreationAllowedByTypeSwitches(comment, true))
+      return -1;
+
    lots       = NormalizeLots(lots);
    price      = NormalizeDouble(price, Digits);
    stopLoss   = (stopLoss > 0.0) ? NormalizeDouble(stopLoss, Digits) : 0.0;
@@ -8306,6 +8313,9 @@ void     ManageType2ProfitBooking();
 void     RecordType2ClosedOrder(int ticket, double netPL);
 bool     IsType3ManagedOrder(int ticket, string comment = "");
 bool     IsType3SpikeActive(bool includeOpenOrders = true);
+int      GetOrderTypeCategoryForCreation(string comment = "");
+bool     IsOrderTypeEnabledByConfig(int typeNum);
+bool     IsOrderCreationAllowedByTypeSwitches(string comment = "", bool logBlock = false);
 double   GetType3DirectionNetPL(int baseOrdType);
 void     ProcessType3SpikeExecution();
 void     ManageType3ProfitBooking();
@@ -12986,8 +12996,8 @@ void OnTick()
 
    bool isTradingPausedOrBlocked = (g_dailyEquityTradingBlocked || g_manualTradingPaused || DayProfitLadderTradingStopped || g_dailyEquityAdverseLossHitToday || TradingHaltedUntilNextFlip);
 
-   // USER RULE: Resume trading when spike velocity/climax is actively expanding (5-min fast EMA distance >= $300 or climax)
-   if(isTradingPausedOrBlocked && IsType3SpikeActive(false))
+   // USER RULE: Resume trading when spike velocity/climax is actively expanding (only if Type 3 is enabled)
+   if(InpEnableType3Orders && isTradingPausedOrBlocked && IsType3SpikeActive(false))
      {
       PrintFormat(">>> [SPIKE DETECTED - RESUMING TRADING] Fast 5-min EMA distance expansion detected! Unblocking trading to capture spike momentum...");
       PerformDayTradingResume("SPIKE DETECTED (Fast 5-Min Distance Expansion from EMA)");
@@ -13219,11 +13229,14 @@ void OnTick()
       if(InpEnableTwoWayEngine)
         {
          ManageTwoWayReboundAndWaterfallOrders();
-         CheckTwoWayReboundEntries();
-         double liveEmaForTwoWay = iMA(Symbol(), Period(), InpEMA200Period, InpEMAPriceShift, MODE_EMA, PRICE_CLOSE, 0);
-         double distForTwoWay = (liveEmaForTwoWay > 0.0) ? MathAbs(Bid - liveEmaForTwoWay) : 0.0;
-         CheckTwoWayClimaxRunnerLiquidation(distForTwoWay, EMADirection);
-         CheckTwoWayFallingAndRisingOrders(liveEmaForTwoWay, distForTwoWay, EMADirection);
+         if(InpEnableType3Orders)
+           {
+            CheckTwoWayReboundEntries();
+            double liveEmaForTwoWay = iMA(Symbol(), Period(), InpEMA200Period, InpEMAPriceShift, MODE_EMA, PRICE_CLOSE, 0);
+            double distForTwoWay = (liveEmaForTwoWay > 0.0) ? MathAbs(Bid - liveEmaForTwoWay) : 0.0;
+            CheckTwoWayClimaxRunnerLiquidation(distForTwoWay, EMADirection);
+            CheckTwoWayFallingAndRisingOrders(liveEmaForTwoWay, distForTwoWay, EMADirection);
+           }
         }
 
       if(IsType2GradualTrendActive())
@@ -13820,7 +13833,7 @@ void OnTickCore()
         }
      }
 
-   // USER RULE: Spike Order Creation Engine
+   // USER RULE: Spike Order Creation Engine (only when InpEnableType3Orders is enabled)
    // USER SPECIFICATION: SPIKE has NO condition on EMAangle.
    // Pure 5-Min Step Gap Velocity: checks rolling 5-min M1 window + every 5-min step boundary!
    bool isBullishSpike = false;
@@ -13828,9 +13841,12 @@ void OnTickCore()
    double spkDistAbove = 0.0, spkDistBelow = 0.0;
    double spkDeltaAbove = 0.0, spkDeltaBelow = 0.0;
 
-   Evaluate5MinEmaDistanceStepGap(isBullishSpike, isBearishSpike,
-                                  spkDistAbove, spkDistBelow,
-                                  spkDeltaAbove, spkDeltaBelow);
+   if(InpEnableType3Orders)
+     {
+      Evaluate5MinEmaDistanceStepGap(isBullishSpike, isBearishSpike,
+                                     spkDistAbove, spkDistBelow,
+                                     spkDeltaAbove, spkDeltaBelow);
+     }
 
    if(isBullishSpike && g_blockBuySpikeUntilNewSpike)
      {
@@ -16237,6 +16253,9 @@ string TradeMonitoringLog2="";
 //+------------------------------------------------------------------+
 int SafeOrderSend(string symbol,int orderType,double lots,double price,int slippage,double stopLoss,double takeProfit,string comment,int magic,color arrowColor)
   {
+   if(!IsOrderCreationAllowedByTypeSwitches(comment, true))
+      return -1;
+
    bool isFlipBasketSupport = IsFLIPBasketSupportOrder(-1, comment);
    bool isReverse100Order   = (StringFind(comment, "RECOVERY_") == 0 && StringFind(comment, "_REV") >= 0);
    bool isSpikeOrder        = (StringFind(comment, "SPIKE") >= 0);
@@ -20680,7 +20699,7 @@ double GetType3RequiredEmaDistance(int elapsedMinutes)
 //+------------------------------------------------------------------+
 void CheckType3WeakEmaRecoveryOrders()
   {
-   if(!InpEnableType3Recovery || GetTotalEAOrders() >= MaxOpenOrders || !IsOneCandleOrderAllowed())
+   if(!InpEnableType3Orders || !InpEnableType3Recovery || GetTotalEAOrders() >= MaxOpenOrders || !IsOneCandleOrderAllowed())
       return;
 
    int maxActive = (InpType3MaxActiveOrders > 0) ? InpType3MaxActiveOrders : 1;
@@ -22440,6 +22459,8 @@ double GetSSLLongShortPendingGapRaw(int orderType, bool logMessage = false)
 void OpenBuy(string MOMorder="")
   {
    bool isSpikeOrder = (MOMorder == "SPIKE_BUY");
+   if(!IsOrderCreationAllowedByTypeSwitches((isSpikeOrder ? "SPIKE" : MOMorder), true))
+      return;
    if(isSpikeOrder && g_blockBuySpikeUntilNewSpike)
      {
       Print(">>> [SPIKE BUY BLOCKED] OpenBuy('SPIKE_BUY') blocked by Bullish EMA SPIKE END lock until new spike signal starts!");
@@ -22558,6 +22579,8 @@ double NormalizeLots(double lots)
 void OpenSell(string MOMorder="")
   {
    bool isSpikeOrder = (MOMorder == "SPIKE_SELL");
+   if(!IsOrderCreationAllowedByTypeSwitches((isSpikeOrder ? "SPIKE" : MOMorder), true))
+      return;
    if(isSpikeOrder && g_blockSellSpikeUntilNewSpike)
      {
       Print(">>> [SPIKE SELL BLOCKED] OpenSell('SPIKE_SELL') blocked by Bearish EMA SPIKE END lock until new spike signal starts!");

@@ -328,28 +328,98 @@ bool IsType3ManagedOrder(int ticket, string comment = "")
   }
 
 //+------------------------------------------------------------------+
+//| GetOrderTypeCategoryForCreation: Map comment/regime to Type 1/2/3|
+//+------------------------------------------------------------------+
+int GetOrderTypeCategoryForCreation(string comment = "")
+  {
+   if(StringFind(comment, "SPIKE") >= 0 ||
+      StringFind(comment, "M7_") == 0 ||
+      StringFind(comment, "T3_") == 0 ||
+      StringFind(comment, "_TYPE3") >= 0)
+      return 3;
+
+   if(StringFind(comment, "T1_") == 0)
+      return 1;
+
+   double curAngle = (GlobalEmaAngle30 != 0.0) ? GlobalEmaAngle30 : GetEmaAngleDegrees(30);
+   if(IsLadderType2AngleRange(MathAbs(curAngle)))
+      return 2;
+
+   return 1;
+  }
+
+//+------------------------------------------------------------------+
+//| IsOrderTypeEnabledByConfig: Check master Type 1/2/3 switch       |
+//+------------------------------------------------------------------+
+bool IsOrderTypeEnabledByConfig(int typeNum)
+  {
+   if(typeNum == 1)
+      return InpEnableType1Orders;
+   if(typeNum == 2)
+      return InpEnableType2Orders;
+   if(typeNum == 3)
+      return InpEnableType3Orders;
+   return true;
+  }
+
+//+------------------------------------------------------------------+
+//| IsOrderCreationAllowedByTypeSwitches: Unified Type 1/2/3 gate    |
+//+------------------------------------------------------------------+
+bool IsOrderCreationAllowedByTypeSwitches(string comment = "", bool logBlock = false)
+  {
+   int reqType = GetOrderTypeCategoryForCreation(comment);
+   if(IsOrderTypeEnabledByConfig(reqType))
+      return true;
+
+   if(logBlock)
+     {
+      static datetime s_lastTypeBlockLog[4] = {0, 0, 0, 0};
+      datetime nowSec = TimeCurrent();
+      if(reqType >= 1 && reqType <= 3 &&
+         (s_lastTypeBlockLog[reqType] == 0 || (nowSec - s_lastTypeBlockLog[reqType]) >= 30 || nowSec < s_lastTypeBlockLog[reqType]))
+        {
+         s_lastTypeBlockLog[reqType] = nowSec;
+         PrintFormat(">>> [TYPE %d DISABLED] Order creation blocked (T1=%s T2=%s T3=%s | Ang=%.1f deg | Tag='%s')",
+                     reqType,
+                     (InpEnableType1Orders ? "ON" : "OFF"),
+                     (InpEnableType2Orders ? "ON" : "OFF"),
+                     (InpEnableType3Orders ? "ON" : "OFF"),
+                     GlobalEmaAngle30, comment);
+        }
+     }
+   return false;
+  }
+
+//+------------------------------------------------------------------+
 //| IsType3SpikeActive: Check if Type 3 Spike / Climax is active     |
 //| includeOpenOrders=false checks only live velocity / climax dist  |
 //+------------------------------------------------------------------+
 bool IsType3SpikeActive(bool includeOpenOrders = true)
   {
-   bool   isBull5m = false, isBear5m = false;
-   double distAbove = 0.0, distBelow = 0.0;
-   double deltaAbove = 0.0, deltaBelow = 0.0;
-
-   // Condition A & B: Run unified 5-min step gap evaluator (Climax >= $1000 OR 5-min gap >= $300)
-   Evaluate5MinEmaDistanceStepGap(isBull5m, isBear5m, distAbove, distBelow, deltaAbove, deltaBelow);
-   double climaxMin = GetTwoWayClimaxMinDistance();
-   if(isBull5m || isBear5m || distAbove >= climaxMin || distBelow >= climaxMin)
+   if(InpEnableType3Orders)
      {
-      g_type3SpikeActiveState = true;
-      return true;
+      bool   isBull5m = false, isBear5m = false;
+      double distAbove = 0.0, distBelow = 0.0;
+      double deltaAbove = 0.0, deltaBelow = 0.0;
+
+      // Condition A & B: Run unified 5-min step gap evaluator (Climax >= $1000 OR 5-min gap >= $300)
+      Evaluate5MinEmaDistanceStepGap(isBull5m, isBear5m, distAbove, distBelow, deltaAbove, deltaBelow);
+      double climaxMin = GetTwoWayClimaxMinDistance();
+      if(isBull5m || isBear5m || distAbove >= climaxMin || distBelow >= climaxMin)
+        {
+         g_type3SpikeActiveState = true;
+         return true;
+        }
      }
 
    if(!includeOpenOrders)
+     {
+      if(!InpEnableType3Orders)
+         g_type3SpikeActiveState = false;
       return false;
+     }
 
-   // Condition C: Active Open Spike or Two-Way orders exist on account
+   // Condition C: Active Open Spike or Two-Way orders exist on account (still manage exits even if Type 3 creation is OFF)
    for(int i = 0; i < OrdersTotal(); i++)
      {
       if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
@@ -365,10 +435,11 @@ bool IsType3SpikeActive(bool includeOpenOrders = true)
      }
 
    // If no spike velocity and no open spike/waterfall orders remain, clean up active signal near EMA
-   double maxLiveDist = MathMax(distAbove, distBelow);
-   if(s_spikeLifecycleState == 1 && maxLiveDist < 50.0 && (TimeCurrent() - s_lastSpikeSignalTime) >= 60)
+   if(InpEnableType3Orders)
      {
-      DrawSpikeLifecycleSignal("SPIKE_END", s_lastSpikeSignalDir, (Bid + Ask) * 0.5, "Price returned near 200 EMA");
+      double maxLiveDist = MathMax(g_spike5mCacheDistAbove, g_spike5mCacheDistBelow);
+      if(s_spikeLifecycleState == 1 && maxLiveDist < 50.0 && (TimeCurrent() - s_lastSpikeSignalTime) >= 60)
+         DrawSpikeLifecycleSignal("SPIKE_END", s_lastSpikeSignalDir, (Bid + Ask) * 0.5, "Price returned near 200 EMA");
      }
 
    g_type3SpikeActiveState = false;
@@ -380,7 +451,7 @@ bool IsType3SpikeActive(bool includeOpenOrders = true)
 //+------------------------------------------------------------------+
 void ProcessType3SpikeExecution()
   {
-   if(!IsType3SpikeActive())
+   if(!InpEnableType3Orders || !IsType3SpikeActive())
       return;
 
    double liveEma200 = iMA(Symbol(), Period(), InpEMA200Period, InpEMAPriceShift, MODE_EMA, PRICE_CLOSE, 0);
@@ -441,8 +512,12 @@ void PrintThreeTypeTelemetrySummary()
       activeRegime = "[TYPE 2: GRADUAL TREND]";
 
    Print(">>> ================================================================================");
-   PrintFormat(">>> [3-TYPE SYSTEM TELEMETRY] ACTIVE REGIME: %s | 5m StepGap(A/B)=$%.1f/$%.1f",
-               activeRegime, g_spike5mLiveStepGapAbove, g_spike5mLiveStepGapBelow);
+   PrintFormat(">>> [3-TYPE SYSTEM TELEMETRY] ACTIVE REGIME: %s | Enabled: T1=%s T2=%s T3=%s | 5m StepGap(A/B)=$%.1f/$%.1f",
+               activeRegime,
+               (InpEnableType1Orders ? "ON" : "OFF"),
+               (InpEnableType2Orders ? "ON" : "OFF"),
+               (InpEnableType3Orders ? "ON" : "OFF"),
+               g_spike5mLiveStepGapAbove, g_spike5mLiveStepGapBelow);
    PrintFormat(">>> [TYPE 1: OSCILLATION ] Trades: %3d | Net P/L: $%7.2f | Wins: %d | Losses: %d | WinRate: %5.1f%%",
                g_type1ClosedTrades, g_type1ClosedProfit, g_type1WinCount, g_type1LossCount, t1WinRate);
    PrintFormat(">>> [TYPE 2: GRADUAL TRD ] Trades: %3d | Net P/L: $%7.2f | Wins: %d | Losses: %d | WinRate: %5.1f%%",
@@ -457,11 +532,15 @@ void PrintThreeTypeTelemetrySummary()
 //+------------------------------------------------------------------+
 string GetThreeTypeActiveStatusDisplay()
   {
+   string mask = StringFormat("[T1:%s T2:%s T3:%s]",
+                              (InpEnableType1Orders ? "ON" : "OFF"),
+                              (InpEnableType2Orders ? "ON" : "OFF"),
+                              (InpEnableType3Orders ? "ON" : "OFF"));
    if(IsType3SpikeActive())
-      return "[TYPE 3: SPIKE ACTIVE]";
+      return (InpEnableType3Orders ? "[TYPE 3: SPIKE ACTIVE] " : "[TYPE 3: MANAGE ONLY] ") + mask;
    if(IsType2GradualTrendActive())
-      return "[TYPE 2: TREND ACTIVE]";
-   return "[TYPE 1: RANGE OSC]";
+      return (InpEnableType2Orders ? "[TYPE 2: TREND ACTIVE] " : "[TYPE 2: OFF] ") + mask;
+   return (InpEnableType1Orders ? "[TYPE 1: RANGE OSC] " : "[TYPE 1: OFF] ") + mask;
   }
 
 //+------------------------------------------------------------------+
@@ -472,8 +551,8 @@ color GetThreeTypeActiveStatusColor()
    if(IsType3SpikeActive())
       return clrOrangeRed;
    if(IsType2GradualTrendActive())
-      return clrAqua;
-   return clrLime;
+      return (InpEnableType2Orders ? clrAqua : clrSilver);
+   return (InpEnableType1Orders ? clrLime : clrSilver);
   }
 
 //+------------------------------------------------------------------+
