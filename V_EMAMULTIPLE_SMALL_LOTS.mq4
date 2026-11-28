@@ -3,8 +3,8 @@
 //|                  TWO-STAGE PROFIT LADDER | CONTINUOUS RESET      |
 //+------------------------------------------------------------------+
 #property strict
-#property version     "11.34"
-#property description "V-SMALL-1134 | Two-Regime EMA Multiple Small Lots EA"
+#property version     "11.35"
+#property description "V-SMALL-1135 | Two-Regime EMA Multiple Small Lots EA"
 
 //$100 to $170
 //https://github.com/devcrunch2025/exnessStratagiesExperts/commit/32fb1ba20d474fc8d4adb38d2558999b2ac82c56
@@ -45,8 +45,8 @@ CheckBasketProfitClose  Total open basket profit
 
 */
 
-string glbVersion      = "V-SMALL-1134- Type 1 Table A (<=3, >8) & Type 2 Table B (3..8) Profit Ladders";
-string glbVersionShort = "V-SMALL-1134";
+string glbVersion      = "V-SMALL-1135- Type 1 Flat (<=3 deg) 0.5x Order Gap with $40 Safe Floor";
+string glbVersionShort = "V-SMALL-1135";
 
 int AccountMultiplierLOT = 500;//100;//1000;//400;//200;//500; ALWAYS multiples of 1000 is better for best results
 //balance multiplier
@@ -1121,6 +1121,9 @@ double InpPendingGapLossMultiplier         = 2.0;   // Pending gap multiplier on
 // double MinimumSameOrderGapRawSSLLongShort =50;// 50;
  double InpDynamicGapAngleThreshold        = 4.0;   // Dynamic Order Gap: EMA angle boundary (if MathAbs(EMA Angle) < 4.0: Required Gap = Base Gap; if >= 4.0: Base Gap * Drawdown Mult * Sweep Mult)
  bool   InpDisableDDAndSweepGapWhenEmaUnmatched = true; // Dynamic Order Gap: Disable DD Scaling & Sweep Guard when MathAbs(EMA Angle) >= 4.0 and OrderType != EMADirection
+ bool   InpEnableType1FlatGapReduction         = true; // Type 1 Flat (|Angle| <= 3.0): apply 0.5x reduction to Base Gap with $40 safe floor
+ double InpType1FlatGapMultiplier              = 0.5;  // Type 1 Flat (|Angle| <= 3.0): Same-order gap multiplier (0.5x)
+ double InpType1FlatGapMinFloorRaw             = 40.0; // Type 1 Flat (|Angle| <= 3.0): Hard safe minimum gap floor ($40 raw)
  bool   InpEnableSpikeOrderCreation            = true; // Spike Orders: When EMADirection is 1 but angle < 0 create BUY; when -1 and angle > 0 create SELL
  int    InpSpikeOrderCooldownSec               = 5;    // Spike Orders: Cooldown seconds when previous spike order is in PROFIT (default 5s)
  int    InpSpikeOrderLossCooldownSec           = 30;   // Spike Orders: Cooldown seconds when previous spike order is in LOSS (default 30s)
@@ -19148,12 +19151,26 @@ double GetDynamicOrderGapDetails(int orderType, double &rawGapBeforeCap, string 
      }
 
    double resultGap = 0.0;
-   // USER RULE (V-SMALL-1052): Required Gap = Base Gap when EMA angle < 4.
-   //                           Required Gap = Base Gap * Drawdown Multiplier * Sweep Guard Multiplier when EMA angle >= 4.
+   // USER RULE (V-SMALL-1052 & V-SMALL-1135):
+   // - When |Angle| <= 3.0 (Type 1 Flat): 0.5x Base Gap with $40 safe floor (prevents noisy $20-$25 over-stacking).
+   // - When 3.0 < |Angle| < 4.0: Base Gap.
+   // - When |Angle| >= 4.0: Base Gap * Drawdown Multiplier * Sweep Guard Multiplier.
    if(!isAngleSteepForGap)
      {
-      resultGap = baseGap;
-      reasonStr = StringFormat("Base Gap (Angle %.1f < %.1f)", absEmaAng, angleThreshold);
+      if(InpEnableType1FlatGapReduction && absEmaAng <= InpLadderAngleRangeMin && InpType1FlatGapMultiplier > 0.0)
+        {
+         double scaledGap  = baseGap * InpType1FlatGapMultiplier;
+         double flooredGap = (InpType1FlatGapMinFloorRaw > 0.0) ? MathMax(InpType1FlatGapMinFloorRaw, scaledGap) : scaledGap;
+         resultGap = MathMin(baseGap, flooredGap);
+         reasonStr = StringFormat("Type1 Flat %.2fx (Ang %.1f<=%.1f: %.0f->%.0f, Floor %.0f)",
+                                  InpType1FlatGapMultiplier, absEmaAng, InpLadderAngleRangeMin,
+                                  baseGap, resultGap, InpType1FlatGapMinFloorRaw);
+        }
+      else
+        {
+         resultGap = baseGap;
+         reasonStr = StringFormat("Base Gap (Angle %.1f < %.1f)", absEmaAng, angleThreshold);
+        }
      }
    else
      {
