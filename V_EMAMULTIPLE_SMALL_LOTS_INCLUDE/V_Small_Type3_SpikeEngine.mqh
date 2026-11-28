@@ -53,6 +53,8 @@ double   g_spike5mCacheDistAbove       = 0.0;
 double   g_spike5mCacheDistBelow       = 0.0;
 double   g_spike5mCacheDeltaAbove      = 0.0;
 double   g_spike5mCacheDeltaBelow      = 0.0;
+double   g_spikeStartSpeedAbove        = 0.0; // Initial 5m distance speed at Bullish SPIKE_START
+double   g_spikeStartSpeedBelow        = 0.0; // Initial 5m distance speed at Bearish SPIKE_START
 
 //+------------------------------------------------------------------+
 //| ResetSpikeLifecycleState: Reset chart signal & 5m step state     |
@@ -87,6 +89,8 @@ void ResetSpikeLifecycleState()
    g_spike5mCacheDistBelow     = 0.0;
    g_spike5mCacheDeltaAbove    = 0.0;
    g_spike5mCacheDeltaBelow    = 0.0;
+   g_spikeStartSpeedAbove      = 0.0;
+   g_spikeStartSpeedBelow      = 0.0;
   }
 
 //+------------------------------------------------------------------+
@@ -489,8 +493,10 @@ void DrawSpikeLifecycleSignal(string stage, int dir, double price, string detail
         }
       if(!hasOpenSpikes && s_spikeLifecycleState != 0 && stage != "SPIKE_END" && stage != "SPIKE_REV_END")
         {
-         s_spikeLifecycleState = 0;
-         s_lastSpikeSignalDir  = 0;
+         s_spikeLifecycleState  = 0;
+         s_lastSpikeSignalDir   = 0;
+         g_spikeStartSpeedAbove = 0.0;
+         g_spikeStartSpeedBelow = 0.0;
         }
      }
 
@@ -507,6 +513,7 @@ void DrawSpikeLifecycleSignal(string stage, int dir, double price, string detail
       s_spikeLifecycleState = 1; // Mark SPIKE_ACTIVE
       s_lastSpikeSignalDir  = dir;
       s_lastSpikeSignalTime = TimeCurrent();
+      CaptureType3SpikeStartSpeed(dir, (dir >= 0 ? g_spike5mCacheDeltaAbove : g_spike5mCacheDeltaBelow));
 
       datetime lockSince = MathMax(g_buySpikeBlockedSinceEndTime, g_sellSpikeBlockedSinceEndTime);
       if((g_blockBuySpikeUntilNewSpike || g_blockSellSpikeUntilNewSpike) && (TimeCurrent() - lockSince) >= 5)
@@ -536,6 +543,8 @@ void DrawSpikeLifecycleSignal(string stage, int dir, double price, string detail
       g_spike5mPrevStepGapAbove = 0.0;
       g_spike5mPrevStepGapBelow = 0.0;
       g_spike5mCacheTickTime    = 0;
+      g_spikeStartSpeedAbove    = 0.0;
+      g_spikeStartSpeedBelow    = 0.0;
 
       // USER RULE:
       // - Order closing on SPIKE END is DISABLED (InpType3CloseWithTrendOnSpikeEnd = false) -> keep existing orders open!
@@ -595,9 +604,11 @@ void DrawSpikeLifecycleSignal(string stage, int dir, double price, string detail
       if(s_spikeLifecycleState == 0)
          return;
 
-      s_spikeLifecycleState = 0; // Reset to IDLE (full cycle completed!)
-      s_lastSpikeSignalDir  = 0;
-      s_lastSpikeSignalTime = TimeCurrent();
+      s_spikeLifecycleState  = 0; // Reset to IDLE (full cycle completed!)
+      s_lastSpikeSignalDir   = 0;
+      s_lastSpikeSignalTime  = TimeCurrent();
+      g_spikeStartSpeedAbove = 0.0;
+      g_spikeStartSpeedBelow = 0.0;
      }
    else
      {
@@ -806,4 +817,104 @@ int GetEffectiveSpikeOrderCooldownSec(int orderType, double &outPrevPL, datetime
      }
 
    return InpSpikeOrderCooldownSec; // 5s when previous Spike order is in profit (or first Spike order)
+  }
+
+//+------------------------------------------------------------------+
+//| CaptureType3SpikeStartSpeed: Store baseline 5m speed on start    |
+//+------------------------------------------------------------------+
+void CaptureType3SpikeStartSpeed(int dir, double curSpeed, bool overwrite = false)
+  {
+   double baseline = MathMax(InpType3Spike5MinDistanceChange, curSpeed);
+   if(dir >= 0 && (overwrite || g_spikeStartSpeedAbove <= 0.0))
+      g_spikeStartSpeedAbove = baseline;
+   else if(dir < 0 && (overwrite || g_spikeStartSpeedBelow <= 0.0))
+      g_spikeStartSpeedBelow = baseline;
+  }
+
+//+------------------------------------------------------------------+
+//| CalculateType3SpikeLot:                                          |
+//| Option B Progressive Schedule (0.01, 0.02, 0.02, 0.03, 0.03):    |
+//| - Order #1 = 0.01 (Scout)                                        |
+//| - Daily equity target hit today/resumed -> strictly 0.01         |
+//| - EMA WEAK or Counter-EMA direction -> strictly 0.01             |
+//| - Speed dropped below SPIKE Start speed -> strictly 0.01         |
+//| - Previous same-direction Spike order in loss -> strictly 0.01   |
+//+------------------------------------------------------------------+
+double CalculateType3SpikeLot(int orderType, string &outLotReason)
+  {
+   int mult = (balancelomultipler > 0) ? balancelomultipler : 1;
+   bool isBuy = (orderType == OP_BUY || orderType == OP_BUYSTOP || orderType == OP_BUYLIMIT);
+   int reqDir = isBuy ? 1 : -1;
+   int baseOrdType = isBuy ? OP_BUY : OP_SELL;
+
+   // Measure current 5m spike velocity so Order #1 seeds baseline speed & Orders #2..5 verify momentum
+   bool spkBull = false, spkBear = false;
+   double dAbove = 0.0, dBelow = 0.0, deltaAbove = 0.0, deltaBelow = 0.0;
+   Evaluate5MinEmaDistanceStepGap(spkBull, spkBear, dAbove, dBelow, deltaAbove, deltaBelow);
+   double curSpeed = isBuy ? deltaAbove : deltaBelow;
+
+   int activeCount = CountActiveSpikeMarketOrders(baseOrdType);
+   if(activeCount == 0)
+     {
+      CaptureType3SpikeStartSpeed(reqDir, curSpeed, true);
+      double scoutLot = NormalizeLots(InpType3SpikeLotOrder1 * mult);
+      outLotReason = StringFormat("Order #1 Scout (Base=%.2f x%d, StartSpeed=$%.1f)", InpType3SpikeLotOrder1, mult, (isBuy ? g_spikeStartSpeedAbove : g_spikeStartSpeedBelow));
+      return scoutLot;
+     }
+
+   // Safety Rule 1: Daily equity target hit / resumed leg -> strictly safe 0.01
+   if(InpType3CapLotOnDailyTargetHit && (g_dailyEquityTargetHitToday || g_dailyEquityIsResumedLeg))
+     {
+      int safeMult = InpStepTradingMomentumUsesMultiplier ? mult : 1;
+      outLotReason = "DailyTargetHit -> Safe 0.01";
+      return NormalizeLots(0.01 * safeMult);
+     }
+
+   // Safety Rule 2: EMA WEAK or direction mismatch -> strictly 0.01
+   if(IsEmaWEAKDistanceReduced50PercentFromPeak(baseOrdType) || EMADirection != reqDir)
+     {
+      outLotReason = StringFormat("EMA %s/Mismatch (Dir=%d vs Req=%d) -> Strict 0.01",
+                                  (IsEmaWEAKDistanceReduced50PercentFromPeak(baseOrdType) ? "WEAK" : "STRONG"),
+                                  EMADirection, reqDir);
+      return NormalizeLots(0.01 * mult);
+     }
+
+   // Safety Rule 3: Speed comparison vs SPIKE Start speed -> immediate drop to 0.01 on slowdown
+   double startSpeed  = isBuy ? g_spikeStartSpeedAbove : g_spikeStartSpeedBelow;
+   double speedRatio  = (InpType3SpikeLotMinSpeedRatio > 0.0) ? InpType3SpikeLotMinSpeedRatio : 1.0;
+   double minReqSpeed = MathMax(InpType3Spike5MinDistanceChange, startSpeed * speedRatio);
+   if(curSpeed < minReqSpeed)
+     {
+      outLotReason = StringFormat("SpeedDown (Cur=$%.1f < Req=$%.1f [Start=$%.1f]) -> Immediate 0.01", curSpeed, minReqSpeed, startSpeed);
+      return NormalizeLots(0.01 * mult);
+     }
+
+   // Safety Rule 4: Previous Spike order must be in profit (>= $0) to pyramid
+   if(InpType3RequirePrevProfitForScaleUp)
+     {
+      double prevPL = 0.0;
+      datetime lastEvt = 0;
+      bool hasPrev = false;
+      GetEffectiveSpikeOrderCooldownSec(baseOrdType, prevPL, lastEvt, hasPrev);
+      if(hasPrev && prevPL < 0.0)
+        {
+         outLotReason = StringFormat("PrevSpikeLoss ($%.2f < $0) -> Strict 0.01", prevPL);
+         return NormalizeLots(0.01 * mult);
+        }
+     }
+
+   // Confirmed strong acceleration -> Option B progressive lot schedule (0.01, 0.02, 0.02, 0.03, 0.03)
+   double schedule[5];
+   schedule[0] = InpType3SpikeLotOrder1;
+   schedule[1] = InpType3SpikeLotOrder2;
+   schedule[2] = InpType3SpikeLotOrder3;
+   schedule[3] = InpType3SpikeLotOrder4;
+   schedule[4] = InpType3SpikeLotOrder5;
+   int idx = MathMin(activeCount, 4);
+   double targetBase = (schedule[idx] > 0.0) ? schedule[idx] : 0.01;
+   double finalLot   = NormalizeLots(targetBase * mult);
+
+   outLotReason = StringFormat("Order #%d Boosted (Base=%.2f x%d | CurSpeed=$%.1f >= Start=$%.1f | EMA=STRONG)",
+                               activeCount + 1, targetBase, mult, curSpeed, startSpeed);
+   return finalLot;
   }

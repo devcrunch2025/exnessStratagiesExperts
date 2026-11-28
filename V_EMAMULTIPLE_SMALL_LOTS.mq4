@@ -3,8 +3,8 @@
 //|                  TWO-STAGE PROFIT LADDER | CONTINUOUS RESET      |
 //+------------------------------------------------------------------+
 #property strict
-#property version     "11.36"
-#property description "V-SMALL-1136 | Two-Regime EMA Multiple Small Lots EA"
+#property version     "11.37"
+#property description "V-SMALL-1137 | Two-Regime EMA Multiple Small Lots EA"
 
 //$100 to $170
 //https://github.com/devcrunch2025/exnessStratagiesExperts/commit/32fb1ba20d474fc8d4adb38d2558999b2ac82c56
@@ -45,8 +45,8 @@ CheckBasketProfitClose  Total open basket profit
 
 */
 
-string glbVersion      = "V-SMALL-1136- Type 1 Sideway Peak-Stall Collector & Breakout Pending";
-string glbVersionShort = "V-SMALL-1136";
+string glbVersion      = "V-SMALL-1137- Type 3 Progressive Spike Lots (0.01/0.02/0.02/0.03/0.03)";
+string glbVersionShort = "V-SMALL-1137";
 
 int AccountMultiplierLOT = 500;//100;//1000;//400;//200;//500; ALWAYS multiples of 1000 is better for best results
 //balance multiplier
@@ -1139,7 +1139,16 @@ double InpPendingGapLossMultiplier         = 2.0;   // Pending gap multiplier on
  int    InpSpikeOrderCooldownSec               = 5;    // Spike Orders: Cooldown seconds when previous spike order is in PROFIT (default 5s)
  int    InpSpikeOrderLossCooldownSec           = 30;   // Spike Orders: Cooldown seconds when previous spike order is in LOSS (default 30s)
  int    InpMaxSpikePendingOrders               = 1;    // Spike Orders: Max simultaneous pending stop orders (default 1)
- int    InpMaxActiveSpikeOrders                = 2;    // Spike Orders: Max simultaneous active market spike orders per direction (default 2)
+ int    InpMaxActiveSpikeOrders                = 5;    // Spike Orders: Max simultaneous active market spike orders per direction (5 for Option B ladder)
+ bool   InpEnableType3ProgressiveSpikeLots     = true; // Type 3 Lot Schedule (Option B: 0.01, 0.02, 0.02, 0.03, 0.03)
+ double InpType3SpikeLotOrder1                 = 0.01; // Type 3 Order #1 Lot (Scout entry)
+ double InpType3SpikeLotOrder2                 = 0.02; // Type 3 Order #2 Lot (Confirm when Strong EMA & speed >= Start)
+ double InpType3SpikeLotOrder3                 = 0.02; // Type 3 Order #3 Lot (Accelerate when Strong EMA & speed >= Start)
+ double InpType3SpikeLotOrder4                 = 0.03; // Type 3 Order #4 Lot (Sustained spike when Strong EMA & speed >= Start)
+ double InpType3SpikeLotOrder5                 = 0.03; // Type 3 Order #5+ Lot (Max pyramid when Strong EMA & speed >= Start)
+ double InpType3SpikeLotMinSpeedRatio          = 1.00; // Strict speed gate vs SPIKE Start speed (1.0 = any slowdown resets to 0.01)
+ bool   InpType3RequirePrevProfitForScaleUp    = true; // Scale above 0.01 only if previous Spike order is in profit (>= $0)
+ bool   InpType3CapLotOnDailyTargetHit         = true; // Safety cap: lock Spike lots to 0.01 once Daily Equity Target hit today/resumed
  bool   InpSpikeOrderBypassSameTypeGap         = true; // Spike Orders: Bypass wide same-type minimum gap during sudden spike momentum
  double InpSpikeOrderPendingGapUSD             = 50.0;  // Spike Orders: Pending stop entry gap ($0 = open market orders without pending, >0 = pending stop gap)
  double InpSpikeOrderMinGapUSD                 = 50.0;  // Spike Orders: Minimal gap between consecutive spike orders ($50 USD)
@@ -8298,6 +8307,8 @@ void     Evaluate5MinEmaDistanceStepGap(bool &outBullSpike, bool &outBearSpike,
                                         double &outDeltaAbove, double &outDeltaBelow);
 int      CountActiveSpikeMarketOrders(int orderType);
 int      GetEffectiveSpikeOrderCooldownSec(int orderType, double &outPrevPL, datetime &outLastEventTime, bool &outFoundPrev);
+void     CaptureType3SpikeStartSpeed(int dir, double curSpeed, bool overwrite = false);
+double   CalculateType3SpikeLot(int orderType, string &outLotReason);
 datetime GetLastClosedFLIPBasketSupportCloseTime();
 bool     HasOppositeOrderTypeLossOver5(int currentDirection, double &outOppositeTotalPL, double &outMaxSingleLoss);
 void     InitializeFLIPBasketSupportTracking();
@@ -20030,6 +20041,19 @@ void ChangeLots(double OpenPL, string reason, int orderType, int stoplevelStep,s
       double maxAllowedFinalLot = 0.01 * (InpStepTradingMomentumUsesMultiplier ? bMultFinal : 1);
       if(Lots > maxAllowedFinalLot)
          Lots = maxAllowedFinalLot;
+     }
+
+   // USER RULE (V-SMALL-1137): Type 3 Spike Option B Lot Sizing (0.01, 0.02, 0.02, 0.03, 0.03)
+   // Drops strictly to 0.01 immediately when EMA is Weak, speed slows below SPIKE Start, prev Spike in loss, or Daily Target hit.
+   if(MOMorder == "SPIKE_BUY" || MOMorder == "SPIKE_SELL" || StringFind(reason, "SPIKE") >= 0)
+     {
+      if(InpEnableType3ProgressiveSpikeLots)
+        {
+         string spikeLotReason = "";
+         Lots = CalculateType3SpikeLot(orderType, spikeLotReason);
+         PrintFormat(">>> [TYPE 3 SPIKE LOT] Dir=%s | FinalLots=%.2f | %s",
+                     (isBuyOrder ? "BUY" : "SELL"), Lots, spikeLotReason);
+        }
      }
 
    Lots = NormalizeLots(Lots);
