@@ -191,7 +191,8 @@ bool IsOrderAllowedUnderCurrentRegime(int orderType, string comment, int request
       return true;
 
    // REGIME 2: CRISIS / CLIMAX CAPITAL PRESERVATION
-   // 1. Dedicated Rebound, Recovery, and Spike orders are ALWAYS ALLOWED
+   // 1. Dedicated Rebound (M7_), Recovery (RECOVERY_), and FLIP orders are ALWAYS ALLOWED
+   //    (trend-chasing SPIKE entries remain gated at >=$1000 climax extension below)
    if(StringFind(comment, "M7_") == 0)
       return true;
    if(StringFind(comment, "RECOVERY_") == 0)
@@ -205,17 +206,29 @@ bool IsOrderAllowedUnderCurrentRegime(int orderType, string comment, int request
       double liveEma = iMA(Symbol(), Period(), InpEMA200Period, InpEMAPriceShift, MODE_EMA, PRICE_CLOSE, 0);
       if(liveEma > 0.0)
         {
+         datetime nowSec = TimeCurrent();
+         static datetime s_lastRegime2SellBlockLog = 0;
+         static datetime s_lastRegime2BuyBlockLog  = 0;
+
          // If price is deep below EMA (climax dump), DO NOT ALLOW new SELL orders!
          if(Bid < liveEma && requestedDirection == -1)
            {
-            PrintFormat("SAFEORDERSEND BLOCKED [Two-Regime System - REGIME 2]: Low-probability trend SELL '%s' blocked into climax floor! Preserving capital.", comment);
+            if(s_lastRegime2SellBlockLog == 0 || (nowSec - s_lastRegime2SellBlockLog) >= 30 || nowSec < s_lastRegime2SellBlockLog)
+              {
+               s_lastRegime2SellBlockLog = nowSec;
+               PrintFormat("SAFEORDERSEND BLOCKED [Two-Regime System - REGIME 2]: Low-probability trend SELL '%s' blocked into climax floor! Preserving capital.", comment);
+              }
             return false;
            }
 
          // If price is deep above EMA (climax rocket), DO NOT ALLOW new BUY orders!
          if(Ask > liveEma && requestedDirection == 1)
            {
-            PrintFormat("SAFEORDERSEND BLOCKED [Two-Regime System - REGIME 2]: Low-probability trend BUY '%s' blocked into climax ceiling! Preserving capital.", comment);
+            if(s_lastRegime2BuyBlockLog == 0 || (nowSec - s_lastRegime2BuyBlockLog) >= 30 || nowSec < s_lastRegime2BuyBlockLog)
+              {
+               s_lastRegime2BuyBlockLog = nowSec;
+               PrintFormat("SAFEORDERSEND BLOCKED [Two-Regime System - REGIME 2]: Low-probability trend BUY '%s' blocked into climax ceiling! Preserving capital.", comment);
+              }
             return false;
            }
         }

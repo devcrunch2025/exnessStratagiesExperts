@@ -55,6 +55,8 @@ double   g_spike5mCacheDeltaAbove      = 0.0;
 double   g_spike5mCacheDeltaBelow      = 0.0;
 double   g_spikeStartSpeedAbove        = 0.0; // Initial 5m distance speed at Bullish SPIKE_START
 double   g_spikeStartSpeedBelow        = 0.0; // Initial 5m distance speed at Bearish SPIKE_START
+int      g_spikeWaveOrderCountBuy      = 0;   // Cumulative BUY Spike entries in current Bullish wave
+int      g_spikeWaveOrderCountSell     = 0;   // Cumulative SELL Spike entries in current Bearish wave
 
 //+------------------------------------------------------------------+
 //| ResetSpikeLifecycleState: Reset chart signal & 5m step state     |
@@ -91,6 +93,30 @@ void ResetSpikeLifecycleState()
    g_spike5mCacheDeltaBelow    = 0.0;
    g_spikeStartSpeedAbove      = 0.0;
    g_spikeStartSpeedBelow      = 0.0;
+   g_spikeWaveOrderCountBuy    = 0;
+   g_spikeWaveOrderCountSell   = 0;
+  }
+
+//+------------------------------------------------------------------+
+//| ResetType3SpikeWaveCounts: Reset per-wave Spike pyramid counters |
+//+------------------------------------------------------------------+
+void ResetType3SpikeWaveCounts(int dir = 0)
+  {
+   if(dir >= 0)
+      g_spikeWaveOrderCountBuy  = 0;
+   if(dir <= 0)
+      g_spikeWaveOrderCountSell = 0;
+  }
+
+//+------------------------------------------------------------------+
+//| RecordType3SpikeWaveOrderCreated: Advance active Spike wave step |
+//+------------------------------------------------------------------+
+void RecordType3SpikeWaveOrderCreated(int dir)
+  {
+   if(dir >= 0)
+      g_spikeWaveOrderCountBuy++;
+   else
+      g_spikeWaveOrderCountSell++;
   }
 
 //+------------------------------------------------------------------+
@@ -372,6 +398,41 @@ bool ShouldExcludeType3OrderFromStandardExit(int ticket, string comment = "")
   }
 
 //+------------------------------------------------------------------+
+//| ShouldShieldSpikeOrderFromExit:                                  |
+//| Protects open SPIKE orders from premature Method 6/4 "same-type  |
+//| loser" closes, opposite signal closes, and <120s HLine chokes    |
+//| while keeping #1090 exits working cleanly once mature / ended.   |
+//+------------------------------------------------------------------+
+bool ShouldShieldSpikeOrderFromExit(int ticket, string comment = "", bool checkActiveWave = true)
+  {
+   if(!InpShieldActiveSpikeFromComboClose)
+      return false;
+
+   string cmt = comment;
+   datetime openTime = 0;
+   if(ticket > 0)
+     {
+      if(OrderTicket() == ticket || OrderSelect(ticket, SELECT_BY_TICKET, MODE_TRADES))
+        {
+         if(cmt == "")
+            cmt = OrderComment();
+         openTime = OrderOpenTime();
+        }
+     }
+   if(StringFind(cmt, "SPIKE") < 0)
+      return false;
+
+   if(checkActiveWave && s_spikeLifecycleState == 1)
+      return true;
+
+   int shieldSec = (InpSpikeComboCloseShieldSec > 0) ? InpSpikeComboCloseShieldSec : 120;
+   if(openTime > 0 && (TimeCurrent() - openTime) < shieldSec)
+      return true;
+
+   return false;
+  }
+
+//+------------------------------------------------------------------+
 //| GetOrderTypeCategoryForCreation: Map comment/regime to Type 1/2/3|
 //+------------------------------------------------------------------+
 int GetOrderTypeCategoryForCreation(string comment = "")
@@ -613,9 +674,6 @@ color GetThreeTypeActiveStatusColor()
 //+------------------------------------------------------------------+
 void DrawSpikeLifecycleSignal(string stage, int dir, double price, string details = "")
   {
-   if(!InpEnableSpikeLifecycleVisuals)
-      return;
-
    // -------------------------------------------------------------
    // 1. AUTO-RESET TO IDLE WHEN PRICE RETURNS TO 200 EMA
    // -------------------------------------------------------------
@@ -640,6 +698,7 @@ void DrawSpikeLifecycleSignal(string stage, int dir, double price, string detail
          s_lastSpikeSignalDir   = 0;
          g_spikeStartSpeedAbove = 0.0;
          g_spikeStartSpeedBelow = 0.0;
+         ResetType3SpikeWaveCounts(0);
         }
      }
 
@@ -688,6 +747,7 @@ void DrawSpikeLifecycleSignal(string stage, int dir, double price, string detail
       g_spike5mCacheTickTime    = 0;
       g_spikeStartSpeedAbove    = 0.0;
       g_spikeStartSpeedBelow    = 0.0;
+      ResetType3SpikeWaveCounts(0);
 
       // USER RULE:
       // - Order closing on SPIKE END is DISABLED (InpType3CloseWithTrendOnSpikeEnd = false) -> keep existing orders open!
@@ -752,11 +812,15 @@ void DrawSpikeLifecycleSignal(string stage, int dir, double price, string detail
       s_lastSpikeSignalTime  = TimeCurrent();
       g_spikeStartSpeedAbove = 0.0;
       g_spikeStartSpeedBelow = 0.0;
+      ResetType3SpikeWaveCounts(0);
      }
    else
      {
       return;
      }
+
+   if(!InpEnableSpikeLifecycleVisuals)
+      return;
 
    static int s_spikeObjSeq = 0;
    s_spikeObjSeq++;
@@ -1036,7 +1100,14 @@ double CalculateType3SpikeLot(int orderType, string &outLotReason)
    double curSpeed = isBuy ? deltaAbove : deltaBelow;
 
    int activeCount = CountActiveSpikeMarketOrders(baseOrdType);
-   if(activeCount == 0)
+   bool sameWaveActive = (s_spikeLifecycleState == 1 && s_lastSpikeSignalDir == reqDir);
+   if(activeCount == 0 && !sameWaveActive)
+      ResetType3SpikeWaveCounts(reqDir);
+
+   int waveCount = isBuy ? g_spikeWaveOrderCountBuy : g_spikeWaveOrderCountSell;
+   int stepCount = MathMax(activeCount, waveCount);
+
+   if(stepCount == 0)
      {
       CaptureType3SpikeStartSpeed(reqDir, curSpeed, true);
       double scoutLot = NormalizeLots(InpType3SpikeLotOrder1 * mult);
@@ -1063,6 +1134,11 @@ double CalculateType3SpikeLot(int orderType, string &outLotReason)
 
    // Safety Rule 3: Speed comparison vs SPIKE Start speed -> immediate drop to 0.01 on slowdown
    double startSpeed  = isBuy ? g_spikeStartSpeedAbove : g_spikeStartSpeedBelow;
+   if(startSpeed <= 0.0)
+     {
+      CaptureType3SpikeStartSpeed(reqDir, curSpeed, true);
+      startSpeed = isBuy ? g_spikeStartSpeedAbove : g_spikeStartSpeedBelow;
+     }
    double speedRatio  = (InpType3SpikeLotMinSpeedRatio > 0.0) ? InpType3SpikeLotMinSpeedRatio : 1.0;
    double minReqSpeed = MathMax(InpType3Spike5MinDistanceChange, startSpeed * speedRatio);
    if(curSpeed < minReqSpeed)
@@ -1085,7 +1161,7 @@ double CalculateType3SpikeLot(int orderType, string &outLotReason)
         }
      }
 
-   // Confirmed strong acceleration -> Option B progressive lot schedule (0.01, 0.02, 0.02, 0.03, 0.03)
+   // Confirmed strong acceleration -> progressive wave lot schedule (0.01, 0.02, 0.03, 0.04, 0.04 x mult)
    // House-Money Boost when speed >= InpType3BoostSpeedMultiplier * Start & open bucket PL >= InpType3BoostMinBucketProfitUSD * mult
    double schedule[5];
    schedule[0] = InpType3SpikeLotOrder1;
@@ -1093,7 +1169,7 @@ double CalculateType3SpikeLot(int orderType, string &outLotReason)
    schedule[2] = InpType3SpikeLotOrder3;
    schedule[3] = InpType3SpikeLotOrder4;
    schedule[4] = InpType3SpikeLotOrder5;
-   int idx = MathMin(activeCount, 4);
+   int idx = MathMin(stepCount, 4);
    double targetBase = (schedule[idx] > 0.0) ? schedule[idx] : 0.01;
    bool houseMoneyBoostApplied = false;
    double bucketPL = GetActiveSpikeDirectionNetPL(baseOrdType);
@@ -1103,12 +1179,12 @@ double CalculateType3SpikeLot(int orderType, string &outLotReason)
       if(bucketPL >= (InpType3BoostMinBucketProfitUSD * mult))
         {
          double maxBoostCap = (InpType3SpikeLotMaxBoostCap > 0.0) ? InpType3SpikeLotMaxBoostCap : 0.04;
-         if(activeCount == 2 && InpType3SpikeLotOrder4 > targetBase)
+         if(stepCount == 1 && InpType3SpikeLotOrder3 > targetBase)
            {
-            targetBase = MathMin(InpType3SpikeLotOrder4, maxBoostCap);
+            targetBase = MathMin(InpType3SpikeLotOrder3, maxBoostCap);
             houseMoneyBoostApplied = true;
            }
-         else if(activeCount >= 4 && maxBoostCap > targetBase)
+         else if(stepCount >= 2 && maxBoostCap > targetBase)
            {
             targetBase = maxBoostCap;
             houseMoneyBoostApplied = true;
@@ -1118,8 +1194,8 @@ double CalculateType3SpikeLot(int orderType, string &outLotReason)
 
    double finalLot = NormalizeLots(targetBase * mult);
 
-   outLotReason = StringFormat("Order #%d %s (Base=%.2f x%d | CurSpeed=$%.1f vs Start=$%.1f | BucketPL=$%.2f | EMA=STRONG)",
-                               activeCount + 1, (houseMoneyBoostApplied ? "HouseMoneyBoost" : "Boosted"),
+   outLotReason = StringFormat("Wave #%d (Open=%d) %s (Base=%.2f x%d | CurSpeed=$%.1f vs Start=$%.1f | BucketPL=$%.2f | EMA=STRONG)",
+                               stepCount + 1, activeCount, (houseMoneyBoostApplied ? "HouseMoneyBoost" : "Boosted"),
                                targetBase, mult, curSpeed, startSpeed, bucketPL);
    return finalLot;
   }

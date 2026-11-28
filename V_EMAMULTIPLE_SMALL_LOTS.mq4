@@ -3,8 +3,8 @@
 //|                  TWO-STAGE PROFIT LADDER | CONTINUOUS RESET      |
 //+------------------------------------------------------------------+
 #property strict
-#property version     "11.44"
-#property description "V-SMALL-1144 | Two-Regime EMA Multiple Small Lots EA"
+#property version     "11.45"
+#property description "V-SMALL-1145 | Two-Regime EMA Multiple Small Lots EA"
 
 //$100 to $170
 //https://github.com/devcrunch2025/exnessStratagiesExperts/commit/32fb1ba20d474fc8d4adb38d2558999b2ac82c56
@@ -45,8 +45,8 @@ CheckBasketProfitClose  Total open basket profit
 
 */
 
-string glbVersion      = "V-SMALL-1144- Disable Recover LSD Orders (Structural & Horizontal Line)";
-string glbVersionShort = "V-SMALL-1144";
+string glbVersion      = "V-SMALL-1145- Spike Lot Scaling, Method 4/6 Combo Shield, Wave Tracking & Regime 2 Pre-Gate";
+string glbVersionShort = "V-SMALL-1145";
 
 int AccountMultiplierLOT = 500;//100;//1000;//400;//200;//500; ALWAYS multiples of 1000 is better for best results
 //balance multiplier
@@ -1145,21 +1145,23 @@ double InpPendingGapLossMultiplier         = 2.0;   // Pending gap multiplier on
  int    InpSpikeOrderLossCooldownSec           = 30;   // Spike Orders: Cooldown seconds when previous spike order is in LOSS (default 30s)
  int    InpMaxSpikePendingOrders               = 1;    // Spike Orders: Max simultaneous pending stop orders (default 1)
  int    InpMaxActiveSpikeOrders                = 5;    // Spike Orders: Max simultaneous active market spike orders per direction (5 for Option B ladder)
- bool   InpEnableType3ProgressiveSpikeLots     = true; // Type 3 Lot Schedule (Option B: 0.01, 0.02, 0.02, 0.03, 0.03)
+ bool   InpEnableType3ProgressiveSpikeLots     = true; // Type 3 Lot Schedule (0.01, 0.02, 0.03, 0.04, 0.04 x mult)
  double InpType3SpikeLotOrder1                 = 0.01; // Type 3 Order #1 Lot (Scout entry)
  double InpType3SpikeLotOrder2                 = 0.02; // Type 3 Order #2 Lot (Confirm when Strong EMA & speed >= Start)
- double InpType3SpikeLotOrder3                 = 0.02; // Type 3 Order #3 Lot (Accelerate when Strong EMA & speed >= Start)
- double InpType3SpikeLotOrder4                 = 0.03; // Type 3 Order #4 Lot (Sustained spike when Strong EMA & speed >= Start)
- double InpType3SpikeLotOrder5                 = 0.03; // Type 3 Order #5+ Lot (Max pyramid when Strong EMA & speed >= Start)
+ double InpType3SpikeLotOrder3                 = 0.03; // Type 3 Order #3 Lot (Accelerate when Strong EMA & speed >= Start)
+ double InpType3SpikeLotOrder4                 = 0.04; // Type 3 Order #4 Lot (Sustained spike when Strong EMA & speed >= Start)
+ double InpType3SpikeLotOrder5                 = 0.04; // Type 3 Order #5+ Lot (Max pyramid when Strong EMA & speed >= Start)
  double InpType3SpikeLotMinSpeedRatio          = 1.00; // Strict speed gate vs SPIKE Start speed (1.0 = any slowdown resets to 0.01)
- bool   InpEnableType3HouseMoneyBoost          = true; // Momentum Boost: Step #3->0.03 & #5->0.04 when speed >= 1.25x Start & bucket PL >= $2*mult
+ bool   InpEnableType3HouseMoneyBoost          = true; // Momentum Boost: Early step-up to 0.03/0.04 when speed >= 1.25x Start & bucket PL >= $2*mult
  double InpType3BoostSpeedMultiplier           = 1.25; // Required speed / Start speed ratio (1.25x) to unlock House-Money boost
  double InpType3BoostMinBucketProfitUSD        = 2.0;  // Min active Spike bucket profit ($2 * mult) before unlocking House-Money boost
- double InpType3SpikeLotMaxBoostCap            = 0.04; // Hard max lot cap (pre-multiplier) on #5 during House-Money boost
+ double InpType3SpikeLotMaxBoostCap            = 0.04; // Hard max lot cap (pre-multiplier) during House-Money boost
  bool   InpType3RequirePrevProfitForScaleUp    = true; // Scale above 0.01 only if previous Spike order is in profit (>= $0)
  bool   InpType3CapLotOnDailyTargetHit         = false;// Decoupled from $2-$4 daily scalp target so confirmed Type 3 acceleration scales freely
  bool   InpProtectProfitableSpikeOnRetraceStop = true; // Shield profitable Type 3 buckets (SPIKE/M7/T3) from normal Daily Equity Retrace Stop close
  bool   InpIsolateSpikeFromStandardExits       = false;// false = Restore #1090 Method 1/4/6, HLine $0.50 SL, Common Ladder & Daily SL lock on SPIKE (M7_ stays isolated)
+ bool   InpShieldActiveSpikeFromComboClose     = true; // Shield open SPIKE orders from Method 6/4 & premature standard closes during active wave or <120s age
+ int    InpSpikeComboCloseShieldSec            = 120;  // Minimum SPIKE order age (sec) before Method 6/4 or HLine $0.50 SL may exit it
  bool   InpSpikeOrderBypassSameTypeGap         = true; // Spike Orders: Bypass wide same-type minimum gap during sudden spike momentum
  double InpSpikeOrderPendingGapUSD             = 50.0;  // Spike Orders: Pending stop entry gap ($0 = open market orders without pending, >0 = pending stop gap)
  double InpSpikeOrderMinGapUSD                 = 50.0;  // Spike Orders: Minimal gap between consecutive spike orders ($50 USD)
@@ -8320,6 +8322,7 @@ void     ManageType2ProfitBooking();
 void     RecordType2ClosedOrder(int ticket, double netPL);
 bool     IsType3ManagedOrder(int ticket, string comment = "");
 bool     ShouldExcludeType3OrderFromStandardExit(int ticket, string comment = "");
+bool     ShouldShieldSpikeOrderFromExit(int ticket, string comment = "", bool checkActiveWave = true);
 bool     IsType3SpikeActive(bool includeOpenOrders = true);
 int      GetOrderTypeCategoryForCreation(string comment = "");
 bool     IsOrderTypeEnabledByConfig(int typeNum);
@@ -8339,6 +8342,7 @@ void     Evaluate5MinEmaDistanceStepGap(bool &outBullSpike, bool &outBearSpike,
 int      CountActiveSpikeMarketOrders(int orderType);
 int      GetEffectiveSpikeOrderCooldownSec(int orderType, double &outPrevPL, datetime &outLastEventTime, bool &outFoundPrev);
 void     CaptureType3SpikeStartSpeed(int dir, double curSpeed, bool overwrite = false);
+void     RecordType3SpikeWaveOrderCreated(int dir);
 double   CalculateType3SpikeLot(int orderType, string &outLotReason);
 datetime GetLastClosedFLIPBasketSupportCloseTime();
 bool     HasOppositeOrderTypeLossOver5(int currentDirection, double &outOppositeTotalPL, double &outMaxSingleLoss);
@@ -22483,6 +22487,7 @@ double GetSSLLongShortPendingGapRaw(int orderType, bool logMessage = false)
 void OpenBuy(string MOMorder="")
   {
    bool isSpikeOrder = (MOMorder == "SPIKE_BUY");
+   string buyComment = isSpikeOrder ? "SSL Long SPIKE" : ((MOMorder == "MOM_BUY" || isMOMOrder) ? "SSL Long MOM" : "SSL Long");
    if(!IsOrderCreationAllowedByTypeSwitches((isSpikeOrder ? "SPIKE" : MOMorder), true))
       return;
    if(isSpikeOrder && g_blockBuySpikeUntilNewSpike)
@@ -22490,6 +22495,12 @@ void OpenBuy(string MOMorder="")
       Print(">>> [SPIKE BUY BLOCKED] OpenBuy('SPIKE_BUY') blocked by Bullish EMA SPIKE END lock until new spike signal starts!");
       return;
      }
+
+   bool isSpikeMarketOrder = (isSpikeOrder && (InpFastSpikeMarketOrder || InpSpikeOrderPendingGapUSD <= 0.0));
+   // Pre-gate under Two-Regime System BEFORE gap checks, counter resets, ChangeLots(), and lot logging
+   if(InpEnableTwoRegimeSystem &&
+      !IsOrderAllowedUnderCurrentRegime((isSpikeOrder ? (isSpikeMarketOrder ? OP_BUY : OP_BUYSTOP) : OP_BUY), buyComment, 1))
+      return;
 
    if(!isSpikeOrder)
      {
@@ -22505,7 +22516,6 @@ void OpenBuy(string MOMorder="")
         }
      }
    RefreshRates();
-   bool isSpikeMarketOrder = (isSpikeOrder && (InpFastSpikeMarketOrder || InpSpikeOrderPendingGapUSD <= 0.0));
    double pendingGap = isSpikeOrder ? InpSpikeOrderPendingGapUSD : GetSSLLongShortPendingGapRaw(OP_BUY, true);
    double minStopDist = GetRequiredStopDistance();
    double entryPrice = Ask;
@@ -22543,16 +22553,14 @@ void OpenBuy(string MOMorder="")
    if(DeleteOppositePendingOnSignal)
       DeleteOppositePendingOrders(OP_BUY);
 
-   string buyComment = isSpikeOrder ? "SSL Long SPIKE" : ((MOMorder == "MOM_BUY" || isMOMOrder) ? "SSL Long MOM" : "SSL Long");
-   
-  
-   
    int ticket = 0;
    if(isSpikeMarketOrder)
      {
       ticket = SafeOrderSend(Symbol(), OP_BUY, Lots, Ask, Slippage, stopLoss, takeProfit, buyComment, MagicNumber, BuyColor);
       if(ticket > 0)
         {
+         if(isSpikeOrder)
+            RecordType3SpikeWaveOrderCreated(1);
          OrderCreatedThisCandle = true;
          LastOrderCandleTime = Time[0];
          Print(buyComment, " MARKET ORDER CREATED: BUY Ticket #", ticket, " Lots=", DoubleToString(Lots, 2),
@@ -22565,6 +22573,8 @@ void OpenBuy(string MOMorder="")
       ticket = SafeOrderSend(Symbol(), OP_BUYSTOP, Lots, entryPrice, Slippage, stopLoss, takeProfit, buyComment, MagicNumber, BuyColor);
       if(ticket > 0)
         {
+         if(isSpikeOrder)
+            RecordType3SpikeWaveOrderCreated(1);
          OrderCreatedThisCandle = true;
          LastOrderCandleTime = Time[0];
          Print(buyComment, " PENDING ORDER CREATED: BUY STOP Ticket #", ticket, " Lots=", DoubleToString(Lots, 2),
@@ -22603,6 +22613,7 @@ double NormalizeLots(double lots)
 void OpenSell(string MOMorder="")
   {
    bool isSpikeOrder = (MOMorder == "SPIKE_SELL");
+   string sellComment = isSpikeOrder ? "SSL Short SPIKE" : ((MOMorder == "MOM_SELL" || isMOMOrder) ? "SSL Short MOM" : "SSL Short");
    if(!IsOrderCreationAllowedByTypeSwitches((isSpikeOrder ? "SPIKE" : MOMorder), true))
       return;
    if(isSpikeOrder && g_blockSellSpikeUntilNewSpike)
@@ -22610,6 +22621,12 @@ void OpenSell(string MOMorder="")
       Print(">>> [SPIKE SELL BLOCKED] OpenSell('SPIKE_SELL') blocked by Bearish EMA SPIKE END lock until new spike signal starts!");
       return;
      }
+
+   bool isSpikeMarketOrder = (isSpikeOrder && (InpFastSpikeMarketOrder || InpSpikeOrderPendingGapUSD <= 0.0));
+   // Pre-gate under Two-Regime System BEFORE gap checks, counter resets, ChangeLots(), and lot logging
+   if(InpEnableTwoRegimeSystem &&
+      !IsOrderAllowedUnderCurrentRegime((isSpikeOrder ? (isSpikeMarketOrder ? OP_SELL : OP_SELLSTOP) : OP_SELL), sellComment, -1))
+      return;
 
    if(!isSpikeOrder)
      {
@@ -22625,7 +22642,6 @@ void OpenSell(string MOMorder="")
         }
      }
    RefreshRates();
-   bool isSpikeMarketOrder = (isSpikeOrder && (InpFastSpikeMarketOrder || InpSpikeOrderPendingGapUSD <= 0.0));
    double pendingGap = isSpikeOrder ? InpSpikeOrderPendingGapUSD : GetSSLLongShortPendingGapRaw(OP_SELL, true);
    double minStopDist = GetRequiredStopDistance();
    double entryPrice = Bid;
@@ -22663,13 +22679,14 @@ void OpenSell(string MOMorder="")
    if(DeleteOppositePendingOnSignal)
       DeleteOppositePendingOrders(OP_SELL);
 
-   string sellComment = isSpikeOrder ? "SSL Short SPIKE" : ((MOMorder == "MOM_SELL" || isMOMOrder) ? "SSL Short MOM" : "SSL Short");
    int ticket = 0;
    if(isSpikeMarketOrder)
      {
       ticket = SafeOrderSend(Symbol(), OP_SELL, Lots, Bid, Slippage, stopLoss, takeProfit, sellComment, MagicNumber, SellColor);
       if(ticket > 0)
         {
+         if(isSpikeOrder)
+            RecordType3SpikeWaveOrderCreated(-1);
          OrderCreatedThisCandle = true;
          LastOrderCandleTime = Time[0];
          Print(sellComment, " MARKET ORDER CREATED: SELL Ticket #", ticket, " Lots=", DoubleToString(Lots, 2),
@@ -22682,6 +22699,8 @@ void OpenSell(string MOMorder="")
       ticket = SafeOrderSend(Symbol(), OP_SELLSTOP, Lots, entryPrice, Slippage, stopLoss, takeProfit, sellComment, MagicNumber, SellColor);
       if(ticket > 0)
         {
+         if(isSpikeOrder)
+            RecordType3SpikeWaveOrderCreated(-1);
          OrderCreatedThisCandle = true;
          LastOrderCandleTime = Time[0];
          Print(sellComment, " PENDING ORDER CREATED: SELL STOP Ticket #", ticket, " Lots=", DoubleToString(Lots, 2),
