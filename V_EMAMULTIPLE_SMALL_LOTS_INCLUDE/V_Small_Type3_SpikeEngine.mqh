@@ -383,11 +383,9 @@ void ProcessType3SpikeExecution()
 //+------------------------------------------------------------------+
 void ManageType3ProfitBooking()
   {
-   // 1. Manage Two-Way Waterfall Trailing Stops & Rebound EMA-touch profit closes
+   // Manage Two-Way Waterfall Trailing Stops & Rebound EMA-touch profit closes.
+   // Note: ManageSpikeProfitLadder() runs once per tick at top of OnTick() so spike bucket peaks also reset when 0 orders remain.
    ManageTwoWayReboundAndWaterfallOrders();
-
-   // 2. Manage Spike $50 Minimum Profit Ladder with Climax Speed-Breaker Take-Profit
-   ManageSpikeProfitLadder();
   }
 
 //+------------------------------------------------------------------+

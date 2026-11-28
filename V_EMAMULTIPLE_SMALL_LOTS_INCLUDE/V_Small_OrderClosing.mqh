@@ -2051,12 +2051,22 @@ double GetEmaAngleBreakevenBreathingSL(int orderType, double openPrice, double p
 //|   - Under STRONG EMA: locks +(ladderLevel - 2)*stepPriceGap + 25 |
 //|   - Under WEAK EMA:   locks +(ladderLevel - 1)*stepPriceGap + 25 |
 //+------------------------------------------------------------------+
-//| CalculateProportionalLadderSL:                                   |
-//| USER RULE (VMULTI-1222): Universal Common Logic for ALL Lots:    |
-//| - EMA Angle < 4:  order moves $100 -> SL to $25 (locks +$25)     |
-//|   Next every $50 move -> SL moves extra $50 ($75, $125, $175...) |
-//| - EMA Angle >= 4: order moves $125 -> SL to $25 (locks +$25)     |
-//|   Next every $50 move -> SL moves extra $50 ($75, $125, $175...) |
+//| IsLadderType2AngleRange: Shared angle check for Type 2 vs Type 1 |
+//| - TYPE 2 (Table B): 3.0 < |EMA Angle| <= 8.0                     |
+//| - TYPE 1 (Table A): |EMA Angle| <= 3.0 OR |EMA Angle| > 8.0      |
+//+------------------------------------------------------------------+
+bool IsLadderType2AngleRange(double absAngle)
+  {
+   return (absAngle > InpLadderAngleRangeMin && absAngle <= InpLadderAngleRangeMax);
+  }
+
+//+------------------------------------------------------------------+
+//| CalculateProportionalLadderSLWithLevel:                          |
+//| USER RULE (V-SMALL-1134): Type 1 (Table A) vs Type 2 (Table B):  |
+//| - TYPE 1 Table A (|Angle| <= 3.0 or > 8.0):                      |
+//|     Level 1 -> $100 (SL +$25), next every $50 -> +$50 SL         |
+//| - TYPE 2 Table B (3.0 < |Angle| <= 8.0):                         |
+//|     Level 1 -> $200 (SL +$25), next every $150 -> +$150 SL       |
 //+------------------------------------------------------------------+
 double CalculateProportionalLadderSLWithLevel(int orderType, double openPrice, double orderLots, int &outLadderLevel)
   {
@@ -2072,26 +2082,20 @@ double CalculateProportionalLadderSLWithLevel(int orderType, double openPrice, d
    double curAngle = (GlobalEmaAngle30 != 0.0) ? GlobalEmaAngle30 : GetEmaAngleDegrees(30);
    double absAngle = MathAbs(curAngle);
 
-// User Rule: When EMA angle between 3 to 8: Level 1 -> $200, Level 2 -> $350, Level 3 -> $500, every step +150
-   bool isAngle3to8 = (absAngle >= InpLadderAngleRangeMin && absAngle <= InpLadderAngleRangeMax);
+   bool isType2TableB = IsLadderType2AngleRange(absAngle);
 
+   // Default: TYPE 1 Table A (|Angle| <= 3.0 or > 8.0)
    double level1TriggerMove = 100.0;
    double stepPriceGap      = InpLadderStepIncrementRaw; // 50.0
    double baseLockSL        = InpLadderStepExtraSLRaw;   // 25.0
 
-   if(isAngle3to8)
+   if(isType2TableB)
      {
+      // TYPE 2 Table B (3.0 < |Angle| <= 8.0)
       level1TriggerMove = InpLadderAngleRangeLevel1MoveRaw;       // 200.0
       stepPriceGap      = InpLadderAngleRangeStepIncrementRaw;    // 150.0
       baseLockSL        = InpLadderStepExtraSLRaw;                // 25.0
      }
-   else
-      if(absAngle >= InpLadderSteepAngleThreshold) // Angle >= 4.0 fallback if outside 3 to 8
-        {
-         level1TriggerMove = 100.0 + InpLadderStepExtraMoveRaw;      // 125.0
-         stepPriceGap      = InpLadderStepIncrementRaw;              // 50.0
-         baseLockSL        = InpLadderStepExtraSLRaw;                // 25.0
-        }
 
 // Calculate maximum distance price has traveled into profit beyond broker buffer
    double maxLockableDistance = 0.0;
@@ -2208,9 +2212,9 @@ void SecureOneDollarProfit()
             if(currentSL == 0.0 || MathAbs(actualSL - currentSL) >= Point * 0.5)
               {
                double curAngLog = (GlobalEmaAngle30 != 0.0) ? GlobalEmaAngle30 : GetEmaAngleDegrees(30);
-               string angModeStr = (MathAbs(curAngLog) >= InpLadderAngleRangeMin && MathAbs(curAngLog) <= InpLadderAngleRangeMax) ?
-                                   StringFormat(" [EMA Ang:%.1f° (3-8 Range: L1=$200, Step=$150)]", curAngLog) :
-                                   StringFormat(" [EMA Ang:%.1f°]", curAngLog);
+               string angModeStr = IsLadderType2AngleRange(MathAbs(curAngLog)) ?
+                                   StringFormat(" [TYPE 2 Table B | Ang:%.1f deg (3<|Ang|<=8: L1=$200, Step=$150)]", curAngLog) :
+                                   StringFormat(" [TYPE 1 Table A | Ang:%.1f deg (L1=$100, Step=$50)]", curAngLog);
 
                Print("Secured Common Profit Ladder | Level=", ladderLevel,
                      " | Ticket=", ticket,

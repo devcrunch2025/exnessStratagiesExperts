@@ -3,8 +3,8 @@
 //|                  TWO-STAGE PROFIT LADDER | CONTINUOUS RESET      |
 //+------------------------------------------------------------------+
 #property strict
-#property version     "11.33"
-#property description "V-SMALL-1133 | Two-Regime EMA Multiple Small Lots EA"
+#property version     "11.34"
+#property description "V-SMALL-1134 | Two-Regime EMA Multiple Small Lots EA"
 
 //$100 to $170
 //https://github.com/devcrunch2025/exnessStratagiesExperts/commit/32fb1ba20d474fc8d4adb38d2558999b2ac82c56
@@ -45,8 +45,8 @@ CheckBasketProfitClose  Total open basket profit
 
 */
 
-string glbVersion      = "V-SMALL-1133- Dynamic Spike Cooldown (5s Profit / 30s Loss)";
-string glbVersionShort = "V-SMALL-1133";
+string glbVersion      = "V-SMALL-1134- Type 1 Table A (<=3, >8) & Type 2 Table B (3..8) Profit Ladders";
+string glbVersionShort = "V-SMALL-1134";
 
 int AccountMultiplierLOT = 500;//100;//1000;//400;//200;//500; ALWAYS multiples of 1000 is better for best results
 //balance multiplier
@@ -107,16 +107,16 @@ double TargetProfitPerFlipUSD =1000;//50;//;//percentage////1000;//20;//10;//10*
 double protectgapOnOrderclose=31;//30;//101;//1000;//303;//11111111111111
 
 
-//Chance 1 - Universal Common Profit Ladder (ALL Lots)
+//Chance 1 - Universal Common Profit Ladder (ALL Lots: Type 1 Table A vs Type 2 Table B)
 double SecureOneDollarProfitPerOrder         = 5;    // 1X set modify order at profit $1(any lot)
-double InpLadderStepExtraMoveRaw             = 25.0; // Extra raw BTC price move added to ladder thresholds when angle >= 4 ($100 -> $125)
+double InpLadderStepExtraMoveRaw             = 25.0; // [Legacy Unused] Former extra move for angle >= 4 (now Type 1 uses Table A $100 for <=3 or >8)
 double InpLadderStepExtraSLRaw               = 25.0; // Initial raw BTC price locked on Level 1 SL (openPrice +/- 25)
-double InpLadderStepIncrementRaw             = 50.0; // Next every step move and SL lock increment ($50 raw price gap)
-double InpLadderSteepAngleThreshold          = 4.0;  // Minimum MathAbs(GlobalEmaAngle30) for steep trend ($125 trigger move)
-double InpLadderAngleRangeMin                = 3.0;  // Minimum EMA angle for breathing ladder mode (User Rule: angle 3 to 8)
-double InpLadderAngleRangeMax                = 8.0;  // Maximum EMA angle for breathing ladder mode (User Rule: angle 3 to 8)
-double InpLadderAngleRangeLevel1MoveRaw      = 200.0;// Level 1 trigger move ($200 raw) when EMA angle between 3 to 8
-double InpLadderAngleRangeStepIncrementRaw   = 150.0;// Step move and SL increment ($150 raw) when EMA angle between 3 to 8 (L2: $350, L3: $500...)
+double InpLadderStepIncrementRaw             = 50.0; // Type 1 Table A: Step move and SL lock increment ($50 raw price gap)
+double InpLadderSteepAngleThreshold          = 4.0;  // [Legacy Unused] Former steep threshold (replaced by Type 1 Table A vs Type 2 Table B)
+double InpLadderAngleRangeMin                = 3.0;  // Type 2 Table B min angle: 3.0 < |Angle| <= 8.0 uses Table B; <=3.0 or >8.0 uses Type 1 Table A
+double InpLadderAngleRangeMax                = 8.0;  // Type 2 Table B max angle (inclusive): 3.0 < |Angle| <= 8.0 uses Table B
+double InpLadderAngleRangeLevel1MoveRaw      = 200.0;// Type 2 Table B: Level 1 trigger move ($200 raw) when 3.0 < |Angle| <= 8.0
+double InpLadderAngleRangeStepIncrementRaw   = 150.0;// Type 2 Table B: Step move and SL increment ($150 raw: L2 $350->+$175, L3 $500->+$325...)
 bool   InpEnableSteepAngleLadderHalfClose    = true; // Half-close order (>0.01L) after every ladder SL modify from Level 1+ (any EMA angle)
 int    InpSteepAngleLadderHalfCloseStartLevel = 1;   // Starting ladder level for half-close (1 = Level 1+)
 
@@ -8292,6 +8292,7 @@ double   GetHighestPriceSinceEmaFlip();
 double   GetLowestPriceSinceEmaFlip();
 double   GetHighestEmaDistanceSinceEmaFlip();
 double   GetLowestEmaDistanceSinceEmaFlip();
+bool     IsLadderType2AngleRange(double absAngle);
 double   CalculateProportionalLadderSL(int orderType, double openPrice, double orderLots);
 double   CalculateProportionalLadderSLWithLevel(int orderType, double openPrice, double orderLots, int &outLadderLevel);
 void     ApplyEmaFlipWideBreathingProtection(int prevDirection, int newDirection);
@@ -13153,13 +13154,14 @@ void OnTick()
       // TYPE 3: SPIKE & CLIMAX ACTIVE
       // 1. Process fast spike execution and climax reversal hand-off
       ProcessType3SpikeExecution();
-      // 2. Process dedicated Type 3 profit booking ($50 minimum target & speed breakers)
+      // 2. Process dedicated Type 3 Two-Way profit booking (ManageSpikeProfitLadder already ran once at line 13086)
       ManageType3ProfitBooking();
-      // NOTE: Regular Type 1 & Type 2 profit ladder methods and stoploss modifiers are HELD/FROZEN!
      }
    else
      {
-      // REGULAR REGIMES (NO ACTIVE SPIKE)
+      // REGULAR REGIMES (NO ACTIVE SPIKE):
+      // Individual order profits run via SecureOneDollarProfit() (Type 1 Table A vs Type 2 Table B);
+      // Basket, Day Target, and Method 6 profits continue running as usual above.
       if(InpEnableTwoWayEngine)
         {
          ManageTwoWayReboundAndWaterfallOrders();
@@ -13172,16 +13174,16 @@ void OnTick()
 
       if(IsType2GradualTrendActive())
         {
-         // TYPE 2: GRADUAL TREND ACTIVE (|Angle| >= 4)
+         // TYPE 2: GRADUAL TREND ACTIVE (3.0 < |Angle| <= 8.0 -> Individual Orders Table B)
          ManageType2ProfitBooking();
         }
       else if(IsType1OscillationActive())
         {
-         // TYPE 1: OSCILLATION / RANGE ACTIVE (|Angle| <= 3)
+         // TYPE 1: OSCILLATION / STEEP RANGE ACTIVE (|Angle| <= 3.0 or > 8.0 -> Individual Orders Table A)
          ManageType1ProfitBooking();
         }
 
-      // Process standard multi-order combinations only when not in Type 3 spike
+      // Process standard multi-order pair combinations only when not in Type 3 spike
       ModifyPairProfitWithStopLoss();
      }
 

@@ -1,13 +1,14 @@
 //+------------------------------------------------------------------+
 //|                                     V_Small_Type1_Oscillation.mqh|
-//|                 TYPE 1: Oscillation / Range Engine (Angle <= 3)  |
+//|         TYPE 1: Range / Steep Angle Engine (|Angle| <= 3 or > 8) |
 //|                                                                  |
 //| Characteristics:                                                 |
-//| 1. Active when MathAbs(GlobalEmaAngle30) <= 3.0 (flat/choppy)    |
-//| 2. Price oscillating between up and down around 200 EMA          |
-//| 3. Micro-scalping, quick profit booking ($1.00 - $2.00 * mult)   |
-//| 4. Tight breathing breakeven stop loss                           |
-//| 5. Independent performance tracking and telemetry               |
+//| 1. Active when |Angle| <= 3.0 or |Angle| > 8.0 (not in Spike)    |
+//| 2. Individual order profits follow Table A price-gap movement    |
+//|    ($100 L1 -> +$25 SL, every +$50 step -> +$50 SL + half-close) |
+//| 3. Executed cleanly via SecureOneDollarProfit() without early BE |
+//| 4. Basket, Day Target & Method 6 profit engines run as usual     |
+//| 5. Independent performance tracking and telemetry                |
 //+------------------------------------------------------------------+
 #property copyright "Antigravity"
 #property link      ""
@@ -24,69 +25,27 @@ int    g_type1LossCount    = 0;
 //+------------------------------------------------------------------+
 bool IsType1OscillationActive()
   {
-   // If Type 3 Spike is active, Type 1 is completely held/frozen
+   // If Type 3 Spike is active, Type 1 is held
    if(IsType3SpikeActive())
       return false;
 
-   // Active when EMA angle is flat/oscillating (<= 3.0 degrees)
-   return (MathAbs(GlobalEmaAngle30) <= 3.0);
+   double curAngle = (GlobalEmaAngle30 != 0.0) ? GlobalEmaAngle30 : GetEmaAngleDegrees(30);
+   // Active outside Type 2 range (|Angle| <= 3.0 or |Angle| > 8.0) -> uses Table A
+   return !IsLadderType2AngleRange(MathAbs(curAngle));
   }
 
 //+------------------------------------------------------------------+
-//| ManageType1ProfitBooking: Dedicated Type 1 Profit Booking Engine |
+//| ManageType1ProfitBooking: Dedicated Type 1 Profit Booking Hook   |
+//| Individual order profits follow Table A ($100 L1 / $50 step) via |
+//| SecureOneDollarProfit() (no premature $1*mult BE clamp before L1)|
 //+------------------------------------------------------------------+
 void ManageType1ProfitBooking()
   {
    if(!IsType1OscillationActive())
       return;
 
-   double mult = (balancelomultipler > 0) ? balancelomultipler : 1.0;
-   double targetProfit = 1.0 * mult; // Quick $1.00 micro-scalp in range
-   double slGapMin = GetEffectiveMinSLModifyGap();
-   RefreshRates();
-
-   for(int i = OrdersTotal() - 1; i >= 0; i--)
-     {
-      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
-         continue;
-      if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber)
-         continue;
-
-      int oType = OrderType();
-      if(oType != OP_BUY && oType != OP_SELL)
-         continue;
-
-      string cmt = OrderComment();
-      // Exclude Type 3 and Recovery orders
-      if(StringFind(cmt, "T3_") >= 0 || StringFind(cmt, "SPIKE") >= 0 || StringFind(cmt, "M7_") >= 0 || IsAnyRecoveryOrder(OrderTicket(), cmt))
-         continue;
-
-      double curPL = OrderProfit() + OrderSwap() + OrderCommission();
-      double openPrice = OrderOpenPrice();
-      double curSL = OrderStopLoss();
-      int tkt = OrderTicket();
-
-      // Case 1: Order reached $1.00 * mult target in oscillation -> lock breakeven + tight cushion
-      if(curPL >= targetProfit)
-        {
-         if(oType == OP_BUY)
-           {
-            double newSL = NormalizeDouble(openPrice + 10.0 * Point, Digits);
-            if(newSL > openPrice && (curSL == 0.0 || newSL > curSL + slGapMin))
-              {
-               SafeOrderModify(tkt, openPrice, newSL, OrderTakeProfit(), 0, clrLime, "T1_OSC_BE_Lock");
-              }
-           }
-         else if(oType == OP_SELL)
-           {
-            double newSL = NormalizeDouble(openPrice - 10.0 * Point, Digits);
-            if(newSL < openPrice && (curSL == 0.0 || newSL < curSL - slGapMin))
-              {
-               SafeOrderModify(tkt, openPrice, newSL, OrderTakeProfit(), 0, clrTomato, "T1_OSC_BE_Lock");
-              }
-           }
-        }
-     }
+   // Individual Type 1 orders are secured cleanly once per tick by SecureOneDollarProfit() -> Table A.
+   // Basket, Day Target, and Method 6 run as usual at the top of OnTick().
   }
 
 //+------------------------------------------------------------------+
