@@ -66,8 +66,8 @@ void ModifyPairProfitWithStopLoss()
       string cmt = OrderComment();
       int tkt    = OrderTicket();
 
-      // Exclude recovery, spike, and two-way method 7 orders: They manage their own independent targets
-      if(IsAnyRecoveryOrder(tkt, cmt) || IsRecoveryOrderWithActiveParent(tkt, cmt) || StringFind(cmt, "SPIKE") >= 0 || StringFind(cmt, "M7_") >= 0)
+      // Exclude recovery and isolated Type 3 orders (M7_ always dedicated; SPIKE controlled by InpIsolateSpikeFromStandardExits)
+      if(IsAnyRecoveryOrder(tkt, cmt) || IsRecoveryOrderWithActiveParent(tkt, cmt) || ShouldExcludeType3OrderFromStandardExit(tkt, cmt))
          continue;
 
       // Exclude FLIPBasketSupport orders unless explicitly enabled
@@ -1014,8 +1014,8 @@ void ModifyMethod6MultiOrderCombinationsOver5USD()
       string cmt = OrderComment();
       int tkt    = OrderTicket();
 
-      // Exclude recovery and Type 3 (SPIKE/M7_) orders: Type 3 manages its own profit ladder
-      if(IsAnyRecoveryOrder(tkt, cmt) || IsRecoveryOrderWithActiveParent(tkt, cmt) || IsType3ManagedOrder(tkt, cmt))
+      // Exclude recovery and isolated Type 3 orders (M7_ always dedicated; SPIKE allowed in #1090 Method 6 when InpIsolateSpikeFromStandardExits=false)
+      if(IsAnyRecoveryOrder(tkt, cmt) || IsRecoveryOrderWithActiveParent(tkt, cmt) || ShouldExcludeType3OrderFromStandardExit(tkt, cmt))
          continue;
 
       // Exclude FLIPBasketSupport orders
@@ -1534,8 +1534,8 @@ void CloseProfitableOrderCombinations()
       string cmt = OrderComment();
       int tkt    = OrderTicket();
 
-      // EXCLUDE RECOVERY & TYPE 3 (SPIKE/M7_) ORDERS: They manage their own profit targets
-      if(IsAnyRecoveryOrder(tkt, cmt) || IsRecoveryOrderWithActiveParent(tkt, cmt) || IsType3ManagedOrder(tkt, cmt))
+      // Exclude recovery and isolated Type 3 orders (SPIKE allowed in #1090 Method 4 when InpIsolateSpikeFromStandardExits=false)
+      if(IsAnyRecoveryOrder(tkt, cmt) || IsRecoveryOrderWithActiveParent(tkt, cmt) || ShouldExcludeType3OrderFromStandardExit(tkt, cmt))
          continue;
 
       // Exclude FLIPBasketSupport orders unless explicitly enabled
@@ -2163,7 +2163,7 @@ void SecureOneDollarProfit()
       if(orderLots <= 0.0)
          continue;
 
-      if(IsFLIPBasketSupportOrder(OrderTicket(), OrderComment()) || IsAnyRecoveryOrder(OrderTicket(), OrderComment()) || StringFind(OrderComment(), "SPIKE") >= 0 || StringFind(OrderComment(), "M7_") >= 0)
+      if(IsFLIPBasketSupportOrder(OrderTicket(), OrderComment()) || IsAnyRecoveryOrder(OrderTicket(), OrderComment()) || ShouldExcludeType3OrderFromStandardExit(OrderTicket(), OrderComment()))
          continue;
 
       double currentSL = OrderStopLoss();
@@ -2684,10 +2684,10 @@ void ModifyOpenOrdersToCurrentPriceSL(string reason = "Daily Equity Target Hit",
 
       if(!forceAllOrders)
         {
-         // Exclude recovery, FLIPBasketSupport, and Type 3 Spike/M7 orders (emergency DeepDD with forceAllOrders=true still protects all)
+         // Exclude recovery, FLIPBasketSupport, and isolated Type 3 orders (M7_ stays dedicated; SPIKE allowed unless InpIsolateSpikeFromStandardExits=true)
          if(IsAnyRecoveryOrder(OrderTicket(), OrderComment()) ||
             IsFLIPBasketSupportOrder(OrderTicket(), OrderComment()) ||
-            IsType3ManagedOrder(OrderTicket(), OrderComment()))
+            ShouldExcludeType3OrderFromStandardExit(OrderTicket(), OrderComment()))
             continue;
         }
 
@@ -2779,8 +2779,8 @@ void CloseLosingOrdersAndLiveSLProfitOrders(string reason = "Max Floating Loss R
       int oType = OrderType();
       if(oType != OP_BUY && oType != OP_SELL)
          continue;
-      // Preserve Type 3 Spike/M7 orders when Daily Equity Target ($4) hits so spike runners ride with $200 SL & Spike Ladder
-      if(IsType3ManagedOrder(OrderTicket(), OrderComment()))
+      // Preserve isolated Type 3 orders (M7_, or SPIKE when InpIsolateSpikeFromStandardExits=true) on Daily Equity Target ($4) hit
+      if(ShouldExcludeType3OrderFromStandardExit(OrderTicket(), OrderComment()))
          continue;
 
       double netPL = OrderProfit() + OrderSwap() + OrderCommission();
@@ -2819,7 +2819,7 @@ void CloseLosingOrdersAndLiveSLProfitOrders(string reason = "Max Floating Loss R
       int oType = OrderType();
       if(oType != OP_BUY && oType != OP_SELL)
          continue;
-      if(IsType3ManagedOrder(OrderTicket(), OrderComment()))
+      if(ShouldExcludeType3OrderFromStandardExit(OrderTicket(), OrderComment()))
          continue;
 
       double netPL = OrderProfit() + OrderSwap() + OrderCommission();
@@ -2995,7 +2995,7 @@ void CloseOppositeLosingOrdersBeforeSignal(int newSignalType)
          continue;
       if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber)
          continue;
-      if(IsFLIPBasketSupportOrder(OrderTicket(), OrderComment()) || IsAnyRecoveryOrder(OrderTicket(), OrderComment()) || StringFind(OrderComment(), "SPIKE") >= 0 || StringFind(OrderComment(), "M7_") >= 0)
+      if(IsFLIPBasketSupportOrder(OrderTicket(), OrderComment()) || IsAnyRecoveryOrder(OrderTicket(), OrderComment()) || ShouldExcludeType3OrderFromStandardExit(OrderTicket(), OrderComment()))
          continue;
 
       int orderType = OrderType();
@@ -3043,7 +3043,7 @@ void CloseOppositeProfitableOrdersIndependent(int newSignalType)
          continue;
       if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber)
          continue;
-      if(IsFLIPBasketSupportOrder(OrderTicket(), OrderComment()) || IsAnyRecoveryOrder(OrderTicket(), OrderComment()) || StringFind(OrderComment(), "SPIKE") >= 0 || StringFind(OrderComment(), "M7_") >= 0)
+      if(IsFLIPBasketSupportOrder(OrderTicket(), OrderComment()) || IsAnyRecoveryOrder(OrderTicket(), OrderComment()) || ShouldExcludeType3OrderFromStandardExit(OrderTicket(), OrderComment()))
          continue;
 
       int orderType = OrderType();
@@ -3343,14 +3343,15 @@ void ManageSpikeBucketSide(int dirType, double bucketPL, double bucketLots,
                   dirName, curLevel, ioPeakPL, curLevel * stepUSD, protectFloorPL, usedPct, bucketPL, bucketLots, count, mult);
      }
 
-   bool isClimaxHLineTakeProfit = (InpSpikeCloseOnOppositeHLineAt50 && hasOppositeHLine && bucketPL >= minToProtect);
+   double climaxHLineMinPL = MathMax(minToProtect, InpSpikeClimaxHLineCloseMinUSD * mult);
+   bool isClimaxHLineTakeProfit = (InpSpikeCloseOnOppositeHLineAt50 && hasOppositeHLine && bucketPL >= climaxHLineMinPL);
 
    // A. REVERSAL CLOSE: Close spike bucket if profit retraced to tiered floor or climax HLine formed
    if(bucketPL <= protectFloorPL || isClimaxHLineTakeProfit)
      {
       string hLineTag = isBuy ? "EQH-R" : "EQL-G";
       string closeReason = isClimaxHLineTakeProfit ?
-         StringFormat("Spike %s Climax %s Hit: Peak=$%.2f, Closed=$%.2f >= Min=$%.2f! Profit Booked!", dirName, hLineTag, ioPeakPL, bucketPL, minToProtect) :
+         StringFormat("Spike %s Climax %s Hit: Peak=$%.2f, Closed=$%.2f >= Min=$%.2f! Profit Booked!", dirName, hLineTag, ioPeakPL, bucketPL, climaxHLineMinPL) :
          StringFormat("Spike %s Ladder %.0f%% Retrace Hit: Peak=$%.2f, Closed=$%.2f <= Floor=$%.2f (Min=$%.2f, Lvl %d)", dirName, usedPct, ioPeakPL, bucketPL, protectFloorPL, minToProtect, curLevel);
       double sigPrice = isClimaxHLineTakeProfit ? oppHLinePrice : (isBuy ? Ask : Bid);
       DrawSpikeLifecycleSignal("SPIKE_END", (isBuy ? 1 : -1), sigPrice, closeReason);
@@ -3518,8 +3519,8 @@ void CheckBasketProfitClose()
       int oType = OrderType();
       if(oType != OP_BUY && oType != OP_SELL)
          continue;
-      // EXCLUDE RECOVERY, SPIKE, AND TWO-WAY METHOD 7 ORDERS: They manage their own profit targets ($50+ / EMA touch)
-      if(IsAnyRecoveryOrder(OrderTicket(), OrderComment()) || StringFind(OrderComment(), "SPIKE") >= 0 || StringFind(OrderComment(), "M7_") >= 0)
+      // EXCLUDE RECOVERY & ISOLATED TYPE 3 ORDERS
+      if(IsAnyRecoveryOrder(OrderTicket(), OrderComment()) || ShouldExcludeType3OrderFromStandardExit(OrderTicket(), OrderComment()))
          continue;
 
       double pl = OrderProfit() + OrderSwap() + OrderCommission();
@@ -3885,7 +3886,7 @@ void ModifyOpenOrdersToSecureProfit()
          continue;
       if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber)
          continue;
-      if(IsFLIPBasketSupportOrder(OrderTicket(), OrderComment()) || IsAnyRecoveryOrder(OrderTicket(), OrderComment()) || StringFind(OrderComment(), "SPIKE") >= 0 || StringFind(OrderComment(), "M7_") >= 0)
+      if(IsFLIPBasketSupportOrder(OrderTicket(), OrderComment()) || IsAnyRecoveryOrder(OrderTicket(), OrderComment()) || ShouldExcludeType3OrderFromStandardExit(OrderTicket(), OrderComment()))
          continue;
 
       int ticket       = OrderTicket();
@@ -5507,8 +5508,8 @@ void ManageHorizontalLineProfitLiveStopLoss()
          continue;
 
       int tkt = OrderTicket();
-      if(IsType3ManagedOrder(tkt, OrderComment()))
-         continue; // Exclude Type 3 Spike/M7 orders: SpikeLadder already handles opposite climax HLine >= minToProtect
+      if(ShouldExcludeType3OrderFromStandardExit(tkt, OrderComment()))
+         continue; // Keep M7_ isolated; allow SPIKE in #1090 HLine $0.50 Live SL when InpIsolateSpikeFromStandardExits=false
       double netPL = OrderProfit() + OrderSwap() + OrderCommission();
       if(netPL < minProfit)
          continue;
@@ -5677,8 +5678,8 @@ void ManageHorizontalLineEndedProfitLiveStopLoss()
          continue;
 
       int tkt = OrderTicket();
-      if(IsType3ManagedOrder(tkt, OrderComment()))
-         continue; // Exclude Type 3 Spike/M7 orders from $0.50 ended HLine tight SL
+      if(ShouldExcludeType3OrderFromStandardExit(tkt, OrderComment()))
+         continue; // Keep M7_ isolated; allow SPIKE in #1090 ended-HLine $0.50 SL when InpIsolateSpikeFromStandardExits=false
       double netPL = OrderProfit() + OrderSwap() + OrderCommission();
       if(netPL <= minProfit)
          continue;

@@ -100,6 +100,7 @@ void UpdateTwoRegimeStateMachine()
          g_regime2PeakDistance     = distToEma;
          g_regime2TriggerReason    = triggerReason;
          g_regime2TotalTransitions++;
+         g_regime2EntrySide        = (curPrice >= liveEma) ? 1 : -1;
 
          PrintFormat(">>> ================================================================================");
          PrintFormat(">>> [TWO-REGIME SYSTEM] *** TRANSITION TO REGIME 2: CRISIS / CLIMAX PRESERVATION ***");
@@ -144,20 +145,28 @@ void UpdateTwoRegimeStateMachine()
          resumeRegime1 = true;
          resumeReason = StringFormat("EMA Distance Normalized ($%.2f <= $%.2f)", distToEma, resumeThreshold);
         }
-      // Check Condition 2: Price crossed or touched yellow 200 EMA
+      // Check Condition 2: Price crossed or touched yellow 200 EMA from opposite entry side
       else if(g_regime2PeakDistance > 0.0)
         {
-         // If we entered while below EMA, check if price rallied back up to EMA
-         if(curPrice >= liveEma)
+         // Entered below EMA -> resume only if price rallies back up to/above EMA
+         if(g_regime2EntrySide < 0 && curPrice >= liveEma)
            {
             resumeRegime1 = true;
-            resumeReason = StringFormat("Price Retested/Crossed 200 EMA (Price=%.2f >= EMA=%.2f)", curPrice, liveEma);
+            resumeReason = StringFormat("Price Retested/Crossed 200 EMA from Below (Price=%.2f >= EMA=%.2f)", curPrice, liveEma);
+           }
+         // Entered above EMA -> resume only if price pulls back down to/below EMA
+         else if(g_regime2EntrySide > 0 && curPrice <= liveEma)
+           {
+            resumeRegime1 = true;
+            resumeReason = StringFormat("Price Retested/Crossed 200 EMA from Above (Price=%.2f <= EMA=%.2f)", curPrice, liveEma);
            }
         }
 
       if(resumeRegime1)
         {
          g_currentTradingRegime = REGIME_1_NORMAL_GROWTH;
+         g_regime2EntrySide     = 0;
+         g_regime2PeakDistance  = 0.0;
 
          PrintFormat(">>> ================================================================================");
          PrintFormat(">>> [TWO-REGIME SYSTEM] *** RESUMING REGIME 1: NORMAL TRADING (GROWTH MODE) ***");

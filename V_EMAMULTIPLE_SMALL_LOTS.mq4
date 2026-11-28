@@ -3,8 +3,8 @@
 //|                  TWO-STAGE PROFIT LADDER | CONTINUOUS RESET      |
 //+------------------------------------------------------------------+
 #property strict
-#property version     "11.41"
-#property description "V-SMALL-1141 | Two-Regime EMA Multiple Small Lots EA"
+#property version     "11.42"
+#property description "V-SMALL-1142 | Two-Regime EMA Multiple Small Lots EA"
 
 //$100 to $170
 //https://github.com/devcrunch2025/exnessStratagiesExperts/commit/32fb1ba20d474fc8d4adb38d2558999b2ac82c56
@@ -45,8 +45,8 @@ CheckBasketProfitClose  Total open basket profit
 
 */
 
-string glbVersion      = "V-SMALL-1141- Independent Type 1 / Type 2 / Type 3 Order Creation Toggles";
-string glbVersionShort = "V-SMALL-1141";
+string glbVersion      = "V-SMALL-1142- Restore #1090 Profit Booking + Fix Two-Regime & Cooldown Loops";
+string glbVersionShort = "V-SMALL-1142";
 
 int AccountMultiplierLOT = 500;//100;//1000;//400;//200;//500; ALWAYS multiples of 1000 is better for best results
 //balance multiplier
@@ -62,7 +62,7 @@ bool   ResumeDayTradingOnStrongAngleSSL     = true;  // Option 5 (Choice A): Aut
 double ResumeDayTradingHighEmaAngle         = 4.0;   // Condition 1: MathAbs(EMA Angle) > 4.0 for Strong Trend Resume (Default: >= 4.0 deg)
 double ResumeDayTradingLowEmaAngle          = 2.0;   // Condition 2: MathAbs(EMA Angle) < 2.0 with Horizontal Lines Started (Default: <= 2.0 deg)
 bool   ResumeDayTradingOnSpikeMismatch      = true;  // Condition 3: Resume on Spike (EMA Direction & Angle Mismatch: Bull +1 with Angle < 0, or Bear -1 with Angle > 0)
-bool   InpSpikeResumeBypassCooldown         = true;  // Spike Resume: Bypass cooldown buffer on sudden spike impulse
+bool   InpSpikeResumeBypassCooldown         = false; // Enforce ResumeDayTradingMinCooldownMin cooldown after Retrace Stop before Spike auto-resumes
 double ResumeDayTradingMinEmaAngle          = 4.0;   // Legacy fallback (Default: 4.0 deg)
 int    ResumeDayTradingMinCooldownMin      = 30;//10;   // Minimum cooldown buffer minutes after Retrace Floor Stop (e.g. 10m)
 enum ENUM_RESUME_DAY_MODE
@@ -410,6 +410,7 @@ datetime            g_regime2EnteredTime         = 0;
 double              g_regime2PeakDistance        = 0.0;
 string              g_regime2TriggerReason       = "";
 int                 g_regime2TotalTransitions    = 0;
+int                 g_regime2EntrySide           = 0;        // +1 if entered above EMA, -1 if below EMA (directional EMA touch check)
 
 // ===== TWO-WAY ENGINE: FALLING/RISING WATERFALL & V-REBOUND (METHOD 7) =====
 bool   InpEnableTwoWayEngine               = true;     // Enable Method 7 Two-Way Engine (Waterfall + V-Rebound)
@@ -1158,6 +1159,7 @@ double InpPendingGapLossMultiplier         = 2.0;   // Pending gap multiplier on
  bool   InpType3RequirePrevProfitForScaleUp    = true; // Scale above 0.01 only if previous Spike order is in profit (>= $0)
  bool   InpType3CapLotOnDailyTargetHit         = false;// Decoupled from $2-$4 daily scalp target so confirmed Type 3 acceleration scales freely
  bool   InpProtectProfitableSpikeOnRetraceStop = true; // Shield profitable Type 3 buckets (SPIKE/M7/T3) from normal Daily Equity Retrace Stop close
+ bool   InpIsolateSpikeFromStandardExits       = false;// false = Restore #1090 Method 1/4/6, HLine $0.50 SL, Common Ladder & Daily SL lock on SPIKE (M7_ stays isolated)
  bool   InpSpikeOrderBypassSameTypeGap         = true; // Spike Orders: Bypass wide same-type minimum gap during sudden spike momentum
  double InpSpikeOrderPendingGapUSD             = 50.0;  // Spike Orders: Pending stop entry gap ($0 = open market orders without pending, >0 = pending stop gap)
  double InpSpikeOrderMinGapUSD                 = 50.0;  // Spike Orders: Minimal gap between consecutive spike orders ($50 USD)
@@ -1172,7 +1174,7 @@ double InpPendingGapLossMultiplier         = 2.0;   // Pending gap multiplier on
  double InpFastSpikeMinDistance                = 100.0; // Fast Spike: Reference EMA distance threshold ($100)
  double InpFastSpikeMinAngle                   = 1.5;   // [Legacy Unused for Spike] EMA angle parameter kept for compatibility
  int    InpFastSpikeLookbackBars               = 5;     // Fast Spike: Lookback bars for slope telemetry (default 5 bars)
- bool   InpFastSpikeCloseOppositeOrders        = true;  // Fast Spike: Close all open opposite orders immediately when fast spike is detected
+ bool   InpFastSpikeCloseOppositeOrders        = false; // Disabled (#1090): Do not force-close opposite orders at market loss on spike detect
  bool   InpFastSpikeMarketOrder                = true;  // Fast Spike: Open direct market order without waiting for pending fill
  bool   InpEnableType3SpikeVelocityFilter      = true;  // Type 3 Spike Velocity: Confirm Spike if EMA distance expanded >= $300 in 5 min
  double InpType3Spike5MinDistanceChange        = 300.0; // Type 3 Spike Velocity: Min EMA distance expansion ($300) in 5 min (User Observation)
@@ -1185,18 +1187,19 @@ double InpPendingGapLossMultiplier         = 2.0;   // Pending gap multiplier on
  bool   InpType3LockSpikeCreationOnSpikeEnd    = true;  // SPIKE END Rule: Lock new BUY spikes (Bullish) / SELL spikes (Bearish) until new spike starts
  bool   InpType3SpikeEndRequireStrongEmaForClose = true;  // SPIKE END Rule: Require EMA to be STRONG (!IsEmaWEAK) if close on SPIKE END is enabled
 
- // ===== SPIKE $20 MINIMUM PROFIT LADDER & TIERED 50/65/75% PROTECT =====
+ // ===== SPIKE $2 MINIMUM PROFIT LADDER & TIERED 50/65/75% PROTECT =====
  bool   InpEnableSpikeProfitLadder             = true;  // Spike Ladder: Enable Step Profit Ladder with Tiered Profit Protection
  bool   InpSpikeLadderUseMultiplier            = true;  // Spike Ladder: Use Balance Multiplier (1Xmul for min profit & step)
- double InpSpikeMinProfitToProtectUSD          = 20.0;  // Spike Ladder: Minimum profit to start protecting ($20.00 * multiplier)
- double InpSpikeLadderStepUSD                  = 10.0;  // Spike Ladder: Step size above minimum ($10.00 * multiplier)
- double InpSpikeLadderProtectPct               = 50.0;  // Spike Ladder Tier 1 ($20..$50): Base protected profit % (50% early breathing room)
- bool   InpEnableSpikeTieredProtectPct         = true;  // Enable Tiered Spike Protect: 50% ($20-$50) -> 65% ($50-$100) -> 75% ($100+)
+ double InpSpikeMinProfitToProtectUSD          = 2.0;   // Spike Ladder: Minimum profit to start protecting ($2.00 * multiplier)
+ double InpSpikeLadderStepUSD                  = 5.0;   // Spike Ladder: Step size ($5.00 * multiplier, #1090 cadence)
+ double InpSpikeLadderProtectPct               = 50.0;  // Spike Ladder Tier 1 ($2..$50): Base protected profit % (50% early breathing room)
+ bool   InpEnableSpikeTieredProtectPct         = true;  // Enable Tiered Spike Protect: 50% ($2-$50) -> 65% ($50-$100) -> 75% ($100+)
  double InpSpikeTier2ProfitUSD                 = 50.0;  // Spike Ladder Tier 2 profit threshold ($50 * mult -> lock 65%)
  double InpSpikeTier2ProtectPct                = 65.0;  // Spike Ladder Tier 2 protected profit % (65%)
  double InpSpikeTier3ProfitUSD                 = 100.0; // Spike Ladder Tier 3 profit threshold ($100 * mult -> lock 75%)
  double InpSpikeTier3ProtectPct                = 75.0;  // Spike Ladder Tier 3 protected profit % (75%)
- bool   InpSpikeCloseOnOppositeHLineAt50       = true;  // Spike Ladder: Close Spike order immediately if opposite HLine starts and profit >= minToProtect
+ bool   InpSpikeCloseOnOppositeHLineAt50       = true;  // Spike Ladder: Close Spike bucket immediately on opposite HLine when climax min reached
+ double InpSpikeClimaxHLineCloseMinUSD         = 20.0;  // Spike Ladder: Min bucket profit ($20 * mult) for immediate opposite-HLine market close ($0.50 uses HLine SL)
 
 double g_spikeBuyBucketPeakPL                  = 0.0;   // Peak floating profit reached by open BUY spike bucket
 double g_spikeSellBucketPeakPL                 = 0.0;   // Peak floating profit reached by open SELL spike bucket
@@ -8312,6 +8315,7 @@ bool     IsType2GradualTrendActive();
 void     ManageType2ProfitBooking();
 void     RecordType2ClosedOrder(int ticket, double netPL);
 bool     IsType3ManagedOrder(int ticket, string comment = "");
+bool     ShouldExcludeType3OrderFromStandardExit(int ticket, string comment = "");
 bool     IsType3SpikeActive(bool includeOpenOrders = true);
 int      GetOrderTypeCategoryForCreation(string comment = "");
 bool     IsOrderTypeEnabledByConfig(int typeNum);
@@ -10646,6 +10650,12 @@ void ResetAllRuntimeVariablesOnFreshStart()
    Ladder5PercentBaseline              = 0.0;
    ResetReverse100RuntimeState();
    ResetSpikeLifecycleState();
+   g_currentTradingRegime    = REGIME_1_NORMAL_GROWTH;
+   g_regime2EnteredTime      = 0;
+   g_regime2PeakDistance     = 0.0;
+   g_regime2TriggerReason    = "";
+   g_regime2TotalTransitions = 0;
+   g_regime2EntrySide        = 0;
 
 // 8. Liquidity Sweep Markers & Blocks
    g_lastHandledSweepBlockBarTime = 0;
@@ -12773,8 +12783,8 @@ void CheckBasketLossDeRiskAndBreakevenProtection()
          continue;
       if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber)
          continue;
-      if(IsType3ManagedOrder(OrderTicket(), OrderComment()))
-         continue; // Exclude Type 3 Spike/M7 orders so normal basket BE doesn't clip spike runners early
+      if(ShouldExcludeType3OrderFromStandardExit(OrderTicket(), OrderComment()))
+         continue; // M7_ Two-Way orders stay isolated; SPIKE allowed unless InpIsolateSpikeFromStandardExits is true
 
       int oType = OrderType();
       if(oType == OP_BUY)
@@ -12996,8 +13006,16 @@ void OnTick()
 
    bool isTradingPausedOrBlocked = (g_dailyEquityTradingBlocked || g_manualTradingPaused || DayProfitLadderTradingStopped || g_dailyEquityAdverseLossHitToday || TradingHaltedUntilNextFlip);
 
-   // USER RULE: Resume trading when spike velocity/climax is actively expanding (only if Type 3 is enabled)
-   if(InpEnableType3Orders && isTradingPausedOrBlocked && IsType3SpikeActive(false))
+   // USER RULE: Resume trading when spike velocity/climax is actively expanding (after pause cooldown elapses)
+   bool spikeCooldownElapsed = (g_dailyEquityPauseTime <= 0 || InpSpikeResumeBypassCooldown ||
+                                (TimeCurrent() - g_dailyEquityPauseTime) >= (ResumeDayTradingMinCooldownMin * 60));
+   if(InpEnableType3Orders &&
+      !g_manualTradingPaused &&
+      !g_dailyEquityAdverseLossHitToday &&
+      !DayProfitLadderTradingStopped &&
+      isTradingPausedOrBlocked &&
+      spikeCooldownElapsed &&
+      IsType3SpikeActive(false))
      {
       PrintFormat(">>> [SPIKE DETECTED - RESUMING TRADING] Fast 5-min EMA distance expansion detected! Unblocking trading to capture spike momentum...");
       PerformDayTradingResume("SPIKE DETECTED (Fast 5-Min Distance Expansion from EMA)");

@@ -328,6 +328,29 @@ bool IsType3ManagedOrder(int ticket, string comment = "")
   }
 
 //+------------------------------------------------------------------+
+//| ShouldExcludeType3OrderFromStandardExit:                         |
+//| - Always keeps M7_ Two-Way orders isolated to Method 7 trailing  |
+//| - Allows SPIKE/T3_ in #1090 exits (Method 1/4/6, HLine SL, Table |
+//|   A/B, Daily SL lock) unless InpIsolateSpikeFromStandardExits=on |
+//+------------------------------------------------------------------+
+bool ShouldExcludeType3OrderFromStandardExit(int ticket, string comment = "")
+  {
+   string cmt = comment;
+   if(cmt == "" && ticket > 0 && OrderSelect(ticket, SELECT_BY_TICKET, MODE_TRADES))
+      cmt = OrderComment();
+   if(cmt == "")
+      return false;
+
+   if(StringFind(cmt, "M7_") == 0)
+      return true;
+
+   if(InpIsolateSpikeFromStandardExits && (StringFind(cmt, "SPIKE") >= 0 || StringFind(cmt, "T3_") == 0))
+      return true;
+
+   return false;
+  }
+
+//+------------------------------------------------------------------+
 //| GetOrderTypeCategoryForCreation: Map comment/regime to Type 1/2/3|
 //+------------------------------------------------------------------+
 int GetOrderTypeCategoryForCreation(string comment = "")
