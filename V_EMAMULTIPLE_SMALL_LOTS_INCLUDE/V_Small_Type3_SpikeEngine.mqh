@@ -411,6 +411,10 @@ bool IsOrderTypeEnabledByConfig(int typeNum)
 //+------------------------------------------------------------------+
 bool IsOrderCreationAllowedByTypeSwitches(string comment = "", bool logBlock = false)
   {
+   if(StringFind(comment, "RECOVERY_") == 0 && StringFind(comment, "_LSD") >= 0 &&
+      !InpEnableLsdStructuralRecovery && !InpEnableHorizontalLineRecovery)
+      return false;
+
    int reqType = GetOrderTypeCategoryForCreation(comment);
    if(IsOrderTypeEnabledByConfig(reqType))
       return true;

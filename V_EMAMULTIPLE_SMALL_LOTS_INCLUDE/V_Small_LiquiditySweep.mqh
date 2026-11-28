@@ -1768,6 +1768,9 @@ int GetSmallestLossOrderTicket(int targetType)
 //+------------------------------------------------------------------+
 int CreateHorizontalLineRecoveryOrder(int parentTicket, int orderType, double linePrice)
   {
+   if(!InpEnableHorizontalLineRecovery)
+      return -1;
+
    if(!IsOrderCreationAllowedByTypeSwitches("RECOVERY_LSD", true))
       return -1;
 

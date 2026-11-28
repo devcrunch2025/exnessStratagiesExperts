@@ -3,8 +3,8 @@
 //|                  TWO-STAGE PROFIT LADDER | CONTINUOUS RESET      |
 //+------------------------------------------------------------------+
 #property strict
-#property version     "11.43"
-#property description "V-SMALL-1143 | Two-Regime EMA Multiple Small Lots EA"
+#property version     "11.44"
+#property description "V-SMALL-1144 | Two-Regime EMA Multiple Small Lots EA"
 
 //$100 to $170
 //https://github.com/devcrunch2025/exnessStratagiesExperts/commit/32fb1ba20d474fc8d4adb38d2558999b2ac82c56
@@ -45,8 +45,8 @@ CheckBasketProfitClose  Total open basket profit
 
 */
 
-string glbVersion      = "V-SMALL-1143- True Velocity Spike Detection (Remove False M7 & Wave Spikes)";
-string glbVersionShort = "V-SMALL-1143";
+string glbVersion      = "V-SMALL-1144- Disable Recover LSD Orders (Structural & Horizontal Line)";
+string glbVersionShort = "V-SMALL-1144";
 
 int AccountMultiplierLOT = 500;//100;//1000;//400;//200;//500; ALWAYS multiples of 1000 is better for best results
 //balance multiplier
@@ -377,7 +377,7 @@ double InpHLine1HourBuyLotBase                    = 0.03;          // Base lot f
 double InpHLine1HourSLOffsetUSD                   = 50.0;          // StopLoss offset in USD ($50) from Line price (Red: Line+50, Green: Line-50)
 double InpHLine1HourTPRawUSD                      = 500.0;         // TakeProfit distance in raw USD ($500)
 bool   InpDelete1HourPendingOnLineEnded           = true;          // Delete unfilled 1-hour horizontal pending orders when the line ends
-bool   InpEnableHorizontalLineRecovery            = true;          // When horizontal line starts: create recovery order for open losing order with smallest loss
+bool   InpEnableHorizontalLineRecovery            = false;         // Disabled: Do not create RECOVERY_*_LSD order when horizontal line starts
 bool   InpOpenLineOrderIfRecoveryCreated          = false;         // If recovery order created, also open standard line order (default: false to enforce 1-order-per-line)
 bool   InpEnableLineEndedBreakoutSLModify         = true;          // When line ends & price moves > $100 past line: modify ALL open orders SL to LinePrice +/- $200
 double InpLineEndedBreakoutTriggerGapRaw          = 500;//100.0;         // Price breakout distance ($100 raw) past ended line to trigger SL modification
@@ -559,7 +559,7 @@ color  InpAdverseStepLossIconColor         = clrOrange; // Chart icon color (Nor
 int    InpAdverseStepLossIconFontSize      = 10;        // Chart icon text font size
 
 // ===== EQL / EQH STRUCTURAL RECOVERY (TYPE 2) SETTINGS =====
-bool   InpEnableLsdStructuralRecovery       = true;  // Enable EQL/EQH Structural Recovery (Type 2)
+bool   InpEnableLsdStructuralRecovery       = false; // Disabled: Do not create EQL/EQH Structural Recovery (Type 2 / RECOVERY_*_LSD) orders
 bool   InpAllowRecoveryForHorizontalOrders  = false; // Do not create recovery order for Horizontal line orders (default: false)
 double InpLsdRecoveryMinAdverseGap          = 100.0; // Min adverse distance ($100 raw) from parent entry to allow recovery
 double InpLsdRecoveryTriggerLossUSD         = 1.0;   // Min loss in USD (>$1.00) on parent order to allow recovery
@@ -13705,7 +13705,8 @@ void OnTickCore()
 
    CheckRecoveryOrders();
    CheckReverse100OppositeOrders();     // 1-Time >$100 Opposite 2X Reverse Order (priority over Type 2/Hedge)
-   CheckLsdStructuralRecoveryOrders();  // EQL/EQH Structural Recovery (Type 2)
+   if(InpEnableLsdStructuralRecovery)
+      CheckLsdStructuralRecoveryOrders();  // EQL/EQH Structural Recovery (Type 2)
    CheckType3WeakEmaRecoveryOrders();   // Weak EMA Reversal Recovery (Type 3)
    CheckTrendShiftHedgeRecoveryOrders(); // Trend-Shift Hedge Rescue (Disabled / replaced by Reverse100)
    if(TradeOperationFailedThisTick)
@@ -20381,7 +20382,8 @@ void CheckRecoveryOrders()
 //+------------------------------------------------------------------+
 void ManageRecoveryBasket()
   {
-   if(!EnableRecoveryOrders && !InpEnableLsdStructuralRecovery && !InpEnableType3Recovery && !InpEnableHedgeRecovery && !InpEnableHorizontalLineRecovery && !InpEnableReverse100Order)
+   // Allow closing any already-open RECOVERY_* basket even if new recovery creation flags are disabled.
+   if(OrdersTotal() < 2)
       return;
 
    for(int i = OrdersTotal() - 1; i >= 0; i--)
