@@ -3,8 +3,8 @@
 //|                  TWO-STAGE PROFIT LADDER | CONTINUOUS RESET      |
 //+------------------------------------------------------------------+
 #property strict
-#property version     "11.35"
-#property description "V-SMALL-1135 | Two-Regime EMA Multiple Small Lots EA"
+#property version     "11.36"
+#property description "V-SMALL-1136 | Two-Regime EMA Multiple Small Lots EA"
 
 //$100 to $170
 //https://github.com/devcrunch2025/exnessStratagiesExperts/commit/32fb1ba20d474fc8d4adb38d2558999b2ac82c56
@@ -45,8 +45,8 @@ CheckBasketProfitClose  Total open basket profit
 
 */
 
-string glbVersion      = "V-SMALL-1135- Type 1 Flat (<=3 deg) 0.5x Order Gap with $40 Safe Floor";
-string glbVersionShort = "V-SMALL-1135";
+string glbVersion      = "V-SMALL-1136- Type 1 Sideway Peak-Stall Collector & Breakout Pending";
+string glbVersionShort = "V-SMALL-1136";
 
 int AccountMultiplierLOT = 500;//100;//1000;//400;//200;//500; ALWAYS multiples of 1000 is better for best results
 //balance multiplier
@@ -1124,6 +1124,17 @@ double InpPendingGapLossMultiplier         = 2.0;   // Pending gap multiplier on
  bool   InpEnableType1FlatGapReduction         = true; // Type 1 Flat (|Angle| <= 3.0): apply 0.5x reduction to Base Gap with $40 safe floor
  double InpType1FlatGapMultiplier              = 0.5;  // Type 1 Flat (|Angle| <= 3.0): Same-order gap multiplier (0.5x)
  double InpType1FlatGapMinFloorRaw             = 40.0; // Type 1 Flat (|Angle| <= 3.0): Hard safe minimum gap floor ($40 raw)
+ // ===== TYPE 1 SIDEWAY PEAK-STALL PROFIT COLLECTOR (|Angle| <= 3.0) =====
+ bool   InpEnableType1SidewayStallCollect      = true; // Type 1 Flat: Collect profit / tighten SL when sideways move stalls at ceiling/floor
+ double InpType1StallMinFavMoveRaw             = 60.0; // Min favorable price move ($60 raw) before sideways stall detector arms
+ double InpType1StallMinProfitUSD              = 0.50; // Min floating profit ($0.50 * mult) required to collect on stall
+ double InpType1StallNewPeakPushStepRaw        = 10.0; // Min extra push ($10 raw) past plateau to reset stall timer
+ int    InpType1StallTimeoutSeconds            = 600;  // Stall duration without new $10 push (600s = 10 min)
+ double InpType1StallTrailOrRetraceRaw         = 15.0; // Retrace >= $15 from peak closes now; otherwise pulls SL $15 behind live price
+ bool   InpType1StallDirectMarketClose         = false;// true = immediate market close on stall; false = tight $15 SL (or close if retraced >= $15)
+ bool   InpType1StallCreatePendingOnClose      = true; // When Type 1 stall close leaves 0 open same-dir orders: place breakout pending stop
+ double InpType1StallPendingBreakoutGapRaw     = 30.0; // Breakout pending distance ($30 raw beyond Ask/Bid)
+ int    InpType1StallPendingExpireSec          = 900;  // Auto-cancel unfilled T1_STALL_PENDING after 15 min (or on EMA direction flip)
  bool   InpEnableSpikeOrderCreation            = true; // Spike Orders: When EMADirection is 1 but angle < 0 create BUY; when -1 and angle > 0 create SELL
  int    InpSpikeOrderCooldownSec               = 5;    // Spike Orders: Cooldown seconds when previous spike order is in PROFIT (default 5s)
  int    InpSpikeOrderLossCooldownSec           = 30;   // Spike Orders: Cooldown seconds when previous spike order is in LOSS (default 30s)
@@ -8268,6 +8279,7 @@ bool     IsOrderAllowedUnderCurrentRegime(int orderType, string comment, int req
 // 3-Type Modular System Forward Declarations
 bool     IsType1OscillationActive();
 void     ManageType1ProfitBooking();
+void     CleanupType1StallPendingAndArmedOrders();
 void     RecordType1ClosedOrder(int ticket, double netPL);
 bool     IsType2GradualTrendActive();
 void     ManageType2ProfitBooking();
@@ -13150,6 +13162,8 @@ void OnTick()
    ManageHorizontalLineProfitLiveStopLoss(); // USER RULE: Opposite horizontal line active + order profit >= $0.50 -> modify SL to live price
    ManageHorizontalLineEndedProfitLiveStopLoss(); // USER RULE: When ANY horizontal line ends: modify open orders (profit > $0.50) SL to live price
    Check1HourHorizontalLinePendingOrders(); // USER RULE: If horizontal line live > 1 hour & live price near $50 -> create pending order (Red: SELL, Green: BUY)
+
+   CleanupType1StallPendingAndArmedOrders();
 
    // ===== 3-TYPE MODULAR SYSTEM DISPATCHER =====
    if(IsType3SpikeActive())
