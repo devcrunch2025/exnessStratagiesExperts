@@ -315,6 +315,19 @@ void Evaluate5MinEmaDistanceStepGap(bool &outBullSpike, bool &outBearSpike,
   }
 
 //+------------------------------------------------------------------+
+//| IsType3ManagedOrder: Single check for Type 3 SPIKE/M7/T3 orders  |
+//+------------------------------------------------------------------+
+bool IsType3ManagedOrder(int ticket, string comment = "")
+  {
+   string cmt = comment;
+   if(cmt == "" && ticket > 0 && OrderSelect(ticket, SELECT_BY_TICKET, MODE_TRADES))
+      cmt = OrderComment();
+   if(cmt == "")
+      return false;
+   return (StringFind(cmt, "SPIKE") >= 0 || StringFind(cmt, "M7_") == 0 || StringFind(cmt, "T3_") == 0);
+  }
+
+//+------------------------------------------------------------------+
 //| IsType3SpikeActive: Check if Type 3 Spike / Climax is active     |
 //+------------------------------------------------------------------+
 bool IsType3SpikeActive()
@@ -340,8 +353,7 @@ bool IsType3SpikeActive()
       if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber)
          continue;
 
-      string cmt = OrderComment();
-      if(StringFind(cmt, "SPIKE") >= 0 || StringFind(cmt, "M7_") == 0 || StringFind(cmt, "T3_") == 0)
+      if(IsType3ManagedOrder(OrderTicket(), OrderComment()))
         {
          g_type3SpikeActiveState = true;
          return true;

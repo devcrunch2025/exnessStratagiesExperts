@@ -3,8 +3,8 @@
 //|                  TWO-STAGE PROFIT LADDER | CONTINUOUS RESET      |
 //+------------------------------------------------------------------+
 #property strict
-#property version     "11.37"
-#property description "V-SMALL-1137 | Two-Regime EMA Multiple Small Lots EA"
+#property version     "11.38"
+#property description "V-SMALL-1138 | Two-Regime EMA Multiple Small Lots EA"
 
 //$100 to $170
 //https://github.com/devcrunch2025/exnessStratagiesExperts/commit/32fb1ba20d474fc8d4adb38d2558999b2ac82c56
@@ -45,8 +45,8 @@ CheckBasketProfitClose  Total open basket profit
 
 */
 
-string glbVersion      = "V-SMALL-1137- Type 3 Progressive Spike Lots (0.01/0.02/0.02/0.03/0.03)";
-string glbVersionShort = "V-SMALL-1137";
+string glbVersion      = "V-SMALL-1138- Isolate Type 3 Spike/M7 Exits + Fix SL Gap + $20 Spike Protect";
+string glbVersionShort = "V-SMALL-1138";
 
 int AccountMultiplierLOT = 500;//100;//1000;//400;//200;//500; ALWAYS multiples of 1000 is better for best results
 //balance multiplier
@@ -1176,13 +1176,13 @@ double InpPendingGapLossMultiplier         = 2.0;   // Pending gap multiplier on
  bool   InpType3LockSpikeCreationOnSpikeEnd    = true;  // SPIKE END Rule: Lock new BUY spikes (Bullish) / SELL spikes (Bearish) until new spike starts
  bool   InpType3SpikeEndRequireStrongEmaForClose = true;  // SPIKE END Rule: Require EMA to be STRONG (!IsEmaWEAK) if close on SPIKE END is enabled
 
- // ===== SPIKE $50 MINIMUM PROFIT LADDER & CLIMAX EXIT =====
+ // ===== SPIKE $20 MINIMUM PROFIT LADDER & CLIMAX EXIT =====
  bool   InpEnableSpikeProfitLadder             = true;  // Spike Ladder: Enable Step Profit Ladder with Maximum Profit Protection
  bool   InpSpikeLadderUseMultiplier            = true;  // Spike Ladder: Use Balance Multiplier (1Xmul for min profit & step)
- double InpSpikeMinProfitToProtectUSD          = 50.0;  // Spike Ladder: Minimum profit to start protecting ($50.00 * multiplier per user rule)
- double InpSpikeLadderStepUSD                  = 10.0;  // Spike Ladder: Step size above $50 ($10.00 * multiplier)
+ double InpSpikeMinProfitToProtectUSD          = 20.0;  // Spike Ladder: Minimum profit to start protecting ($20.00 * multiplier; 75% floor trails up to $50+)
+ double InpSpikeLadderStepUSD                  = 10.0;  // Spike Ladder: Step size above minimum ($10.00 * multiplier)
  double InpSpikeLadderProtectPct               = 75.0;  // Spike Ladder: Protected profit % on market reversal (75% to hold for maximum profits)
- bool   InpSpikeCloseOnOppositeHLineAt50       = true;  // Spike Ladder: Close Spike order immediately if opposite HLine starts and profit >= $50
+ bool   InpSpikeCloseOnOppositeHLineAt50       = true;  // Spike Ladder: Close Spike order immediately if opposite HLine starts and profit >= minToProtect
 
 double g_spikeBuyBucketPeakPL                  = 0.0;   // Peak floating profit reached by open BUY spike bucket
 double g_spikeSellBucketPeakPL                 = 0.0;   // Peak floating profit reached by open SELL spike bucket
@@ -8293,6 +8293,7 @@ void     RecordType1ClosedOrder(int ticket, double netPL);
 bool     IsType2GradualTrendActive();
 void     ManageType2ProfitBooking();
 void     RecordType2ClosedOrder(int ticket, double netPL);
+bool     IsType3ManagedOrder(int ticket, string comment = "");
 bool     IsType3SpikeActive();
 void     ProcessType3SpikeExecution();
 void     ManageType3ProfitBooking();
@@ -12750,6 +12751,8 @@ void CheckBasketLossDeRiskAndBreakevenProtection()
          continue;
       if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber)
          continue;
+      if(IsType3ManagedOrder(OrderTicket(), OrderComment()))
+         continue; // Exclude Type 3 Spike/M7 orders so normal basket BE doesn't clip spike runners early
 
       int oType = OrderType();
       if(oType == OP_BUY)
@@ -22462,12 +22465,7 @@ void OpenBuy(string MOMorder="")
    SaveReEntryCounter();
    ChangeLots(GlobalSellPL,"SSL Long",OP_BUY,0,MOMorder);
    
-   
-   if(isSpikeOrder)
-      StopLossRawPriceGap = (InpSpikeOrderStopLossRawPriceGap > 0.0) ? InpSpikeOrderStopLossRawPriceGap : 200.0;
-   else
-      StopLossRawPriceGap = 3000.0;
-
+   // Keep global StopLossRawPriceGap (3000) intact so Spike orders never corrupt non-spike SL distances
    double slDistance = isSpikeOrder ? ((InpSpikeOrderStopLossRawPriceGap > 0.0) ? InpSpikeOrderStopLossRawPriceGap : 200.0) : ((StopLossRawPriceGap > 0.0) ? StopLossRawPriceGap : 3000.0);
    double tpDistance = (TakeProfitRawPriceGap > 0.0) ? TakeProfitRawPriceGap : 500.0;
 
@@ -22585,11 +22583,7 @@ void OpenSell(string MOMorder="")
    SaveReEntryCounter();
    ChangeLots(GlobalBuyPL,"SSL Short",OP_SELL,0,MOMorder);
    
-   if(isSpikeOrder)
-      StopLossRawPriceGap = (InpSpikeOrderStopLossRawPriceGap > 0.0) ? InpSpikeOrderStopLossRawPriceGap : 200.0;
-   else
-      StopLossRawPriceGap = 3000.0;
-
+   // Keep global StopLossRawPriceGap (3000) intact so Spike orders never corrupt non-spike SL distances
    double slDistance = isSpikeOrder ? ((InpSpikeOrderStopLossRawPriceGap > 0.0) ? InpSpikeOrderStopLossRawPriceGap : 200.0) : ((StopLossRawPriceGap > 0.0) ? StopLossRawPriceGap : 3000.0);
    double tpDistance = (TakeProfitRawPriceGap > 0.0) ? TakeProfitRawPriceGap : 500.0;
 

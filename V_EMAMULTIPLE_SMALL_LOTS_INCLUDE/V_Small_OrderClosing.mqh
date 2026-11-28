@@ -1014,8 +1014,8 @@ void ModifyMethod6MultiOrderCombinationsOver5USD()
       string cmt = OrderComment();
       int tkt    = OrderTicket();
 
-      // Exclude recovery orders
-      if(IsAnyRecoveryOrder(tkt, cmt) || IsRecoveryOrderWithActiveParent(tkt, cmt))
+      // Exclude recovery and Type 3 (SPIKE/M7_) orders: Type 3 manages its own profit ladder
+      if(IsAnyRecoveryOrder(tkt, cmt) || IsRecoveryOrderWithActiveParent(tkt, cmt) || IsType3ManagedOrder(tkt, cmt))
          continue;
 
       // Exclude FLIPBasketSupport orders
@@ -1534,8 +1534,8 @@ void CloseProfitableOrderCombinations()
       string cmt = OrderComment();
       int tkt    = OrderTicket();
 
-      // EXCLUDE RECOVERY ORDERS: Recovery orders manage their own independent basket
-      if(IsAnyRecoveryOrder(tkt, cmt) || IsRecoveryOrderWithActiveParent(tkt, cmt))
+      // EXCLUDE RECOVERY & TYPE 3 (SPIKE/M7_) ORDERS: They manage their own profit targets
+      if(IsAnyRecoveryOrder(tkt, cmt) || IsRecoveryOrderWithActiveParent(tkt, cmt) || IsType3ManagedOrder(tkt, cmt))
          continue;
 
       // Exclude FLIPBasketSupport orders unless explicitly enabled
@@ -2684,12 +2684,10 @@ void ModifyOpenOrdersToCurrentPriceSL(string reason = "Daily Equity Target Hit",
 
       if(!forceAllOrders)
         {
-         // Exclude recovery orders: they have their own recovery logic
-         if(IsAnyRecoveryOrder(OrderTicket(), OrderComment()))
-            continue;
-
-         // Exclude FLIPBasketSupport orders: they have dedicated step-trailing SL
-         if(IsFLIPBasketSupportOrder(OrderTicket(), OrderComment()))
+         // Exclude recovery, FLIPBasketSupport, and Type 3 Spike/M7 orders (emergency DeepDD with forceAllOrders=true still protects all)
+         if(IsAnyRecoveryOrder(OrderTicket(), OrderComment()) ||
+            IsFLIPBasketSupportOrder(OrderTicket(), OrderComment()) ||
+            IsType3ManagedOrder(OrderTicket(), OrderComment()))
             continue;
         }
 
@@ -2781,6 +2779,9 @@ void CloseLosingOrdersAndLiveSLProfitOrders(string reason = "Max Floating Loss R
       int oType = OrderType();
       if(oType != OP_BUY && oType != OP_SELL)
          continue;
+      // Preserve Type 3 Spike/M7 orders when Daily Equity Target ($4) hits so spike runners ride with $200 SL & Spike Ladder
+      if(IsType3ManagedOrder(OrderTicket(), OrderComment()))
+         continue;
 
       double netPL = OrderProfit() + OrderSwap() + OrderCommission();
       if(netPL < 0.0)
@@ -2817,6 +2818,8 @@ void CloseLosingOrdersAndLiveSLProfitOrders(string reason = "Max Floating Loss R
 
       int oType = OrderType();
       if(oType != OP_BUY && oType != OP_SELL)
+         continue;
+      if(IsType3ManagedOrder(OrderTicket(), OrderComment()))
          continue;
 
       double netPL = OrderProfit() + OrderSwap() + OrderCommission();
@@ -3269,8 +3272,11 @@ void CloseAllOpenSpikeOrders(int orderType, string reason = "")
       if(StringFind(cmt, "SPIKE") < 0)
          continue;
 
-      RecordOrderCloseReason(OrderTicket(), (reason != "" ? reason : "SPIKE_LADDER_50PCT_CLOSE"));
-      SafeOrderCloseMarket(OrderTicket(), OrderLots(), Slippage, (orderType == OP_BUY ? clrLimeGreen : clrTomato));
+      int spkTkt   = OrderTicket();
+      double spkPL = OrderProfit() + OrderSwap() + OrderCommission();
+      RecordOrderCloseReason(spkTkt, (reason != "" ? reason : "SPIKE_LADDER_PROFIT_CLOSE"));
+      if(SafeOrderCloseMarket(spkTkt, OrderLots(), Slippage, (orderType == OP_BUY ? clrLimeGreen : clrTomato)))
+         RecordType3ClosedOrder(spkTkt, spkPL);
      }
    InvalidateTotalEAOrdersCache();
   }
@@ -5523,6 +5529,8 @@ void ManageHorizontalLineProfitLiveStopLoss()
          continue;
 
       int tkt = OrderTicket();
+      if(IsType3ManagedOrder(tkt, OrderComment()))
+         continue; // Exclude Type 3 Spike/M7 orders: SpikeLadder already handles opposite climax HLine >= minToProtect
       double netPL = OrderProfit() + OrderSwap() + OrderCommission();
       if(netPL < minProfit)
          continue;
@@ -5691,6 +5699,8 @@ void ManageHorizontalLineEndedProfitLiveStopLoss()
          continue;
 
       int tkt = OrderTicket();
+      if(IsType3ManagedOrder(tkt, OrderComment()))
+         continue; // Exclude Type 3 Spike/M7 orders from $0.50 ended HLine tight SL
       double netPL = OrderProfit() + OrderSwap() + OrderCommission();
       if(netPL <= minProfit)
          continue;

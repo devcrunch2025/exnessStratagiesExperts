@@ -376,8 +376,7 @@ void ManageType1ProfitBooking()
 
       int tkt = OrderTicket();
       string cmt = OrderComment();
-      if(IsFLIPBasketSupportOrder(tkt, cmt) || IsAnyRecoveryOrder(tkt, cmt) ||
-         StringFind(cmt, "T3_") >= 0 || StringFind(cmt, "SPIKE") >= 0 || StringFind(cmt, "M7_") >= 0)
+      if(IsFLIPBasketSupportOrder(tkt, cmt) || IsAnyRecoveryOrder(tkt, cmt) || IsType3ManagedOrder(tkt, cmt))
          continue;
 
       bool   isBuy     = (oType == OP_BUY);
