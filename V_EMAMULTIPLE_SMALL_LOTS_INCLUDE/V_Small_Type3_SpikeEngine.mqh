@@ -844,8 +844,28 @@ void CaptureType3SpikeStartSpeed(int dir, double curSpeed, bool overwrite = fals
   }
 
 //+------------------------------------------------------------------+
+//| GetActiveSpikeDirectionNetPL: Current floating net PL of spikes  |
+//+------------------------------------------------------------------+
+double GetActiveSpikeDirectionNetPL(int baseOrdType)
+  {
+   double totalPL = 0.0;
+   for(int i = OrdersTotal() - 1; i >= 0; i--)
+     {
+      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
+         continue;
+      if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber)
+         continue;
+      if(OrderType() == baseOrdType && StringFind(OrderComment(), "SPIKE") >= 0)
+         totalPL += (OrderProfit() + OrderSwap() + OrderCommission());
+     }
+   return totalPL;
+  }
+
+//+------------------------------------------------------------------+
 //| CalculateType3SpikeLot:                                          |
 //| Option B Progressive Schedule (0.01, 0.02, 0.02, 0.03, 0.03):    |
+//| - With House-Money Boost (>=1.4x Start & bucket >=$10*mult):     |
+//|   accelerates to (0.01, 0.02, 0.03, 0.03, 0.04 cap)              |
 //| - Order #1 = 0.01 (Scout)                                        |
 //| - Daily equity target hit today/resumed -> strictly 0.01         |
 //| - EMA WEAK or Counter-EMA direction -> strictly 0.01             |
@@ -916,6 +936,7 @@ double CalculateType3SpikeLot(int orderType, string &outLotReason)
      }
 
    // Confirmed strong acceleration -> Option B progressive lot schedule (0.01, 0.02, 0.02, 0.03, 0.03)
+   // Optional House-Money Boost when speed >= 1.4x Start & open bucket already holds >= $10*mult profit
    double schedule[5];
    schedule[0] = InpType3SpikeLotOrder1;
    schedule[1] = InpType3SpikeLotOrder2;
@@ -924,9 +945,32 @@ double CalculateType3SpikeLot(int orderType, string &outLotReason)
    schedule[4] = InpType3SpikeLotOrder5;
    int idx = MathMin(activeCount, 4);
    double targetBase = (schedule[idx] > 0.0) ? schedule[idx] : 0.01;
-   double finalLot   = NormalizeLots(targetBase * mult);
+   bool houseMoneyBoostApplied = false;
+   double bucketPL = 0.0;
 
-   outLotReason = StringFormat("Order #%d Boosted (Base=%.2f x%d | CurSpeed=$%.1f >= Start=$%.1f | EMA=STRONG)",
-                               activeCount + 1, targetBase, mult, curSpeed, startSpeed);
+   if(InpEnableType3HouseMoneyBoost && startSpeed > 0.0 && curSpeed >= (startSpeed * InpType3BoostSpeedMultiplier))
+     {
+      bucketPL = GetActiveSpikeDirectionNetPL(baseOrdType);
+      if(bucketPL >= (InpType3BoostMinBucketProfitUSD * mult))
+        {
+         double maxBoostCap = (InpType3SpikeLotMaxBoostCap > 0.0) ? InpType3SpikeLotMaxBoostCap : 0.04;
+         if(activeCount == 2 && InpType3SpikeLotOrder4 > targetBase)
+           {
+            targetBase = MathMin(InpType3SpikeLotOrder4, maxBoostCap);
+            houseMoneyBoostApplied = true;
+           }
+         else if(activeCount >= 4 && maxBoostCap > targetBase)
+           {
+            targetBase = maxBoostCap;
+            houseMoneyBoostApplied = true;
+           }
+        }
+     }
+
+   double finalLot = NormalizeLots(targetBase * mult);
+
+   outLotReason = StringFormat("Order #%d %s (Base=%.2f x%d | CurSpeed=$%.1f vs Start=$%.1f | BucketPL=$%.2f | EMA=STRONG)",
+                               activeCount + 1, (houseMoneyBoostApplied ? "HouseMoneyBoost" : "Boosted"),
+                               targetBase, mult, curSpeed, startSpeed, bucketPL);
    return finalLot;
   }

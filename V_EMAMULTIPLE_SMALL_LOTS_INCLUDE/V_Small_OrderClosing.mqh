@@ -3282,12 +3282,125 @@ void CloseAllOpenSpikeOrders(int orderType, string reason = "")
   }
 
 //+------------------------------------------------------------------+
-//| ManageSpikeProfitLadder: $5 Step Profit Ladder with 50% Protect  |
-//| - Tracks peak floating profit for Spike BUY and SELL buckets     |
-//| - When peak profit >= $5.00 (InpSpikeLadderStepUSD):             |
-//|   a) Protects 50% of peak profit (InpSpikeLadderProtectPct)      |
-//|   b) Modifies all spike orders' StopLoss forward with live price |
-//|   c) Closes spike orders immediately if profit retraces to 50%   |
+//| GetSpikeBucketProtectFloorPL: Tiered 50% -> 65% -> 75% Floor     |
+//+------------------------------------------------------------------+
+double GetSpikeBucketProtectFloorPL(double peakPL, double minToProtect, double mult, double &outUsedPct)
+  {
+   double basePct = (InpSpikeLadderProtectPct > 0.0) ? InpSpikeLadderProtectPct : 50.0;
+   outUsedPct = basePct;
+
+   if(InpEnableSpikeTieredProtectPct)
+     {
+      if(InpSpikeTier3ProfitUSD > 0.0 && peakPL >= (InpSpikeTier3ProfitUSD * mult))
+         outUsedPct = MathMax(outUsedPct, InpSpikeTier3ProtectPct);
+      else if(InpSpikeTier2ProfitUSD > 0.0 && peakPL >= (InpSpikeTier2ProfitUSD * mult))
+         outUsedPct = MathMax(outUsedPct, InpSpikeTier2ProtectPct);
+     }
+
+   double floorPL   = peakPL * (outUsedPct / 100.0);
+   double minFloor  = minToProtect * (basePct / 100.0);
+   if(floorPL < minFloor)
+      floorPL = minFloor;
+   return floorPL;
+  }
+
+//+------------------------------------------------------------------+
+//| ManageSpikeBucketSide: Shared BUY / SELL Spike Ladder Processor  |
+//+------------------------------------------------------------------+
+void ManageSpikeBucketSide(int dirType, double bucketPL, double bucketLots,
+                           const int &tickets[], const double &openPrices[],
+                           const double &curSLs[], const double &curTPs[],
+                           double &ioPeakPL, int &ioLadderLevel,
+                           bool hasOppositeHLine, double oppHLinePrice,
+                           double minToProtect, double stepUSD, double mult)
+  {
+   int count = ArraySize(tickets);
+   if(count <= 0)
+     {
+      ioPeakPL      = 0.0;
+      ioLadderLevel = 0;
+      return;
+     }
+
+   if(bucketPL > ioPeakPL)
+      ioPeakPL = bucketPL;
+
+   if(ioPeakPL < minToProtect)
+      return;
+
+   bool   isBuy   = (dirType == OP_BUY);
+   string dirName = isBuy ? "BUY" : "SELL";
+   color  slClr   = isBuy ? clrLimeGreen : clrTomato;
+
+   double usedPct        = 50.0;
+   double protectFloorPL = GetSpikeBucketProtectFloorPL(ioPeakPL, minToProtect, mult, usedPct);
+
+   int curLevel = (stepUSD > 0.0) ? (int)MathFloor(ioPeakPL / stepUSD) : 1;
+   if(curLevel > ioLadderLevel)
+     {
+      ioLadderLevel = curLevel;
+      PrintFormat(">>> [SPIKE %s LADDER LEVEL %d] Peak=$%.2f >= Step $%.2f | Floor=$%.2f (%.0f%% Tier) | Floating PL=$%.2f (Lots=%.2fL, Orders=%d, Mult=%.0fX)",
+                  dirName, curLevel, ioPeakPL, curLevel * stepUSD, protectFloorPL, usedPct, bucketPL, bucketLots, count, mult);
+     }
+
+   bool isClimaxHLineTakeProfit = (InpSpikeCloseOnOppositeHLineAt50 && hasOppositeHLine && bucketPL >= minToProtect);
+
+   // A. REVERSAL CLOSE: Close spike bucket if profit retraced to tiered floor or climax HLine formed
+   if(bucketPL <= protectFloorPL || isClimaxHLineTakeProfit)
+     {
+      string hLineTag = isBuy ? "EQH-R" : "EQL-G";
+      string closeReason = isClimaxHLineTakeProfit ?
+         StringFormat("Spike %s Climax %s Hit: Peak=$%.2f, Closed=$%.2f >= Min=$%.2f! Profit Booked!", dirName, hLineTag, ioPeakPL, bucketPL, minToProtect) :
+         StringFormat("Spike %s Ladder %.0f%% Retrace Hit: Peak=$%.2f, Closed=$%.2f <= Floor=$%.2f (Min=$%.2f, Lvl %d)", dirName, usedPct, ioPeakPL, bucketPL, protectFloorPL, minToProtect, curLevel);
+      double sigPrice = isClimaxHLineTakeProfit ? oppHLinePrice : (isBuy ? Ask : Bid);
+      DrawSpikeLifecycleSignal("SPIKE_END", (isBuy ? 1 : -1), sigPrice, closeReason);
+      Print(">>> [SPIKE BUCKET CLOSE - ", dirName, "] ", closeReason);
+      CloseAllOpenSpikeOrders(dirType, closeReason);
+      CleanupStaleSpikePendingOrders((isBuy ? OP_BUYSTOP : OP_SELLSTOP), 0.0);
+      ioPeakPL      = 0.0;
+      ioLadderLevel = 0;
+      return;
+     }
+
+   // B. LIVE TRAILING SL: Adjust StopLoss dynamically based on tiered profit floor
+   double tickVal = MarketInfo(Symbol(), MODE_TICKVALUE);
+   double tickSz  = MarketInfo(Symbol(), MODE_TICKSIZE);
+   double pointPerDollar = (tickVal > 0.0 && tickSz > 0.0) ? (tickVal / tickSz) : 1.0;
+   double dollarPerUnit  = bucketLots * pointPerDollar;
+   if(dollarPerUnit <= 0.0)
+      return;
+
+   double priceBuffer = (bucketPL - protectFloorPL) / dollarPerUnit;
+   double minStop     = GetRequiredStopDistance();
+   double targetSL    = 0.0;
+   if(isBuy)
+     {
+      targetSL = NormalizeDouble(Bid - priceBuffer, Digits);
+      if(targetSL > Bid - minStop)
+         targetSL = NormalizeDouble(Bid - minStop, Digits);
+     }
+   else
+     {
+      targetSL = NormalizeDouble(Ask + priceBuffer, Digits);
+      if(targetSL < Ask + minStop)
+         targetSL = NormalizeDouble(Ask + minStop, Digits);
+     }
+
+   double minModGap = GetEffectiveMinSLModifyGap();
+   for(int k = 0; k < count; k++)
+     {
+      double curSL = curSLs[k];
+      bool improves = isBuy ? (curSL == 0.0 || targetSL >= curSL + minModGap)
+                            : (curSL == 0.0 || targetSL <= curSL - minModGap);
+      if(targetSL > 0.0 && improves)
+        {
+         SafeOrderModify(tickets[k], openPrices[k], targetSL, curTPs[k], 0, slClr, "SpikeLadderTieredSL");
+        }
+     }
+  }
+
+//+------------------------------------------------------------------+
+//| ManageSpikeProfitLadder: Tiered 50% -> 65% -> 75% Spike Ladder   |
 //+------------------------------------------------------------------+
 void ManageSpikeProfitLadder()
   {
@@ -3302,23 +3415,11 @@ void ManageSpikeProfitLadder()
    if(minToProtect <= 0.0)
       minToProtect = 1.0 * mult;
 
-   int    spikeBuyCount     = 0;
-   double spikeBuyLots      = 0.0;
-   double spikeBuyPL        = 0.0;
-   int    spikeBuyTickets[];
-   double spikeBuyOpenPrices[];
-   double spikeBuyLotsArr[];
-   double spikeBuySLs[];
-   double spikeBuyTPs[];
-
-   int    spikeSellCount    = 0;
-   double spikeSellLots     = 0.0;
-   double spikeSellPL       = 0.0;
-   int    spikeSellTickets[];
-   double spikeSellOpenPrices[];
-   double spikeSellLotsArr[];
-   double spikeSellSLs[];
-   double spikeSellTPs[];
+   int    spikeBuyCount = 0, spikeSellCount = 0;
+   double spikeBuyLots  = 0.0, spikeSellLots = 0.0;
+   double spikeBuyPL    = 0.0, spikeSellPL   = 0.0;
+   int    spikeBuyTickets[];   double spikeBuyOpenPrices[];   double spikeBuySLs[];   double spikeBuyTPs[];
+   int    spikeSellTickets[];  double spikeSellOpenPrices[];  double spikeSellSLs[];  double spikeSellTPs[];
 
    for(int i = OrdersTotal() - 1; i >= 0; i--)
      {
@@ -3336,18 +3437,15 @@ void ManageSpikeProfitLadder()
 
       if(oType == OP_BUY)
         {
-         int idx = ArraySize(spikeBuyTickets);
-         ArrayResize(spikeBuyTickets, idx + 1);
-         ArrayResize(spikeBuyOpenPrices, idx + 1);
-         ArrayResize(spikeBuyLotsArr, idx + 1);
-         ArrayResize(spikeBuySLs, idx + 1);
-         ArrayResize(spikeBuyTPs, idx + 1);
+         ArrayResize(spikeBuyTickets, spikeBuyCount + 1);
+         ArrayResize(spikeBuyOpenPrices, spikeBuyCount + 1);
+         ArrayResize(spikeBuySLs, spikeBuyCount + 1);
+         ArrayResize(spikeBuyTPs, spikeBuyCount + 1);
 
-         spikeBuyTickets[idx]    = OrderTicket();
-         spikeBuyOpenPrices[idx] = OrderOpenPrice();
-         spikeBuyLotsArr[idx]    = OrderLots();
-         spikeBuySLs[idx]        = OrderStopLoss();
-         spikeBuyTPs[idx]        = OrderTakeProfit();
+         spikeBuyTickets[spikeBuyCount]    = OrderTicket();
+         spikeBuyOpenPrices[spikeBuyCount] = OrderOpenPrice();
+         spikeBuySLs[spikeBuyCount]        = OrderStopLoss();
+         spikeBuyTPs[spikeBuyCount]        = OrderTakeProfit();
 
          spikeBuyCount++;
          spikeBuyLots += OrderLots();
@@ -3355,18 +3453,15 @@ void ManageSpikeProfitLadder()
         }
       else if(oType == OP_SELL)
         {
-         int idx = ArraySize(spikeSellTickets);
-         ArrayResize(spikeSellTickets, idx + 1);
-         ArrayResize(spikeSellOpenPrices, idx + 1);
-         ArrayResize(spikeSellLotsArr, idx + 1);
-         ArrayResize(spikeSellSLs, idx + 1);
-         ArrayResize(spikeSellTPs, idx + 1);
+         ArrayResize(spikeSellTickets, spikeSellCount + 1);
+         ArrayResize(spikeSellOpenPrices, spikeSellCount + 1);
+         ArrayResize(spikeSellSLs, spikeSellCount + 1);
+         ArrayResize(spikeSellTPs, spikeSellCount + 1);
 
-         spikeSellTickets[idx]    = OrderTicket();
-         spikeSellOpenPrices[idx] = OrderOpenPrice();
-         spikeSellLotsArr[idx]    = OrderLots();
-         spikeSellSLs[idx]        = OrderStopLoss();
-         spikeSellTPs[idx]        = OrderTakeProfit();
+         spikeSellTickets[spikeSellCount]    = OrderTicket();
+         spikeSellOpenPrices[spikeSellCount] = OrderOpenPrice();
+         spikeSellSLs[spikeSellCount]        = OrderStopLoss();
+         spikeSellTPs[spikeSellCount]        = OrderTakeProfit();
 
          spikeSellCount++;
          spikeSellLots += OrderLots();
@@ -3374,173 +3469,16 @@ void ManageSpikeProfitLadder()
         }
      }
 
-   // 1. Manage BUY Spike Bucket
-   if(spikeBuyCount == 0)
-     {
-      g_spikeBuyBucketPeakPL      = 0.0;
-      g_spikeBuyBucketLadderLevel = 0;
-     }
-   else
-     {
-      // Record highest spike bucket profit on every incoming tick
-      if(spikeBuyPL > g_spikeBuyBucketPeakPL)
-         g_spikeBuyBucketPeakPL = spikeBuyPL;
+   bool hasRedHLine   = (g_lastEqHighPrice > 0.0 && g_lastEqHighLineStart > 0);
+   bool hasGreenHLine = (g_lastEqLowPrice > 0.0 && g_lastEqLowLineStart > 0);
 
-      // START LOGIC: Minimum profit is $1Xmul of SPIKE BUY basket
-      if(g_spikeBuyBucketPeakPL >= minToProtect)
-        {
-         int curLevel = (stepUSD > 0.0) ? (int)MathFloor(g_spikeBuyBucketPeakPL / stepUSD) : 1;
-         if(curLevel > g_spikeBuyBucketLadderLevel)
-           {
-            g_spikeBuyBucketLadderLevel = curLevel;
-            PrintFormat(">>> [SPIKE BUY LADDER LEVEL %d] Peak=$%.2f >= Step $%.2f (Min=$%.2f) | Floating PL=$%.2f (Lots=%.2fL, Orders=%d, Mult=%.0fX)",
-                        curLevel, g_spikeBuyBucketPeakPL, curLevel * stepUSD, minToProtect, spikeBuyPL, spikeBuyLots, spikeBuyCount, mult);
-           }
+   ManageSpikeBucketSide(OP_BUY, spikeBuyPL, spikeBuyLots, spikeBuyTickets, spikeBuyOpenPrices, spikeBuySLs, spikeBuyTPs,
+                         g_spikeBuyBucketPeakPL, g_spikeBuyBucketLadderLevel, hasRedHLine, g_lastEqHighPrice,
+                         minToProtect, stepUSD, mult);
 
-         double protectFloorPL = g_spikeBuyBucketPeakPL * (InpSpikeLadderProtectPct / 100.0);
-         if(protectFloorPL < (minToProtect * 0.70))
-            protectFloorPL = minToProtect * 0.70;
-
-         // Check if red horizontal line (EQH-R) has started at climax ceiling with profit >= minToProtect
-         bool isClimaxHLineTakeProfit = false;
-         if(InpSpikeCloseOnOppositeHLineAt50 && g_lastEqHighPrice > 0.0 && g_lastEqHighLineStart > 0 && spikeBuyPL >= minToProtect)
-           {
-            isClimaxHLineTakeProfit = true;
-           }
-
-         // A. REVERSAL CLOSE: Close spike orders if profit retraced to or below floor, or climax ceiling formed
-         if(spikeBuyPL <= protectFloorPL || isClimaxHLineTakeProfit)
-           {
-            string closeReason = isClimaxHLineTakeProfit ?
-               StringFormat("Spike BUY Climax Ceiling EQH-R Hit: Peak=$%.2f, Closed=$%.2f >= Min=$%.2f! Full Profit Booked!", g_spikeBuyBucketPeakPL, spikeBuyPL, minToProtect) :
-               StringFormat("Spike BUY Ladder Retrace Hit: Peak=$%.2f, Closed=$%.2f <= Floor=$%.2f (Min=$%.2f, Lvl %d)", g_spikeBuyBucketPeakPL, spikeBuyPL, protectFloorPL, minToProtect, curLevel);
-            DrawSpikeLifecycleSignal("SPIKE_END", 1, (isClimaxHLineTakeProfit ? g_lastEqHighPrice : Ask), closeReason);
-            Print(">>> [SPIKE BUCKET CLOSE - BUY] ", closeReason);
-            CloseAllOpenSpikeOrders(OP_BUY, closeReason);
-            CleanupStaleSpikePendingOrders(OP_BUYSTOP, 0.0);
-            g_spikeBuyBucketPeakPL      = 0.0;
-            g_spikeBuyBucketLadderLevel = 0;
-           }
-         // B. LIVE TRAILING SL: Adjust StopLoss forward based on live price
-         else
-           {
-            double tickVal = MarketInfo(Symbol(), MODE_TICKVALUE);
-            double tickSz  = MarketInfo(Symbol(), MODE_TICKSIZE);
-            double pointPerDollar = 1.0;
-            if(tickVal > 0.0 && tickSz > 0.0)
-               pointPerDollar = tickVal / tickSz;
-
-            double dollarPerUnit = spikeBuyLots * pointPerDollar;
-            if(dollarPerUnit > 0.0)
-              {
-               double priceBuffer = (spikeBuyPL - protectFloorPL) / dollarPerUnit;
-               double targetSL = NormalizeDouble(Bid - priceBuffer, Digits);
-               double minStop = GetRequiredStopDistance();
-               if(targetSL > Bid - minStop)
-                  targetSL = NormalizeDouble(Bid - minStop, Digits);
-
-               double minModGap = GetEffectiveMinSLModifyGap();
-
-               for(int b = 0; b < spikeBuyCount; b++)
-                 {
-                  int tkt = spikeBuyTickets[b];
-                  double curSL = spikeBuySLs[b];
-                  double oOpen = spikeBuyOpenPrices[b];
-                  double curTP = spikeBuyTPs[b];
-
-                  if(targetSL > 0.0 && (curSL == 0.0 || targetSL >= curSL + minModGap))
-                    {
-                     SafeOrderModify(tkt, oOpen, targetSL, curTP, 0, clrLimeGreen, "SpikeLadder50PctSL");
-                    }
-                 }
-              }
-           }
-        }
-     }
-
-   // 2. Manage SELL Spike Bucket
-   if(spikeSellCount == 0)
-     {
-      g_spikeSellBucketPeakPL      = 0.0;
-      g_spikeSellBucketLadderLevel = 0;
-     }
-   else
-     {
-      // Record highest spike bucket profit on every incoming tick
-      if(spikeSellPL > g_spikeSellBucketPeakPL)
-         g_spikeSellBucketPeakPL = spikeSellPL;
-
-      // START LOGIC: Minimum profit is $1Xmul of SPIKE SELL basket
-      if(g_spikeSellBucketPeakPL >= minToProtect)
-        {
-         int curLevel = (stepUSD > 0.0) ? (int)MathFloor(g_spikeSellBucketPeakPL / stepUSD) : 1;
-         if(curLevel > g_spikeSellBucketLadderLevel)
-           {
-            g_spikeSellBucketLadderLevel = curLevel;
-            PrintFormat(">>> [SPIKE SELL LADDER LEVEL %d] Peak=$%.2f >= Step $%.2f (Min=$%.2f) | Floating PL=$%.2f (Lots=%.2fL, Orders=%d, Mult=%.0fX)",
-                        curLevel, g_spikeSellBucketPeakPL, curLevel * stepUSD, minToProtect, spikeSellPL, spikeSellLots, spikeSellCount, mult);
-           }
-
-         double protectFloorPL = g_spikeSellBucketPeakPL * (InpSpikeLadderProtectPct / 100.0);
-         if(protectFloorPL < (minToProtect * 0.70))
-            protectFloorPL = minToProtect * 0.70;
-
-         // Check if green horizontal line (EQL-G) has started at climax floor with profit >= minToProtect
-         bool isClimaxHLineTakeProfit = false;
-         if(InpSpikeCloseOnOppositeHLineAt50 && g_lastEqLowPrice > 0.0 && g_lastEqLowLineStart > 0 && spikeSellPL >= minToProtect)
-           {
-            isClimaxHLineTakeProfit = true;
-           }
-
-         // A. REVERSAL CLOSE: Close spike orders if profit retraced to or below floor, or climax floor formed
-         if(spikeSellPL <= protectFloorPL || isClimaxHLineTakeProfit)
-           {
-            string closeReason = isClimaxHLineTakeProfit ?
-               StringFormat("Spike SELL Climax Floor EQL-G Hit: Peak=$%.2f, Closed=$%.2f >= Min=$%.2f! Full Profit Booked!", g_spikeSellBucketPeakPL, spikeSellPL, minToProtect) :
-               StringFormat("Spike SELL Ladder Retrace Hit: Peak=$%.2f, Closed=$%.2f <= Floor=$%.2f (Min=$%.2f, Lvl %d)", g_spikeSellBucketPeakPL, spikeSellPL, protectFloorPL, minToProtect, curLevel);
-            DrawSpikeLifecycleSignal("SPIKE_END", -1, (isClimaxHLineTakeProfit ? g_lastEqLowPrice : Bid), closeReason);
-            Print(">>> [SPIKE BUCKET CLOSE - SELL] ", closeReason);
-            CloseAllOpenSpikeOrders(OP_SELL, closeReason);
-            CleanupStaleSpikePendingOrders(OP_SELLSTOP, 0.0);
-            g_spikeSellBucketPeakPL      = 0.0;
-            g_spikeSellBucketLadderLevel = 0;
-           }
-         // B. LIVE TRAILING SL: Adjust StopLoss forward based on live price
-         else
-           {
-            double tickVal = MarketInfo(Symbol(), MODE_TICKVALUE);
-            double tickSz  = MarketInfo(Symbol(), MODE_TICKSIZE);
-            double pointPerDollar = 1.0;
-            if(tickVal > 0.0 && tickSz > 0.0)
-               pointPerDollar = tickVal / tickSz;
-
-            double dollarPerUnit = spikeSellLots * pointPerDollar;
-            if(dollarPerUnit > 0.0)
-              {
-               double priceBuffer = (spikeSellPL - protectFloorPL) / dollarPerUnit;
-               double targetSL = NormalizeDouble(Ask + priceBuffer, Digits);
-               double minStop = GetRequiredStopDistance();
-               if(targetSL < Ask + minStop)
-                  targetSL = NormalizeDouble(Ask + minStop, Digits);
-
-               double minModGap = GetEffectiveMinSLModifyGap();
-
-               for(int s = 0; s < spikeSellCount; s++)
-                 {
-                  int tkt = spikeSellTickets[s];
-                  double curSL = spikeSellSLs[s];
-                  double oOpen = spikeSellOpenPrices[s];
-                  double curTP = spikeSellTPs[s];
-
-                  if(targetSL > 0.0 && (curSL == 0.0 || targetSL <= curSL - minModGap))
-                    {
-                     SafeOrderModify(tkt, oOpen, targetSL, curTP, 0, clrTomato, "SpikeLadder50PctSL");
-                    }
-                 }
-              }
-           }
-        }
-     }
+   ManageSpikeBucketSide(OP_SELL, spikeSellPL, spikeSellLots, spikeSellTickets, spikeSellOpenPrices, spikeSellSLs, spikeSellTPs,
+                         g_spikeSellBucketPeakPL, g_spikeSellBucketLadderLevel, hasGreenHLine, g_lastEqLowPrice,
+                         minToProtect, stepUSD, mult);
   }
 
 //+------------------------------------------------------------------+

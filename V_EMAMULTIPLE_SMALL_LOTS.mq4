@@ -3,8 +3,8 @@
 //|                  TWO-STAGE PROFIT LADDER | CONTINUOUS RESET      |
 //+------------------------------------------------------------------+
 #property strict
-#property version     "11.38"
-#property description "V-SMALL-1138 | Two-Regime EMA Multiple Small Lots EA"
+#property version     "11.39"
+#property description "V-SMALL-1139 | Two-Regime EMA Multiple Small Lots EA"
 
 //$100 to $170
 //https://github.com/devcrunch2025/exnessStratagiesExperts/commit/32fb1ba20d474fc8d4adb38d2558999b2ac82c56
@@ -45,8 +45,8 @@ CheckBasketProfitClose  Total open basket profit
 
 */
 
-string glbVersion      = "V-SMALL-1138- Isolate Type 3 Spike/M7 Exits + Fix SL Gap + $20 Spike Protect";
-string glbVersionShort = "V-SMALL-1138";
+string glbVersion      = "V-SMALL-1139- Tiered Spike Protection (50/65/75%) + House-Money Lot Boost (0.04 cap)";
+string glbVersionShort = "V-SMALL-1139";
 
 int AccountMultiplierLOT = 500;//100;//1000;//400;//200;//500; ALWAYS multiples of 1000 is better for best results
 //balance multiplier
@@ -1147,6 +1147,10 @@ double InpPendingGapLossMultiplier         = 2.0;   // Pending gap multiplier on
  double InpType3SpikeLotOrder4                 = 0.03; // Type 3 Order #4 Lot (Sustained spike when Strong EMA & speed >= Start)
  double InpType3SpikeLotOrder5                 = 0.03; // Type 3 Order #5+ Lot (Max pyramid when Strong EMA & speed >= Start)
  double InpType3SpikeLotMinSpeedRatio          = 1.00; // Strict speed gate vs SPIKE Start speed (1.0 = any slowdown resets to 0.01)
+ bool   InpEnableType3HouseMoneyBoost          = true; // Momentum Boost: Step #3->0.03 & #5->0.04 when speed >= 1.4x Start & bucket PL >= $10*mult
+ double InpType3BoostSpeedMultiplier           = 1.40; // Required speed / Start speed ratio (1.40x) to unlock House-Money boost
+ double InpType3BoostMinBucketProfitUSD        = 10.0; // Min active Spike bucket profit ($10 * mult) before unlocking House-Money boost
+ double InpType3SpikeLotMaxBoostCap            = 0.04; // Hard max lot cap (pre-multiplier) on #5 during House-Money boost
  bool   InpType3RequirePrevProfitForScaleUp    = true; // Scale above 0.01 only if previous Spike order is in profit (>= $0)
  bool   InpType3CapLotOnDailyTargetHit         = true; // Safety cap: lock Spike lots to 0.01 once Daily Equity Target hit today/resumed
  bool   InpSpikeOrderBypassSameTypeGap         = true; // Spike Orders: Bypass wide same-type minimum gap during sudden spike momentum
@@ -1176,12 +1180,17 @@ double InpPendingGapLossMultiplier         = 2.0;   // Pending gap multiplier on
  bool   InpType3LockSpikeCreationOnSpikeEnd    = true;  // SPIKE END Rule: Lock new BUY spikes (Bullish) / SELL spikes (Bearish) until new spike starts
  bool   InpType3SpikeEndRequireStrongEmaForClose = true;  // SPIKE END Rule: Require EMA to be STRONG (!IsEmaWEAK) if close on SPIKE END is enabled
 
- // ===== SPIKE $20 MINIMUM PROFIT LADDER & CLIMAX EXIT =====
- bool   InpEnableSpikeProfitLadder             = true;  // Spike Ladder: Enable Step Profit Ladder with Maximum Profit Protection
+ // ===== SPIKE $20 MINIMUM PROFIT LADDER & TIERED 50/65/75% PROTECT =====
+ bool   InpEnableSpikeProfitLadder             = true;  // Spike Ladder: Enable Step Profit Ladder with Tiered Profit Protection
  bool   InpSpikeLadderUseMultiplier            = true;  // Spike Ladder: Use Balance Multiplier (1Xmul for min profit & step)
- double InpSpikeMinProfitToProtectUSD          = 20.0;  // Spike Ladder: Minimum profit to start protecting ($20.00 * multiplier; 75% floor trails up to $50+)
+ double InpSpikeMinProfitToProtectUSD          = 20.0;  // Spike Ladder: Minimum profit to start protecting ($20.00 * multiplier)
  double InpSpikeLadderStepUSD                  = 10.0;  // Spike Ladder: Step size above minimum ($10.00 * multiplier)
- double InpSpikeLadderProtectPct               = 75.0;  // Spike Ladder: Protected profit % on market reversal (75% to hold for maximum profits)
+ double InpSpikeLadderProtectPct               = 50.0;  // Spike Ladder Tier 1 ($20..$50): Base protected profit % (50% early breathing room)
+ bool   InpEnableSpikeTieredProtectPct         = true;  // Enable Tiered Spike Protect: 50% ($20-$50) -> 65% ($50-$100) -> 75% ($100+)
+ double InpSpikeTier2ProfitUSD                 = 50.0;  // Spike Ladder Tier 2 profit threshold ($50 * mult -> lock 65%)
+ double InpSpikeTier2ProtectPct                = 65.0;  // Spike Ladder Tier 2 protected profit % (65%)
+ double InpSpikeTier3ProfitUSD                 = 100.0; // Spike Ladder Tier 3 profit threshold ($100 * mult -> lock 75%)
+ double InpSpikeTier3ProtectPct                = 75.0;  // Spike Ladder Tier 3 protected profit % (75%)
  bool   InpSpikeCloseOnOppositeHLineAt50       = true;  // Spike Ladder: Close Spike order immediately if opposite HLine starts and profit >= minToProtect
 
 double g_spikeBuyBucketPeakPL                  = 0.0;   // Peak floating profit reached by open BUY spike bucket
