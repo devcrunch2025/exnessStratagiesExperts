@@ -3,8 +3,8 @@
 //|                  TWO-STAGE PROFIT LADDER | CONTINUOUS RESET      |
 //+------------------------------------------------------------------+
 #property strict
-#property version     "11.45"
-#property description "V-SMALL-1145 | Two-Regime EMA Multiple Small Lots EA"
+#property version     "11.46"
+#property description "V-SMALL-1146 | Two-Regime EMA Multiple Small Lots EA"
 
 //$100 to $170
 //https://github.com/devcrunch2025/exnessStratagiesExperts/commit/32fb1ba20d474fc8d4adb38d2558999b2ac82c56
@@ -45,8 +45,8 @@ CheckBasketProfitClose  Total open basket profit
 
 */
 
-string glbVersion      = "V-SMALL-1145- Spike Lot Scaling, Method 4/6 Combo Shield, Wave Tracking & Regime 2 Pre-Gate";
-string glbVersionShort = "V-SMALL-1145";
+string glbVersion      = "V-SMALL-1146- Partial Loss Cut (Side Loss <= -$40*mult OR Adverse EMA Angle > 4 deg)";
+string glbVersionShort = "V-SMALL-1146";
 
 int AccountMultiplierLOT = 500;//100;//1000;//400;//200;//500; ALWAYS multiples of 1000 is better for best results
 //balance multiplier
@@ -132,9 +132,9 @@ int partialLossMultipler=5;//5; //10 values 0.05 means $50 close 0.01 partial lo
 bool   InpEnablePartialProfitClose        = false;//true;  // DISABLED: Bank partial profit on high-volume positions
 bool   InpEnableRunnerBreakevenProtection = true;  // Immediately lock remaining runner SL to Breakeven (+20 pts) on partial close
 double InpRunnerBreakevenBufferPoints     = 20.0;  // Breakeven profit buffer in points ($20 raw price gap)
-bool   InpEnablePartialLossCut            = true;//false; // Disabled by default: prevents chopping underwater orders into multi-step double losses
-double InpPartialLossSideThresholdUSD     = 50.0;  // Side floating loss threshold in USD ($50 * mult) before partial loss cuts are allowed
-double InpPartialLossMinEmaAngle          = 4.0;   // Minimum adverse EMA angle (> 6.0 deg) required to trigger partial loss cut
+bool   InpEnablePartialLossCut            = true;  // Enable Partial Loss Cut (Triggers if Side Loss <= -$40*mult OR Adverse EMA Angle > 4 deg)
+double InpPartialLossSideThresholdUSD     = 40.0;  // Side floating loss threshold in USD ($40 * mult) to allow partial loss cuts (OR condition)
+double InpPartialLossMinEmaAngle          = 4.0;   // Minimum adverse EMA angle (> 4.0 deg) to allow partial loss cuts (OR condition)
 
 //chance 3
 double FlipLadderStepUSD =10*10;//8;//0;//10;// 5;//10.0;//0 means nothing not work close all orders at $7Xmultipler
@@ -23206,19 +23206,21 @@ double GetTicketLastClosePrice(int ticket)
 //+------------------------------------------------------------------+
 void ManagePartialClosesLoss()
   {
-   double minAngle = (InpPartialLossMinEmaAngle > 0.0) ? InpPartialLossMinEmaAngle : 6.0;
-   if(MathAbs(GlobalEmaAngle30) < minAngle)
-      return;
-
+   double minAngle = (InpPartialLossMinEmaAngle > 0.0) ? InpPartialLossMinEmaAngle : 4.0;
    int baseMult = (balancelomultipler > 0 ? balancelomultipler : 1);
-   double sideThresholdUSD = (InpPartialLossSideThresholdUSD > 0.0) ? InpPartialLossSideThresholdUSD : 50.0;
+   double sideThresholdUSD = (InpPartialLossSideThresholdUSD > 0.0) ? InpPartialLossSideThresholdUSD : 40.0;
    double sideLossThreshold = -(sideThresholdUSD * baseMult);
 
    double buyOpenPL  = GetOpenPL(OP_BUY);
    double sellOpenPL = GetOpenPL(OP_SELL);
 
-// Quick exit: If neither side has exceeded the basket loss threshold, exit early
-   if(buyOpenPL > sideLossThreshold && sellOpenPL > sideLossThreshold)
+// OR Trigger Condition per side:
+// 1) Side floating net loss <= -(InpPartialLossSideThresholdUSD * mult), OR
+// 2) Adverse EMA Angle strictly > InpPartialLossMinEmaAngle (BUY: < -minAngle, SELL: > +minAngle)
+   bool buyTriggerReady  = (buyOpenPL  <= sideLossThreshold) || (GlobalEmaAngle30 < -minAngle);
+   bool sellTriggerReady = (sellOpenPL <= sideLossThreshold) || (GlobalEmaAngle30 >  minAngle);
+
+   if(!buyTriggerReady && !sellTriggerReady)
       return;
 
    for(int i = OrdersTotal() - 1; i >= 0; i--)
@@ -23235,31 +23237,13 @@ void ManagePartialClosesLoss()
       if(orderType != OP_BUY && orderType != OP_SELL)
          continue;
 
-      // Side basket loss threshold & adverse trend direction check
-      if(orderType == OP_BUY)
-        {
-         // BUY basket floating loss must be worse than -$50*mult
-         if(buyOpenPL > sideLossThreshold)
-            continue;
+      if(orderType == OP_BUY && !buyTriggerReady)
+         continue;
+      if(orderType == OP_SELL && !sellTriggerReady)
+         continue;
 
-         // Trend must be moving AGAINST BUY position (downtrend: angle <= -minAngle)
-         if(GlobalEmaAngle30 > -minAngle)
-            continue;
-        }
-      else
-         if(orderType == OP_SELL)
-           {
-            // SELL basket floating loss must be worse than -$50*mult
-            if(sellOpenPL > sideLossThreshold)
-               continue;
-
-            // Trend must be moving AGAINST SELL position (uptrend: angle >= +minAngle)
-            if(GlobalEmaAngle30 < minAngle)
-               continue;
-           }
-
-      // Exclude recovery orders from regular scalp partial loss cuts
-      if(IsAnyRecoveryOrder(OrderTicket(), OrderComment()))
+      // Exclude recovery and isolated Type 3 orders from regular partial loss cuts
+      if(IsAnyRecoveryOrder(OrderTicket(), OrderComment()) || ShouldExcludeType3OrderFromStandardExit(OrderTicket(), OrderComment()))
          continue;
 
       double orderLots     = OrderLots();
@@ -23270,10 +23254,11 @@ void ManagePartialClosesLoss()
       // Raw price distance moving against position (loss direction)
       double rawLossDistance = (orderType == OP_BUY) ? (openPrice - Bid) : (Ask - openPrice);
 
-      // Current order net P/L
+      // Current order net P/L (must be losing)
       double currentProfit = OrderProfit() + OrderSwap() + OrderCommission();
+      if(currentProfit >= 0.0)
+         continue;
 
-      int baseMult = (balancelomultipler > 0 ? balancelomultipler : 1);
       double lotsToClose = 0.01 * baseMult;
 
       bool conditionMet = false;
@@ -23354,9 +23339,11 @@ void ManagePartialClosesLoss()
          continue;
 
       // -------------------------------------------------------------
-      // Parent-ticket tracking
+      // Parent-ticket tracking across multi-hop partial closes
       // -------------------------------------------------------------
-      int baseTicket = GetOriginalTicket(currentTicket, OrderComment());
+      int baseTicket = ResolveRootTicketFromPartialChain(currentTicket, OrderComment());
+      if(baseTicket <= 0)
+         baseTicket = GetOriginalTicket(currentTicket, OrderComment());
       if(baseTicket <= 0)
          baseTicket = currentTicket;
 
