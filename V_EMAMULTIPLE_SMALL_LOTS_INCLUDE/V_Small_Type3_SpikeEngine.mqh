@@ -138,46 +138,68 @@ void Evaluate5MinEmaDistanceStepGap(bool &outBullSpike, bool &outBearSpike,
    int lookbackMins    = MathMax(1, InpType3SpikeVelocityLookbackM1);
    int stepIntervalSec = lookbackMins * 60; // Default: 300s (5 minutes)
 
-   // 1. Scan past 1..5 minute M1 bars to measure exact rolling 5-min distance expansion
-   double minPastDistBelow5m = curDistBelow;
-   double minPastDistAbove5m = curDistAbove;
+   // 1. Measure EXACT N-minute net EMA-distance expansion (no intra-window MIN cherry-picking)
+   double rollingDeltaBelow = 0.0;
+   double rollingDeltaAbove = 0.0;
    int m1BarsTotal = iBars(Symbol(), PERIOD_M1);
    if(m1BarsTotal > lookbackMins)
      {
-      bool firstSample = true;
-      for(int m = 1; m <= lookbackMins; m++)
+      datetime anchorBarT = iTime(Symbol(), PERIOD_M1, lookbackMins);
+      bool postEndReady = !(s_lastSpikeEndTime > 0 &&
+                            (s_spikeLifecycleState >= 2 || g_blockBuySpikeUntilNewSpike || g_blockSellSpikeUntilNewSpike) &&
+                            anchorBarT < s_lastSpikeEndTime);
+      if(postEndReady)
         {
-         datetime barT = iTime(Symbol(), PERIOD_M1, m);
-         // Do not reuse pre-SPIKE_END candles as rolling baseline once a spike has ended
-         if(s_lastSpikeEndTime > 0 && (s_spikeLifecycleState >= 2 || g_blockBuySpikeUntilNewSpike || g_blockSellSpikeUntilNewSpike) && barT < s_lastSpikeEndTime)
-            continue;
-         double   pM1  = iClose(Symbol(), PERIOD_M1, m);
-         int emaShift  = (Period() == PERIOD_M1) ? m : iBarShift(Symbol(), Period(), barT, false);
+         double pM1_5    = iClose(Symbol(), PERIOD_M1, lookbackMins);
+         int    emaShift = (Period() == PERIOD_M1) ? lookbackMins : iBarShift(Symbol(), Period(), anchorBarT, false);
          if(emaShift < 0)
             emaShift = 0;
-         double emaAtM = iMA(Symbol(), Period(), InpEMA200Period, InpEMAPriceShift, MODE_EMA, PRICE_CLOSE, emaShift);
-         if(emaAtM <= 0.0 || pM1 <= 0.0)
-            continue;
-
-         double dBelow = (pM1 < emaAtM) ? (emaAtM - pM1) : 0.0;
-         double dAbove = (pM1 > emaAtM) ? (pM1 - emaAtM) : 0.0;
-
-         if(firstSample)
+         double emaAt5   = iMA(Symbol(), Period(), InpEMA200Period, InpEMAPriceShift, MODE_EMA, PRICE_CLOSE, emaShift);
+         if(emaAt5 > 0.0 && pM1_5 > 0.0)
            {
-            minPastDistBelow5m = dBelow;
-            minPastDistAbove5m = dAbove;
-            firstSample = false;
-           }
-         else
-           {
-            if(dBelow < minPastDistBelow5m) minPastDistBelow5m = dBelow;
-            if(dAbove < minPastDistAbove5m) minPastDistAbove5m = dAbove;
+            double pastDistBelow5m = (pM1_5 < emaAt5) ? (emaAt5 - pM1_5) : 0.0;
+            double pastDistAbove5m = (pM1_5 > emaAt5) ? (pM1_5 - emaAt5) : 0.0;
+            if(curDistBelow > pastDistBelow5m)
+               rollingDeltaBelow = curDistBelow - pastDistBelow5m;
+            if(curDistAbove > pastDistAbove5m)
+               rollingDeltaAbove = curDistAbove - pastDistAbove5m;
            }
         }
      }
 
-   double rollingDeltaBelow = (curDistBelow > 0.0) ? (curDistBelow - minPastDistBelow5m) : 0.0;
-   double rollingDeltaAbove = (curDistAbove > 0.0) ? (curDistAbove - minPastDistAbove5m) : 0.0;
+   // 1B. Check violent 1-Bar M1 flash candle burst (surge >= $300 & >= 3.0x M1 ATR moving away from EMA)
+   bool oneBarFlashBull = false;
+   bool oneBarFlashBear = false;
+   if(InpEnableType3Spike1BarShock && m1BarsTotal > 15)
+     {
+      double atrM1    = iATR(Symbol(), PERIOD_M1, 14, 1);
+      double shockMin = (InpType3Spike1BarShockUSD > 0.0) ? InpType3Spike1BarShockUSD : 300.0;
+      double atrReq   = (InpType3Spike1BarAtrMult > 0.0 && atrM1 > 0.0) ? (InpType3Spike1BarAtrMult * atrM1) : shockMin;
+      double bar0Open = iOpen(Symbol(), PERIOD_M1, 0);
+      double bar1Open = iOpen(Symbol(), PERIOD_M1, 1);
+      double bar1Close= iClose(Symbol(), PERIOD_M1, 1);
+      datetime bar1T  = iTime(Symbol(), PERIOD_M1, 1);
+
+      double surgeBull0 = (curDistAbove > 0.0 && bar0Open > 0.0) ? (Bid - bar0Open) : 0.0;
+      double surgeBull1 = (curDistAbove > 0.0 && bar1Open > 0.0 && bar1T >= s_lastSpikeEndTime) ? (bar1Close - bar1Open) : 0.0;
+      double bestBullBar = MathMax(surgeBull0, surgeBull1);
+      if(curDistAbove >= shockMin && bestBullBar >= shockMin && bestBullBar >= atrReq)
+        {
+         oneBarFlashBull = true;
+         if(bestBullBar > rollingDeltaAbove)
+            rollingDeltaAbove = bestBullBar;
+        }
+
+      double surgeBear0 = (curDistBelow > 0.0 && bar0Open > 0.0) ? (bar0Open - Bid) : 0.0;
+      double surgeBear1 = (curDistBelow > 0.0 && bar1Open > 0.0 && bar1T >= s_lastSpikeEndTime) ? (bar1Open - bar1Close) : 0.0;
+      double bestBearBar = MathMax(surgeBear0, surgeBear1);
+      if(curDistBelow >= shockMin && bestBearBar >= shockMin && bestBearBar >= atrReq)
+        {
+         oneBarFlashBear = true;
+         if(bestBearBar > rollingDeltaBelow)
+            rollingDeltaBelow = bestBearBar;
+        }
+     }
 
    // 2. Check EVERY 5-Minute Step Gap Boundary (00, 05, 10, 15, ...)
    long curSlot = (long)(((long)nowServer) / stepIntervalSec);
@@ -262,36 +284,35 @@ void Evaluate5MinEmaDistanceStepGap(bool &outBullSpike, bool &outBearSpike,
    outDeltaAbove = bestDeltaAbove;
    outDeltaBelow = bestDeltaBelow;
 
+   double minSpikeEmaDist = (InpType3SpikeMinEmaDistUSD > 0.0) ? InpType3SpikeMinEmaDistUSD : 400.0;
    if(InpEnableType3SpikeVelocityFilter || InpEnableFastMovingEmaSpike)
      {
-      double climaxDist = GetTwoWayClimaxMinDistance();
-      // Static climax distance only spawns spike orders before SPIKE_END; once ended, require a fresh 5m velocity shock
-      bool allowStaticClimax = (s_spikeLifecycleState <= 1 && !g_blockBuySpikeUntilNewSpike && !g_blockSellSpikeUntilNewSpike);
       if(InpType3SpikeStrict5MinBoundaryOnly)
         {
-         if(curDistAbove > 0.0 && (boundaryConfirmedBull || (allowStaticClimax && curDistAbove >= climaxDist)))
+         if(curDistAbove >= minSpikeEmaDist && boundaryConfirmedBull)
             outBullSpike = true;
-         if(curDistBelow > 0.0 && (boundaryConfirmedBear || (allowStaticClimax && curDistBelow >= climaxDist)))
+         if(curDistBelow >= minSpikeEmaDist && boundaryConfirmedBear)
             outBearSpike = true;
         }
       else
         {
-         if(curDistAbove > 0.0 && (bestDeltaAbove >= InpType3Spike5MinDistanceChange || (allowStaticClimax && curDistAbove >= climaxDist)))
+         if(curDistAbove > 0.0 && ((curDistAbove >= minSpikeEmaDist && bestDeltaAbove >= InpType3Spike5MinDistanceChange) || oneBarFlashBull))
             outBullSpike = true;
-         if(curDistBelow > 0.0 && (bestDeltaBelow >= InpType3Spike5MinDistanceChange || (allowStaticClimax && curDistBelow >= climaxDist)))
+         if(curDistBelow > 0.0 && ((curDistBelow >= minSpikeEmaDist && bestDeltaBelow >= InpType3Spike5MinDistanceChange) || oneBarFlashBear))
             outBearSpike = true;
         }
      }
 
-   // Unlock SPIKE END directional lock ONLY when a genuinely NEW velocity spike signal starts (>= $300/5m after SPIKE_END)
+   // Unlock SPIKE END directional lock ONLY when a genuinely NEW velocity spike signal starts (5m expansion or 1-bar flash)
    bool anySpikeLockActive = (g_blockBuySpikeUntilNewSpike || g_blockSellSpikeUntilNewSpike);
    datetime lockSinceTime  = MathMax(g_buySpikeBlockedSinceEndTime, g_sellSpikeBlockedSinceEndTime);
    if(anySpikeLockActive && (nowServer - lockSinceTime) >= 60)
      {
-      bool newVelocityStarted = (bestDeltaAbove >= InpType3Spike5MinDistanceChange ||
-                                 bestDeltaBelow >= InpType3Spike5MinDistanceChange ||
-                                 boundaryConfirmedBull || boundaryConfirmedBear);
-      if(newVelocityStarted && (outBullSpike || outBearSpike))
+      bool newVelocityStarted = (outBullSpike || outBearSpike) &&
+                                (oneBarFlashBull || oneBarFlashBear ||
+                                 (curDistAbove >= minSpikeEmaDist && (bestDeltaAbove >= InpType3Spike5MinDistanceChange || boundaryConfirmedBull)) ||
+                                 (curDistBelow >= minSpikeEmaDist && (bestDeltaBelow >= InpType3Spike5MinDistanceChange || boundaryConfirmedBear)));
+      if(newVelocityStarted)
         {
          g_blockBuySpikeUntilNewSpike   = false;
          g_buySpikeBlockedSinceEndTime  = 0;

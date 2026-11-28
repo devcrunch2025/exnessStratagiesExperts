@@ -3,8 +3,8 @@
 //|                  TWO-STAGE PROFIT LADDER | CONTINUOUS RESET      |
 //+------------------------------------------------------------------+
 #property strict
-#property version     "11.42"
-#property description "V-SMALL-1142 | Two-Regime EMA Multiple Small Lots EA"
+#property version     "11.43"
+#property description "V-SMALL-1143 | Two-Regime EMA Multiple Small Lots EA"
 
 //$100 to $170
 //https://github.com/devcrunch2025/exnessStratagiesExperts/commit/32fb1ba20d474fc8d4adb38d2558999b2ac82c56
@@ -45,8 +45,8 @@ CheckBasketProfitClose  Total open basket profit
 
 */
 
-string glbVersion      = "V-SMALL-1142- Restore #1090 Profit Booking + Fix Two-Regime & Cooldown Loops";
-string glbVersionShort = "V-SMALL-1142";
+string glbVersion      = "V-SMALL-1143- True Velocity Spike Detection (Remove False M7 & Wave Spikes)";
+string glbVersionShort = "V-SMALL-1143";
 
 int AccountMultiplierLOT = 500;//100;//1000;//400;//200;//500; ALWAYS multiples of 1000 is better for best results
 //balance multiplier
@@ -1176,9 +1176,13 @@ double InpPendingGapLossMultiplier         = 2.0;   // Pending gap multiplier on
  int    InpFastSpikeLookbackBars               = 5;     // Fast Spike: Lookback bars for slope telemetry (default 5 bars)
  bool   InpFastSpikeCloseOppositeOrders        = false; // Disabled (#1090): Do not force-close opposite orders at market loss on spike detect
  bool   InpFastSpikeMarketOrder                = true;  // Fast Spike: Open direct market order without waiting for pending fill
- bool   InpEnableType3SpikeVelocityFilter      = true;  // Type 3 Spike Velocity: Confirm Spike if EMA distance expanded >= $300 in 5 min
- double InpType3Spike5MinDistanceChange        = 300.0; // Type 3 Spike Velocity: Min EMA distance expansion ($300) in 5 min (User Observation)
+ bool   InpEnableType3SpikeVelocityFilter      = true;  // Type 3 Spike Velocity: Confirm Spike on true 5-min distance expansion or 1-bar flash burst
+ double InpType3Spike5MinDistanceChange        = 500.0; // Type 3 Spike Velocity: Min net 5-min EMA distance expansion ($500 in 5m beats normal $300 waves)
  int    InpType3SpikeVelocityLookbackM1        = 5;     // Type 3 Spike Velocity: Lookback step minutes (5 min)
+ double InpType3SpikeMinEmaDistUSD             = 400.0; // Type 3 Spike: Min live EMA distance ($400) for 5-min velocity spike (prevents EMA-cross noise)
+ bool   InpEnableType3Spike1BarShock           = true;  // Type 3 Spike: Also trigger immediately on violent 1-bar M1 flash candle
+ double InpType3Spike1BarShockUSD              = 300.0; // Type 3 1-Bar Flash: Min single M1 candle directional surge ($300)
+ double InpType3Spike1BarAtrMult               = 3.0;   // Type 3 1-Bar Flash: Must exceed 3.0x M1 ATR(14) to confirm abnormal shock
  bool   InpEnableSpikeLifecycleVisuals         = true;  // Spike Lifecycle Signals: Display icons & labels for START, END, REV START, REV END
  bool   InpType3CheckEvery5MinStepGap          = true;  // Check 5-min EMA distance step gap on every 5-min interval (start/continue/end)
  double InpType3Spike5MinEndMinStepGap         = 50.0;  // 5-Min Step End: If completed 5-min step expands < $50 (or reverses), mark SPIKE END

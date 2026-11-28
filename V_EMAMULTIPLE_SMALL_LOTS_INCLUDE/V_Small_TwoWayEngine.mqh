@@ -225,7 +225,6 @@ void CheckTwoWayFallingAndRisingOrders(double liveEma, double emaDist, int emaDi
                     {
                      s_lastFallingMilestoneDist = curDistBelow;
                      s_lastTwoWayFallOrderTime = TimeCurrent();
-                     DrawSpikeLifecycleSignal("SPIKE_START", -1, Bid, StringFormat("Waterfall Falling SELL #%d | Dist to EMA=$%.2f", tkt, curDistBelow));
                      PrintFormat(">>> [TWO-WAY ENGINE] Opened Falling SELL #%d (Order #%d/%d) at %.2f | Dist to EMA=$%.2f (Milestone Step=$%.2f)",
                                  tkt, fallingCount + 1, maxOrders, Bid, curDistBelow, stepDist);
                     }
@@ -288,7 +287,6 @@ void CheckTwoWayFallingAndRisingOrders(double liveEma, double emaDist, int emaDi
                     {
                      s_lastRisingMilestoneDist = curDistAbove;
                      s_lastTwoWayRiseOrderTime = TimeCurrent();
-                     DrawSpikeLifecycleSignal("SPIKE_START", 1, Ask, StringFormat("Waterfall Rising BUY #%d | Dist to EMA=$%.2f", tkt, curDistAbove));
                      PrintFormat(">>> [TWO-WAY ENGINE] Opened Rising BUY #%d (Order #%d/%d) at %.2f | Dist to EMA=$%.2f (Milestone Step=$%.2f)",
                                  tkt, risingCount + 1, maxOrders, Ask, curDistAbove, stepDist);
                     }
