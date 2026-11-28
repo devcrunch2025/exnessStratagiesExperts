@@ -329,8 +329,9 @@ bool IsType3ManagedOrder(int ticket, string comment = "")
 
 //+------------------------------------------------------------------+
 //| IsType3SpikeActive: Check if Type 3 Spike / Climax is active     |
+//| includeOpenOrders=false checks only live velocity / climax dist  |
 //+------------------------------------------------------------------+
-bool IsType3SpikeActive()
+bool IsType3SpikeActive(bool includeOpenOrders = true)
   {
    bool   isBull5m = false, isBear5m = false;
    double distAbove = 0.0, distBelow = 0.0;
@@ -344,6 +345,9 @@ bool IsType3SpikeActive()
       g_type3SpikeActiveState = true;
       return true;
      }
+
+   if(!includeOpenOrders)
+      return false;
 
    // Condition C: Active Open Spike or Two-Way orders exist on account
    for(int i = 0; i < OrdersTotal(); i++)
@@ -844,6 +848,25 @@ void CaptureType3SpikeStartSpeed(int dir, double curSpeed, bool overwrite = fals
   }
 
 //+------------------------------------------------------------------+
+//| GetType3DirectionNetPL: Current floating net PL of all Type 3    |
+//| managed orders (SPIKE / M7_ / T3_) in the specified direction    |
+//+------------------------------------------------------------------+
+double GetType3DirectionNetPL(int baseOrdType)
+  {
+   double totalPL = 0.0;
+   for(int i = OrdersTotal() - 1; i >= 0; i--)
+     {
+      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
+         continue;
+      if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber)
+         continue;
+      if(OrderType() == baseOrdType && IsType3ManagedOrder(OrderTicket(), OrderComment()))
+         totalPL += (OrderProfit() + OrderSwap() + OrderCommission());
+     }
+   return totalPL;
+  }
+
+//+------------------------------------------------------------------+
 //| GetActiveSpikeDirectionNetPL: Current floating net PL of spikes  |
 //+------------------------------------------------------------------+
 double GetActiveSpikeDirectionNetPL(int baseOrdType)
@@ -864,10 +887,10 @@ double GetActiveSpikeDirectionNetPL(int baseOrdType)
 //+------------------------------------------------------------------+
 //| CalculateType3SpikeLot:                                          |
 //| Option B Progressive Schedule (0.01, 0.02, 0.02, 0.03, 0.03):    |
-//| - With House-Money Boost (>=1.4x Start & bucket >=$10*mult):     |
+//| - With House-Money Boost (>=1.25x Start & bucket >=$2*mult):     |
 //|   accelerates to (0.01, 0.02, 0.03, 0.03, 0.04 cap)              |
 //| - Order #1 = 0.01 (Scout)                                        |
-//| - Daily equity target hit today/resumed -> strictly 0.01         |
+//| - Optional daily equity target cap (off by default in V-1140)    |
 //| - EMA WEAK or Counter-EMA direction -> strictly 0.01             |
 //| - Speed dropped below SPIKE Start speed -> strictly 0.01         |
 //| - Previous same-direction Spike order in loss -> strictly 0.01   |
@@ -936,7 +959,7 @@ double CalculateType3SpikeLot(int orderType, string &outLotReason)
      }
 
    // Confirmed strong acceleration -> Option B progressive lot schedule (0.01, 0.02, 0.02, 0.03, 0.03)
-   // Optional House-Money Boost when speed >= 1.4x Start & open bucket already holds >= $10*mult profit
+   // House-Money Boost when speed >= InpType3BoostSpeedMultiplier * Start & open bucket PL >= InpType3BoostMinBucketProfitUSD * mult
    double schedule[5];
    schedule[0] = InpType3SpikeLotOrder1;
    schedule[1] = InpType3SpikeLotOrder2;
@@ -946,11 +969,10 @@ double CalculateType3SpikeLot(int orderType, string &outLotReason)
    int idx = MathMin(activeCount, 4);
    double targetBase = (schedule[idx] > 0.0) ? schedule[idx] : 0.01;
    bool houseMoneyBoostApplied = false;
-   double bucketPL = 0.0;
+   double bucketPL = GetActiveSpikeDirectionNetPL(baseOrdType);
 
    if(InpEnableType3HouseMoneyBoost && startSpeed > 0.0 && curSpeed >= (startSpeed * InpType3BoostSpeedMultiplier))
      {
-      bucketPL = GetActiveSpikeDirectionNetPL(baseOrdType);
       if(bucketPL >= (InpType3BoostMinBucketProfitUSD * mult))
         {
          double maxBoostCap = (InpType3SpikeLotMaxBoostCap > 0.0) ? InpType3SpikeLotMaxBoostCap : 0.04;

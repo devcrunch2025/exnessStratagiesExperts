@@ -4139,18 +4139,43 @@ void CloseAndDeleteNonEmaMatchingOrders()
      }
   }
 //+------------------------------------------------------------------+
-//|                                                                  |
+//| IsOrderProtectedFromDailyRetrace: Shield winning Type 3 buckets  |
 //+------------------------------------------------------------------+
-void CloseAndDeleteAllEAOrdersOnTradingStop()
+bool IsOrderProtectedFromDailyRetrace(int ticket, int ordType, string comment, double buyType3PL, double sellType3PL)
   {
-   Print(">>> [TRADING STOP ACTIVATED] Starting full emergency flattening of all EA orders & deleting all pending orders...");
+   if(!InpProtectProfitableSpikeOnRetraceStop)
+      return false;
+   if(!IsType3ManagedOrder(ticket, comment))
+      return false;
+   if(ordType == OP_BUY && buyType3PL > 0.0)
+      return true;
+   if(ordType == OP_SELL && sellType3PL > 0.0)
+      return true;
+   return false;
+  }
+
+//+------------------------------------------------------------------+
+//| CloseAndDeleteAllEAOrdersOnTradingStop: Flatten EA orders/pending|
+//| forceFlattenAll=false keeps profitable Type 3 Spike/M7 buckets   |
+//| alive on normal Daily Equity Retrace Stop so Spike Ladder runs   |
+//+------------------------------------------------------------------+
+void CloseAndDeleteAllEAOrdersOnTradingStop(bool forceFlattenAll = true)
+  {
+   PrintFormat(">>> [TRADING STOP ACTIVATED] Starting flattening of EA orders & deleting pending orders (ForceAll=%s)...",
+               (forceFlattenAll ? "YES" : "NO - Shielding Profitable Type3"));
 
    bool prevForceBudget = g_eqDdForceCloseBudget;
    g_eqDdForceCloseBudget = true; // Bypass rate limiting and failure guards for emergency close
 
+   bool shieldType3 = (!forceFlattenAll && InpProtectProfitableSpikeOnRetraceStop);
+   int shieldedLogged = 0;
+
 // Multiple passes to ensure complete closure even with high volatility / requotes
    for(int pass = 0; pass < 3; pass++)
      {
+      double buyType3PL  = shieldType3 ? GetType3DirectionNetPL(OP_BUY)  : 0.0;
+      double sellType3PL = shieldType3 ? GetType3DirectionNetPL(OP_SELL) : 0.0;
+
       // 1. Delete all pending orders first so they don't trigger while closing market orders
       for(int i = OrdersTotal() - 1; i >= 0; i--)
         {
@@ -4174,7 +4199,7 @@ void CloseAndDeleteAllEAOrdersOnTradingStop()
       // Also call ForceDeleteAllPendingOrders as secondary safety net
       ForceDeleteAllPendingOrders();
 
-      // 2. Close all open market orders directly at MARKET
+      // 2. Close all non-shielded open market orders directly at MARKET
       for(int j = OrdersTotal() - 1; j >= 0; j--)
         {
          if(!OrderSelect(j, SELECT_BY_POS, MODE_TRADES))
@@ -4184,8 +4209,15 @@ void CloseAndDeleteAllEAOrdersOnTradingStop()
          int mType = OrderType();
          if(mType == OP_BUY || mType == OP_SELL)
            {
-            int mTicket = OrderTicket();
-            double mLots = OrderLots();
+            int    mTicket = OrderTicket();
+            double mLots   = OrderLots();
+            string mCmt    = OrderComment();
+            if(shieldType3 && IsOrderProtectedFromDailyRetrace(mTicket, mType, mCmt, buyType3PL, sellType3PL))
+              {
+               if(pass == 0)
+                  shieldedLogged++;
+               continue;
+              }
             color closeClr = (mType == OP_BUY ? clrRed : clrBlue);
 
             // True market close via SafeOrderCloseMarket
@@ -4202,19 +4234,27 @@ void CloseAndDeleteAllEAOrdersOnTradingStop()
            }
         }
 
-      // Check remaining EA orders
+      // Check remaining non-shielded EA orders
       int remaining = 0;
       for(int k = OrdersTotal() - 1; k >= 0; k--)
         {
          if(!OrderSelect(k, SELECT_BY_POS, MODE_TRADES))
             continue;
-         if(OrderSymbol() == Symbol() && OrderMagicNumber() == MagicNumber)
-            remaining++;
+         if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber)
+            continue;
+         int rType = OrderType();
+         if(shieldType3 && (rType == OP_BUY || rType == OP_SELL) &&
+            IsOrderProtectedFromDailyRetrace(OrderTicket(), rType, OrderComment(), buyType3PL, sellType3PL))
+            continue;
+         remaining++;
         }
       if(remaining == 0)
          break;
       Sleep(50);
      }
+
+   if(shieldedLogged > 0)
+      PrintFormat(">>> [RETRACE STOP SPIKE SHIELD] Preserved %d profitable Type 3 order(s) for Spike Profit Ladder.", shieldedLogged);
 
    g_eqDdForceCloseBudget = prevForceBudget;
    InvalidateTotalEAOrdersCache();

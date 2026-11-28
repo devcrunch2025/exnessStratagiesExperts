@@ -3,8 +3,8 @@
 //|                  TWO-STAGE PROFIT LADDER | CONTINUOUS RESET      |
 //+------------------------------------------------------------------+
 #property strict
-#property version     "11.39"
-#property description "V-SMALL-1139 | Two-Regime EMA Multiple Small Lots EA"
+#property version     "11.40"
+#property description "V-SMALL-1140 | Two-Regime EMA Multiple Small Lots EA"
 
 //$100 to $170
 //https://github.com/devcrunch2025/exnessStratagiesExperts/commit/32fb1ba20d474fc8d4adb38d2558999b2ac82c56
@@ -45,8 +45,8 @@ CheckBasketProfitClose  Total open basket profit
 
 */
 
-string glbVersion      = "V-SMALL-1139- Tiered Spike Protection (50/65/75%) + House-Money Lot Boost (0.04 cap)";
-string glbVersionShort = "V-SMALL-1139";
+string glbVersion      = "V-SMALL-1140- Active Type 3 Spike Scaling + House-Money (1.25x/$2) + Retrace Shield";
+string glbVersionShort = "V-SMALL-1140";
 
 int AccountMultiplierLOT = 500;//100;//1000;//400;//200;//500; ALWAYS multiples of 1000 is better for best results
 //balance multiplier
@@ -1147,12 +1147,13 @@ double InpPendingGapLossMultiplier         = 2.0;   // Pending gap multiplier on
  double InpType3SpikeLotOrder4                 = 0.03; // Type 3 Order #4 Lot (Sustained spike when Strong EMA & speed >= Start)
  double InpType3SpikeLotOrder5                 = 0.03; // Type 3 Order #5+ Lot (Max pyramid when Strong EMA & speed >= Start)
  double InpType3SpikeLotMinSpeedRatio          = 1.00; // Strict speed gate vs SPIKE Start speed (1.0 = any slowdown resets to 0.01)
- bool   InpEnableType3HouseMoneyBoost          = true; // Momentum Boost: Step #3->0.03 & #5->0.04 when speed >= 1.4x Start & bucket PL >= $10*mult
- double InpType3BoostSpeedMultiplier           = 1.40; // Required speed / Start speed ratio (1.40x) to unlock House-Money boost
- double InpType3BoostMinBucketProfitUSD        = 10.0; // Min active Spike bucket profit ($10 * mult) before unlocking House-Money boost
+ bool   InpEnableType3HouseMoneyBoost          = true; // Momentum Boost: Step #3->0.03 & #5->0.04 when speed >= 1.25x Start & bucket PL >= $2*mult
+ double InpType3BoostSpeedMultiplier           = 1.25; // Required speed / Start speed ratio (1.25x) to unlock House-Money boost
+ double InpType3BoostMinBucketProfitUSD        = 2.0;  // Min active Spike bucket profit ($2 * mult) before unlocking House-Money boost
  double InpType3SpikeLotMaxBoostCap            = 0.04; // Hard max lot cap (pre-multiplier) on #5 during House-Money boost
  bool   InpType3RequirePrevProfitForScaleUp    = true; // Scale above 0.01 only if previous Spike order is in profit (>= $0)
- bool   InpType3CapLotOnDailyTargetHit         = true; // Safety cap: lock Spike lots to 0.01 once Daily Equity Target hit today/resumed
+ bool   InpType3CapLotOnDailyTargetHit         = false;// Decoupled from $2-$4 daily scalp target so confirmed Type 3 acceleration scales freely
+ bool   InpProtectProfitableSpikeOnRetraceStop = true; // Shield profitable Type 3 buckets (SPIKE/M7/T3) from normal Daily Equity Retrace Stop close
  bool   InpSpikeOrderBypassSameTypeGap         = true; // Spike Orders: Bypass wide same-type minimum gap during sudden spike momentum
  double InpSpikeOrderPendingGapUSD             = 50.0;  // Spike Orders: Pending stop entry gap ($0 = open market orders without pending, >0 = pending stop gap)
  double InpSpikeOrderMinGapUSD                 = 50.0;  // Spike Orders: Minimal gap between consecutive spike orders ($50 USD)
@@ -8157,7 +8158,8 @@ void   CloseOppositeOrders(int newSignalType);
 void   CloseOppositeOrdersold2(int newSignalType);
 void   CloseOppositeOrdersold(int newSignalType);
 void   CloseAndDeleteNonEmaMatchingOrders();
-void   CloseAndDeleteAllEAOrdersOnTradingStop();
+bool   IsOrderProtectedFromDailyRetrace(int ticket, int ordType, string comment, double buyType3PL, double sellType3PL);
+void   CloseAndDeleteAllEAOrdersOnTradingStop(bool forceFlattenAll = true);
 bool   CloseAllEAOrdersForLadderReset();
 void   ModifyOpenOrdersToSecureProfitNEW();
 void   ModifyOpenOrdersToSecureProfit();
@@ -8303,7 +8305,8 @@ bool     IsType2GradualTrendActive();
 void     ManageType2ProfitBooking();
 void     RecordType2ClosedOrder(int ticket, double netPL);
 bool     IsType3ManagedOrder(int ticket, string comment = "");
-bool     IsType3SpikeActive();
+bool     IsType3SpikeActive(bool includeOpenOrders = true);
+double   GetType3DirectionNetPL(int baseOrdType);
 void     ProcessType3SpikeExecution();
 void     ManageType3ProfitBooking();
 void     RecordType3ClosedOrder(int ticket, double netPL);
@@ -11883,7 +11886,7 @@ void CheckAndResumeDayTradingOnStrongAngleAndSSL()
    double absAngle  = MathAbs(curEmaAng);
 
    // Condition 3: Spike Detected (USER RULE: NO EMAangle condition. Spike is all about 5-min distance moving away faster from EMA)
-   bool isCond3Spike = (ResumeDayTradingOnSpikeMismatch && IsType3SpikeActive());
+   bool isCond3Spike = (ResumeDayTradingOnSpikeMismatch && IsType3SpikeActive(false));
    bool isBullSpike = (liveEmaDir == 1);
    bool isBearSpike = (liveEmaDir == -1);
 
@@ -12422,7 +12425,7 @@ bool IsDailyEquityStopReached()
          PrintFormat(">>> [DAILY EQUITY RETRACE STOP (RESUMED LEG)] Maximum peak profit collected was $%.2f (%d steps). Equity dropped to floor ($%.2f <= $%.2f). Closing all orders and pausing until next day Dubai reset (%s).",
                      profitInResumedLeg, g_dailyEquityStepCount, curEquity, resumedFloorEquity, GetNextSessionWaitHourStr(dubaiTime));
 
-         CloseAndDeleteAllEAOrdersOnTradingStop();
+         CloseAndDeleteAllEAOrdersOnTradingStop(false);
 
          return true;
         }
@@ -12496,7 +12499,7 @@ bool IsDailyEquityStopReached()
             Print(StringFormat("[DAILY EQUITY RETRACE STOP] Maximum peak profit collected was $%.2f (Daily target + %d x $5 steps). Equity dropped to %.0f%% floor ($%.2f <= $%.2f). Closing all orders and pausing until next day Dubai reset (%s).",
                                totalPeakProfit, g_dailyEquityStepCount, currentFloorPct, curEquity, floorEquity, GetNextSessionWaitHourStr(dubaiTime)));
 
-            CloseAndDeleteAllEAOrdersOnTradingStop();
+            CloseAndDeleteAllEAOrdersOnTradingStop(false);
 
             return true;
            }
@@ -12983,8 +12986,8 @@ void OnTick()
 
    bool isTradingPausedOrBlocked = (g_dailyEquityTradingBlocked || g_manualTradingPaused || DayProfitLadderTradingStopped || g_dailyEquityAdverseLossHitToday || TradingHaltedUntilNextFlip);
 
-   // USER RULE: Resume trading when spike is detected (5-min fast EMA distance expansion >= $300)
-   if(isTradingPausedOrBlocked && IsType3SpikeActive())
+   // USER RULE: Resume trading when spike velocity/climax is actively expanding (5-min fast EMA distance >= $300 or climax)
+   if(isTradingPausedOrBlocked && IsType3SpikeActive(false))
      {
       PrintFormat(">>> [SPIKE DETECTED - RESUMING TRADING] Fast 5-min EMA distance expansion detected! Unblocking trading to capture spike momentum...");
       PerformDayTradingResume("SPIKE DETECTED (Fast 5-Min Distance Expansion from EMA)");
@@ -12993,22 +12996,33 @@ void OnTick()
 
    if(isTradingPausedOrBlocked)
      {
-      // Safety check: ensure all EA orders are truly closed and pending deleted (unless manual pause keeping open market orders)
+      // Safety check: ensure non-exempt EA orders are truly closed and pending deleted (profitable Type 3 buckets remain guarded by ManageSpikeProfitLadder)
       if(!g_manualTradingPaused || InpCloseOrdersOnManualPause)
         {
+         bool canProtectSpikeHere = (InpProtectProfitableSpikeOnRetraceStop &&
+                                     !g_dailyEquityAdverseLossHitToday &&
+                                     !DayProfitLadderTradingStopped &&
+                                     !g_manualTradingPaused);
+         double shieldBuyT3PL  = canProtectSpikeHere ? GetType3DirectionNetPL(OP_BUY)  : 0.0;
+         double shieldSellT3PL = canProtectSpikeHere ? GetType3DirectionNetPL(OP_SELL) : 0.0;
          int activeEAOrders = 0;
          for(int act_i = OrdersTotal() - 1; act_i >= 0; act_i--)
            {
             if(OrderSelect(act_i, SELECT_BY_POS, MODE_TRADES))
               {
-               if(OrderSymbol() == Symbol() && OrderMagicNumber() == MagicNumber)
-                  activeEAOrders++;
+               if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber)
+                  continue;
+               int actType = OrderType();
+               if(canProtectSpikeHere && (actType == OP_BUY || actType == OP_SELL) &&
+                  IsOrderProtectedFromDailyRetrace(OrderTicket(), actType, OrderComment(), shieldBuyT3PL, shieldSellT3PL))
+                  continue;
+               activeEAOrders++;
               }
            }
          if(activeEAOrders > 0)
            {
             PrintFormat(">>> [DAILY STOP SAFETY CHECK] %d order(s) still open/pending after stop! Forcing close/delete...", activeEAOrders);
-            CloseAndDeleteAllEAOrdersOnTradingStop();
+            CloseAndDeleteAllEAOrdersOnTradingStop(!canProtectSpikeHere);
            }
         }
 
